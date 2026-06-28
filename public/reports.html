@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Báo cáo</title><link rel="stylesheet" href="/styles.css"/></head>
+<body><div class="layout"><div id="menuHost"></div><main class="main">
+  <div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="user-box">Người dùng: Quản trị viên</div></div>
+  <section class="card compact-card">
+    <div class="filters" style="grid-template-columns:220px 180px 180px 1.2fr auto auto">
+      <label class="field"><span class="field-label">Loại báo cáo</span><select id="reportType">
+        <option value="warrantySoon">Thiết bị sắp hết bảo hành</option>
+        <option value="maintenanceOverdue">Thiết bị quá hạn bảo dưỡng</option>
+        <option value="inspectionOverdue">Thiết bị quá hạn kiểm định</option>
+        <option value="frequentRepairs">Thiết bị sửa chữa nhiều lần</option>
+        <option value="costByDepartment">Chi phí sửa chữa theo khoa/phòng</option>
+        <option value="replaceList">Đề nghị thay thế/thanh lý</option>
+        <option value="statusRatio">Tỷ lệ thiết bị theo trạng thái</option>
+      </select></label>
+      <label class="field"><span class="field-label">Khoa/phòng</span><select id="deptFilter"><option value="ALL">Tất cả</option></select></label>
+      <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả</option></select></label>
+      <label class="field"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Tìm mã/tên thiết bị/khoa/nhóm"/></label>
+      <button class="btn btn-primary" id="filterBtn">Lọc</button>
+      <button class="btn" id="exportBtn">Xuất Excel</button>
+    </div>
+  </section>
+  <section class="reports-summary-grid" id="reportCards"></section>
+  <section class="card report-main-card">
+    <div class="table-card-header report-title-row">
+      <div>
+        <h3 id="countLabel">0 dòng</h3>
+        <div id="reportHint" class="small">Chọn loại báo cáo và bấm Lọc để xem dữ liệu.</div>
+      </div>
+    </div>
+    <div class="table-wrap scroll-area"><table class="report-table"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
+  </section>
+</main></div><script src="/api.js"></script><script src="/vendor/xlsx.full.min.js"></script><script src="/reports.js"></script></body></html>
