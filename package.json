@@ -3,9 +3,9 @@
   "version": "v36-danh-muc-khoa-ban-chuan",
   "private": true,
   "description": "Phần mềm quản lý trang thiết bị y tế - Bệnh viện Quân y 4",
-  "main": "server.js",
+  "main": "bootstrap.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node bootstrap.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
