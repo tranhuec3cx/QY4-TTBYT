@@ -1,0 +1,7 @@
+.movement-legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.movement-pill{display:inline-flex;align-items:center;justify-content:center;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap}
+.movement-pill.issue{background:#e8f1ff;color:#175cd3}.movement-pill.recall{background:#fff1f3;color:#c01048}.movement-pill.transfer{background:#ecfdf3;color:#027a48}
+.movement-hint{padding:9px 12px;border:1px dashed #cbd5e1;background:#f8fafc;border-radius:8px;color:#475467;font-size:12px}.movement-hint.warn{border-color:#f7b27a;background:#fff7ed;color:#9a3412}
+.movement-table{min-width:1450px}.movement-table td small{display:block;color:#667085;margin-top:3px}.movement-table th:first-child{min-width:100px}
+#transferForm select:disabled{background:#f2f4f7;color:#667085}
+@media(max-width:720px){.movement-legend{width:100%}.movement-table{min-width:1300px}}
