@@ -67,6 +67,7 @@ module.exports = function registerLcmRoutes(app) {
       disposal_method TEXT,
       value_recovered REAL DEFAULT 0,
       status TEXT DEFAULT 'Đề nghị thanh lý',
+      status_before_disposal TEXT,
       note TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -78,18 +79,47 @@ module.exports = function registerLcmRoutes(app) {
     CREATE INDEX IF NOT EXISTS idx_disposals_device ON device_disposals(device_id);
   `);
 
+  try { db.prepare("ALTER TABLE device_disposals ADD COLUMN status_before_disposal TEXT").run(); } catch (_) {}
+
   const nowSql = () => {
     const d = new Date();
     const p = n => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
   };
-
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const plusDaysISO = n => new Date(Date.now() + Number(n || 0) * 86400000).toISOString().slice(0, 10);
   const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n || 0)));
-  const daysBetween = (a, b) => {
-    if (!a || !b) return 0;
-    const ms = new Date(b).getTime() - new Date(a).getTime();
-    return Number.isFinite(ms) ? Math.max(0, ms / 86400000) : 0;
+
+  const daysFromToday = value => {
+    if (!value) return null;
+    const t = new Date(`${todayISO()}T00:00:00`).getTime();
+    const v = new Date(`${String(value).slice(0,10)}T00:00:00`).getTime();
+    if (!Number.isFinite(v)) return null;
+    return Math.round((v - t) / 86400000);
   };
+
+  function receiptCompletion(row) {
+    const checks = [
+      Boolean(row.delivery_date),
+      Boolean(row.installation_date),
+      Boolean(row.acceptance_date),
+      Boolean(row.training_date) || row.training_status === "Đã đào tạo",
+      Boolean(row.handover_date),
+      ["Đầy đủ", "Không áp dụng"].includes(row.co_cq_status)
+    ];
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  }
+
+  function lifecycleStage(row) {
+    if (row.disposal_status && row.disposal_status !== "Hủy") {
+      return row.disposal_status === "Đã thanh lý" ? "Đã thanh lý" : "Thanh lý";
+    }
+    if (row.receipt_status && !["Đã bàn giao", "Hoàn thành"].includes(row.receipt_status)) return "Tiếp nhận";
+    if (row.status === "Chờ sửa chữa") return "Sửa chữa";
+    if (row.status === "Chờ thanh lý") return "Thanh lý";
+    if (row.status === "Ngừng hoạt động") return "Ngừng khai thác";
+    return "Khai thác";
+  }
 
   function computeMetrics(row) {
     const currentYear = new Date().getFullYear();
@@ -98,37 +128,54 @@ module.exports = function registerLcmRoutes(app) {
     const criticality = clamp(row.clinical_criticality || 3, 1, 5);
     const repairCount = Number(row.repair_count_12m || 0);
     const repairCost = Number(row.repair_cost_total || 0);
+    const assetCost = Math.max(0, Number(row.cost || 0));
+    const repairCostRatio = assetCost > 0 ? (repairCost / assetCost) * 100 : 0;
     const downtimeHours = Number(row.downtime_hours_12m || 0);
     const availability = Math.max(0, 100 - (downtimeHours / (365 * 24)) * 100);
-    const today = new Date().toISOString().slice(0, 10);
 
-    let risk = 0;
-    risk += clamp((age / plannedLife) * 25, 0, 30);
-    risk += clamp(repairCount * 5, 0, 20);
-    risk += row.status === "Ngừng hoạt động" ? 25 : row.status === "Chờ sửa chữa" ? 18 : 0;
-    risk += row.next_maintenance && row.next_maintenance < today ? 10 : 0;
-    risk += row.next_inspection && row.next_inspection < today ? 10 : 0;
-    risk += (criticality - 1) * 2.5;
-    risk = Math.round(clamp(risk, 0, 100));
+    const maintDays = daysFromToday(row.next_maintenance);
+    const inspDays = daysFromToday(row.next_inspection);
+    const warrantyDays = daysFromToday(row.warranty_end);
 
-    let riskLevel = "Thấp";
-    if (risk >= 70) riskLevel = "Cao";
-    else if (risk >= 40) riskLevel = "Trung bình";
+    const components = {
+      age: Math.round(clamp((age / plannedLife) * 20, 0, 20)),
+      repairs: Math.round(clamp(repairCount * 3, 0, 15)),
+      status: row.status === "Ngừng hoạt động" ? 20
+        : row.status === "Chờ thanh lý" ? 20
+        : row.status === "Chờ sửa chữa" ? 18 : 0,
+      maintenance: maintDays !== null && maintDays < 0 ? 10 : maintDays !== null && maintDays <= 30 ? 4 : 0,
+      inspection: inspDays !== null && inspDays < 0 ? 10 : inspDays !== null && inspDays <= 30 ? 4 : 0,
+      criticality: Math.round(((criticality - 1) / 4) * 10),
+      quality: row.quality_total_score === null || row.quality_total_score === undefined
+        ? 0 : Math.round(clamp((100 - Number(row.quality_total_score)) * 0.1, 0, 10)),
+      repair_cost: assetCost > 0 ? Math.round(clamp(repairCostRatio / 10, 0, 5)) : 0
+    };
+
+    const risk = Math.round(clamp(Object.values(components).reduce((a,b)=>a+b,0), 0, 100));
+    const riskLevel = risk >= 70 ? "Cao" : risk >= 40 ? "Trung bình" : "Thấp";
 
     let recommendation = "Tiếp tục khai thác";
-    if (row.status === "Ngừng hoạt động" || risk >= 80) recommendation = "Ưu tiên đánh giá thay thế/thanh lý";
+    if (row.disposal_status === "Đã thanh lý") recommendation = "Đã kết thúc vòng đời";
+    else if (row.status === "Chờ thanh lý") recommendation = "Hoàn thiện hồ sơ thẩm định/thanh lý";
+    else if (row.status === "Ngừng hoạt động" || risk >= 80) recommendation = "Ưu tiên đánh giá thay thế/thanh lý";
     else if (risk >= 60) recommendation = "Lập kế hoạch sửa chữa lớn hoặc thay thế";
     else if (risk >= 40) recommendation = "Tăng cường theo dõi và bảo dưỡng";
 
     return {
       ...row,
       age_years: age,
+      lifecycle_stage: lifecycleStage(row),
       availability_percent: Number(availability.toFixed(1)),
       risk_score: risk,
       risk_level: riskLevel,
+      risk_components: components,
       recommendation,
       repair_cost_total: repairCost,
-      downtime_hours_12m: Number(downtimeHours.toFixed(1))
+      repair_cost_ratio_percent: Number(repairCostRatio.toFixed(1)),
+      downtime_hours_12m: Number(downtimeHours.toFixed(1)),
+      days_to_maintenance: maintDays,
+      days_to_inspection: inspDays,
+      days_to_warranty: warrantyDays
     };
   }
 
@@ -142,6 +189,7 @@ module.exports = function registerLcmRoutes(app) {
         COALESCE(p.clinical_criticality, 3) AS clinical_criticality,
         COALESCE(p.planned_life_years, 10) AS planned_life_years,
         p.replacement_priority, p.replacement_year,
+        qr.total_score AS quality_total_score, qr.grade AS quality_grade,
         (SELECT COUNT(*) FROM repairs r
           WHERE r.device_id=dv.id
             AND date(COALESCE(NULLIF(r.received_at,''), r.repair_date)) >= date('now','-12 months')) AS repair_count_12m,
@@ -149,48 +197,89 @@ module.exports = function registerLcmRoutes(app) {
         COALESCE((SELECT SUM(COALESCE(r.cost,0)) FROM repairs r WHERE r.device_id=dv.id),0) AS repair_cost_total,
         COALESCE((SELECT SUM(
           CASE
-            WHEN COALESCE(NULLIF(r.completed_at,''),'')<>'' AND COALESCE(NULLIF(r.received_at,''), r.repair_date)<>''
-            THEN MAX(0, (julianday(r.completed_at)-julianday(COALESCE(NULLIF(r.received_at,''), r.repair_date)))*24)
+            WHEN COALESCE(NULLIF(r.received_at,''), r.repair_date) IS NULL THEN 0
+            WHEN date(COALESCE(NULLIF(r.received_at,''), r.repair_date)) < date('now','-12 months') THEN 0
+            WHEN COALESCE(NULLIF(r.completed_at,''),'') <> ''
+              THEN MAX(0, (julianday(r.completed_at)-julianday(COALESCE(NULLIF(r.received_at,''), r.repair_date)))*24)
+            WHEN COALESCE(r.processing_status,'') IN ('Đang xử lý','Chờ linh kiện')
+              THEN MAX(0, (julianday('now')-julianday(COALESCE(NULLIF(r.received_at,''), r.repair_date)))*24)
             ELSE 0
           END
-        ) FROM repairs r
-          WHERE r.device_id=dv.id
-            AND date(COALESCE(NULLIF(r.received_at,''), r.repair_date)) >= date('now','-12 months')),0) AS downtime_hours_12m,
-        (SELECT MAX(m.next_date) FROM maintenances m WHERE m.device_id=dv.id) AS next_maintenance,
-        (SELECT MAX(i.next_date) FROM inspections i WHERE i.device_id=dv.id) AS next_inspection,
+        ) FROM repairs r WHERE r.device_id=dv.id),0) AS downtime_hours_12m,
+        (SELECT MIN(m.next_date) FROM maintenances m
+          WHERE m.device_id=dv.id AND COALESCE(m.next_date,'') <> '' AND date(m.next_date) >= date('now','-365 days')) AS next_maintenance,
+        (SELECT MIN(i.next_date) FROM inspections i
+          WHERE i.device_id=dv.id AND COALESCE(i.next_date,'') <> '' AND date(i.next_date) >= date('now','-365 days')) AS next_inspection,
         COALESCE((SELECT SUM(COALESCE(u.value,0)) FROM usage_reports u
-          WHERE u.device_id=dv.id AND u.year=CAST(strftime('%Y','now') AS INTEGER)),0) AS usage_current_year
+          WHERE u.device_id=dv.id AND u.year=CAST(strftime('%Y','now') AS INTEGER)),0) AS usage_current_year,
+        (SELECT r.status FROM device_receipts r WHERE r.device_id=dv.id ORDER BY r.id DESC LIMIT 1) AS receipt_status,
+        (SELECT x.status FROM device_disposals x WHERE x.device_id=dv.id ORDER BY x.id DESC LIMIT 1) AS disposal_status
       FROM devices dv
       LEFT JOIN departments d ON d.code=dv.department_code
       LEFT JOIN device_groups g ON g.code=dv.group_code
       LEFT JOIN device_lcm_profiles p ON p.device_id=dv.id
+      LEFT JOIN quality_ratings qr ON qr.device_id=dv.id
       ${whereSql}
       ORDER BY dv.department_code, dv.name
     `).all(...params);
     return rows.map(computeMetrics);
   }
 
+  function buildAlerts(devices) {
+    const today = todayISO();
+    const d30 = plusDaysISO(30);
+    const sortDate = key => (a,b) => String(a[key] || "9999-12-31").localeCompare(String(b[key] || "9999-12-31"));
+    return {
+      high_risk: [...devices].filter(x=>x.risk_level==="Cao").sort((a,b)=>b.risk_score-a.risk_score).slice(0,20),
+      maintenance_overdue: devices.filter(x=>x.next_maintenance && x.next_maintenance < today).sort(sortDate("next_maintenance")),
+      maintenance_due_30: devices.filter(x=>x.next_maintenance && x.next_maintenance >= today && x.next_maintenance <= d30).sort(sortDate("next_maintenance")),
+      inspection_overdue: devices.filter(x=>x.next_inspection && x.next_inspection < today).sort(sortDate("next_inspection")),
+      inspection_due_30: devices.filter(x=>x.next_inspection && x.next_inspection >= today && x.next_inspection <= d30).sort(sortDate("next_inspection")),
+      warranty_expired: devices.filter(x=>x.warranty_end && x.warranty_end < today).sort(sortDate("warranty_end")),
+      warranty_due_30: devices.filter(x=>x.warranty_end && x.warranty_end >= today && x.warranty_end <= d30).sort(sortDate("warranty_end")),
+      receipt_pending: db.prepare(`
+        SELECT r.*, dv.name AS device_name, dv.device_code, dv.department_code
+        FROM device_receipts r JOIN devices dv ON dv.id=r.device_id
+        WHERE r.status NOT IN ('Đã bàn giao','Hoàn thành')
+        ORDER BY COALESCE(r.delivery_date,r.created_at) ASC
+      `).all().map(x=>({...x, completion_percent:receiptCompletion(x)})),
+      disposal_pending: db.prepare(`
+        SELECT x.*, dv.name AS device_name, dv.device_code, dv.department_code
+        FROM device_disposals x JOIN devices dv ON dv.id=x.device_id
+        WHERE x.status NOT IN ('Đã thanh lý','Hủy')
+        ORDER BY COALESCE(x.proposal_date,x.created_at) ASC
+      `).all()
+    };
+  }
+
   app.get("/api/lcm/summary", (_req, res) => {
     const devices = getDeviceMetrics();
-    const today = new Date().toISOString().slice(0,10);
-    const d30 = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+    const alerts = buildAlerts(devices);
     const counts = {
       total: devices.length,
       active: devices.filter(x => x.status === "Đang hoạt động").length,
       waiting_repair: devices.filter(x => x.status === "Chờ sửa chữa").length,
+      waiting_disposal: devices.filter(x => x.status === "Chờ thanh lý").length,
       stopped: devices.filter(x => x.status === "Ngừng hoạt động").length,
-      high_risk: devices.filter(x => x.risk_level === "Cao").length,
+      high_risk: alerts.high_risk.length,
       medium_risk: devices.filter(x => x.risk_level === "Trung bình").length,
-      maintenance_overdue: devices.filter(x => x.next_maintenance && x.next_maintenance < today).length,
-      maintenance_due_30: devices.filter(x => x.next_maintenance && x.next_maintenance >= today && x.next_maintenance <= d30).length,
-      inspection_overdue: devices.filter(x => x.next_inspection && x.next_inspection < today).length,
-      inspection_due_30: devices.filter(x => x.next_inspection && x.next_inspection >= today && x.next_inspection <= d30).length,
-      receipt_pending: db.prepare("SELECT COUNT(*) c FROM device_receipts WHERE status NOT IN ('Đã bàn giao','Hoàn thành')").get().c,
-      disposal_pending: db.prepare("SELECT COUNT(*) c FROM device_disposals WHERE status NOT IN ('Đã thanh lý','Hủy')").get().c,
+      maintenance_overdue: alerts.maintenance_overdue.length,
+      maintenance_due_30: alerts.maintenance_due_30.length,
+      inspection_overdue: alerts.inspection_overdue.length,
+      inspection_due_30: alerts.inspection_due_30.length,
+      warranty_expired: alerts.warranty_expired.length,
+      warranty_due_30: alerts.warranty_due_30.length,
+      receipt_pending: alerts.receipt_pending.length,
+      disposal_pending: alerts.disposal_pending.length,
       transfers_ytd: db.prepare("SELECT COUNT(*) c FROM device_transfers WHERE substr(transfer_date,1,4)=strftime('%Y','now')").get().c
     };
     const riskTop = [...devices].sort((a,b)=>b.risk_score-a.risk_score).slice(0,10);
     res.json({ ...counts, risk_top: riskTop });
+  });
+
+  app.get("/api/lcm/alerts", (_req, res) => {
+    const devices = getDeviceMetrics();
+    res.json(buildAlerts(devices));
   });
 
   app.get("/api/lcm/devices", (req, res) => {
@@ -237,7 +326,7 @@ module.exports = function registerLcmRoutes(app) {
       JOIN devices dv ON dv.id=r.device_id
       LEFT JOIN departments d ON d.code=dv.department_code
       ORDER BY COALESCE(r.delivery_date,r.created_at) DESC, r.id DESC
-    `).all();
+    `).all().map(r=>({...r, completion_percent:receiptCompletion(r)}));
     res.json(rows);
   });
 
@@ -297,20 +386,41 @@ module.exports = function registerLcmRoutes(app) {
     const dv = db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(deviceId);
     if (!dv) return res.status(404).json({ error:"Không tìm thấy thiết bị." });
     if (!p.to_department) return res.status(400).json({ error:"Thiếu khoa nhận." });
+    const newLoc = String(p.to_location || "").trim();
+    const oldLoc = String(dv.location || "").trim();
+    if (String(p.to_department) === String(dv.department_code) && (!newLoc || newLoc === oldLoc)) {
+      return res.status(400).json({ error:"Khoa và vị trí không thay đổi. Không cần lập phiếu điều chuyển." });
+    }
     const tx = db.transaction(() => {
       const info = db.prepare(`
         INSERT INTO device_transfers (device_id,transfer_date,from_department,to_department,from_location,to_location,reason,approved_by,receiver,note,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(deviceId,p.transfer_date||new Date().toISOString().slice(0,10),dv.department_code,p.to_department,dv.location||"",p.to_location||"",p.reason||"",p.approved_by||"",p.receiver||"",p.note||"",nowSql());
-      db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?").run(p.to_department,p.to_location||dv.location||"",deviceId);
+      `).run(deviceId,p.transfer_date||todayISO(),dv.department_code,p.to_department,dv.location||"",newLoc,p.reason||"",p.approved_by||"",p.receiver||"",p.note||"",nowSql());
+      db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?").run(p.to_department,newLoc||oldLoc,deviceId);
       return info.lastInsertRowid;
     });
     res.json({ id:tx() });
   });
 
-  app.delete("/api/lcm/transfers/:id", (req, res) => {
+  app.delete("/api/lcm/transfers/:id", (_req, res) => {
     return res.status(400).json({ error:"Không xóa lịch sử điều chuyển. Hãy lập phiếu điều chuyển ngược nếu cần hiệu chỉnh." });
   });
+
+  function deviceStatusBeforeDisposal(deviceId) {
+    const row = db.prepare("SELECT status FROM devices WHERE id=?").get(deviceId);
+    return row?.status || "Đang hoạt động";
+  }
+
+  function applyDisposalStatus(deviceId, disposalStatus, beforeStatus) {
+    if (disposalStatus === "Đã thanh lý") {
+      db.prepare("UPDATE devices SET status='Ngừng hoạt động' WHERE id=?").run(deviceId);
+    } else if (disposalStatus === "Hủy") {
+      const restore = beforeStatus && beforeStatus !== "Chờ thanh lý" ? beforeStatus : "Đang hoạt động";
+      db.prepare("UPDATE devices SET status=? WHERE id=? AND status='Chờ thanh lý'").run(restore, deviceId);
+    } else {
+      db.prepare("UPDATE devices SET status='Chờ thanh lý' WHERE id=? AND status<>'Ngừng hoạt động'").run(deviceId);
+    }
+  }
 
   app.get("/api/lcm/disposals", (_req, res) => {
     const rows = db.prepare(`
@@ -326,39 +436,53 @@ module.exports = function registerLcmRoutes(app) {
   app.post("/api/lcm/disposals", (req, res) => {
     const p = req.body || {};
     if (!p.device_id) return res.status(400).json({ error:"Thiếu thiết bị." });
+    const deviceId = Number(p.device_id);
+    const before = deviceStatusBeforeDisposal(deviceId);
+    const status = p.status || "Đề nghị thanh lý";
     const info = db.prepare(`
-      INSERT INTO device_disposals (device_id,proposal_date,reason,condition_summary,appraisal_date,decision_no,decision_date,disposal_method,value_recovered,status,note,created_at,updated_at)
-      VALUES (@device_id,@proposal_date,@reason,@condition_summary,@appraisal_date,@decision_no,@decision_date,@disposal_method,@value_recovered,@status,@note,@created_at,@updated_at)
+      INSERT INTO device_disposals (device_id,proposal_date,reason,condition_summary,appraisal_date,decision_no,decision_date,disposal_method,value_recovered,status,status_before_disposal,note,created_at,updated_at)
+      VALUES (@device_id,@proposal_date,@reason,@condition_summary,@appraisal_date,@decision_no,@decision_date,@disposal_method,@value_recovered,@status,@status_before_disposal,@note,@created_at,@updated_at)
     `).run({
-      device_id:Number(p.device_id), proposal_date:p.proposal_date||"", reason:p.reason||"", condition_summary:p.condition_summary||"",
+      device_id:deviceId, proposal_date:p.proposal_date||"", reason:p.reason||"", condition_summary:p.condition_summary||"",
       appraisal_date:p.appraisal_date||"", decision_no:p.decision_no||"", decision_date:p.decision_date||"",
-      disposal_method:p.disposal_method||"", value_recovered:Number(p.value_recovered||0), status:p.status||"Đề nghị thanh lý",
-      note:p.note||"", created_at:nowSql(), updated_at:nowSql()
+      disposal_method:p.disposal_method||"", value_recovered:Number(p.value_recovered||0), status,
+      status_before_disposal:before, note:p.note||"", created_at:nowSql(), updated_at:nowSql()
     });
-    if ((p.status||"") === "Đã thanh lý") db.prepare("UPDATE devices SET status='Ngừng hoạt động' WHERE id=?").run(Number(p.device_id));
+    applyDisposalStatus(deviceId, status, before);
     res.json({ id:info.lastInsertRowid });
   });
 
   app.put("/api/lcm/disposals/:id", (req, res) => {
     const p = req.body || {};
+    const old = db.prepare("SELECT * FROM device_disposals WHERE id=?").get(Number(req.params.id));
+    if (!old) return res.status(404).json({error:"Không tìm thấy hồ sơ thanh lý."});
+    const deviceId = Number(p.device_id || old.device_id);
+    const status = p.status || "Đề nghị thanh lý";
+    const before = old.status_before_disposal || deviceStatusBeforeDisposal(deviceId);
     db.prepare(`UPDATE device_disposals SET
       device_id=@device_id, proposal_date=@proposal_date, reason=@reason, condition_summary=@condition_summary,
       appraisal_date=@appraisal_date, decision_no=@decision_no, decision_date=@decision_date,
-      disposal_method=@disposal_method, value_recovered=@value_recovered, status=@status, note=@note, updated_at=@updated_at
+      disposal_method=@disposal_method, value_recovered=@value_recovered, status=@status,
+      status_before_disposal=COALESCE(NULLIF(status_before_disposal,''),@status_before_disposal),
+      note=@note, updated_at=@updated_at
       WHERE id=@id`).run({
-      id:Number(req.params.id), device_id:Number(p.device_id), proposal_date:p.proposal_date||"", reason:p.reason||"",
+      id:Number(req.params.id), device_id:deviceId, proposal_date:p.proposal_date||"", reason:p.reason||"",
       condition_summary:p.condition_summary||"", appraisal_date:p.appraisal_date||"", decision_no:p.decision_no||"",
       decision_date:p.decision_date||"", disposal_method:p.disposal_method||"", value_recovered:Number(p.value_recovered||0),
-      status:p.status||"Đề nghị thanh lý", note:p.note||"", updated_at:nowSql()
+      status, status_before_disposal:before, note:p.note||"", updated_at:nowSql()
     });
-    if ((p.status||"") === "Đã thanh lý") db.prepare("UPDATE devices SET status='Ngừng hoạt động' WHERE id=?").run(Number(p.device_id));
+    applyDisposalStatus(deviceId, status, before);
     res.json({ ok:true });
   });
 
   app.delete("/api/lcm/disposals/:id", (req, res) => {
-    const row = db.prepare("SELECT status FROM device_disposals WHERE id=?").get(Number(req.params.id));
+    const row = db.prepare("SELECT * FROM device_disposals WHERE id=?").get(Number(req.params.id));
     if (row && row.status === "Đã thanh lý") return res.status(400).json({ error:"Hồ sơ đã thanh lý không được xóa." });
-    db.prepare("DELETE FROM device_disposals WHERE id=?").run(Number(req.params.id));
+    if (row) {
+      db.prepare("DELETE FROM device_disposals WHERE id=?").run(Number(req.params.id));
+      const remaining = db.prepare("SELECT COUNT(*) c FROM device_disposals WHERE device_id=? AND status NOT IN ('Đã thanh lý','Hủy')").get(row.device_id).c;
+      if (!remaining) applyDisposalStatus(row.device_id, "Hủy", row.status_before_disposal);
+    }
     res.json({ ok:true });
   });
 
@@ -369,7 +493,13 @@ module.exports = function registerLcmRoutes(app) {
       if (date) events.push({ type, date, title, detail:detail||"", status:status||"" });
     };
 
-    db.prepare("SELECT * FROM device_receipts WHERE device_id=?").all(id).forEach(x => push("Tiếp nhận",x.delivery_date||x.created_at,"Tiếp nhận / nghiệm thu",`${x.supplier||''} ${x.contract_no||''}`.trim(),x.status));
+    db.prepare("SELECT * FROM device_receipts WHERE device_id=?").all(id).forEach(x => {
+      push("Tiếp nhận",x.delivery_date||x.created_at,"Giao nhận thiết bị",`${x.supplier||''} ${x.contract_no||''}`.trim(),x.status);
+      push("Lắp đặt",x.installation_date,"Lắp đặt - chạy thử","",x.status);
+      push("Nghiệm thu",x.acceptance_date,"Nghiệm thu kỹ thuật",x.co_cq_status,x.status);
+      push("Đào tạo",x.training_date,"Đào tạo - chuyển giao",x.receiver,x.training_status);
+      push("Bàn giao",x.handover_date,"Bàn giao đưa vào sử dụng",x.receiver,x.status);
+    });
     db.prepare("SELECT * FROM device_transfers WHERE device_id=?").all(id).forEach(x => push("Điều chuyển",x.transfer_date,`Điều chuyển ${x.from_department||''} → ${x.to_department||''}`,x.reason,x.receiver));
     db.prepare("SELECT * FROM incidents WHERE device_id=?").all(id).forEach(x => push("Sự cố",x.incident_datetime,"Ghi nhận sự cố",x.description,x.status));
     db.prepare("SELECT * FROM repairs WHERE device_id=?").all(id).forEach(x => push("Sửa chữa",x.repair_date||x.received_at,"Sửa chữa",x.work||x.issue,x.processing_status||x.status_after));
@@ -381,5 +511,5 @@ module.exports = function registerLcmRoutes(app) {
     res.json(events);
   });
 
-  console.log("LCM module loaded: receipts, transfers, disposals, risk & lifecycle metrics");
+  console.log("LCM module loaded: lifecycle, alerts, receipts, transfers, disposals, risk & metrics");
 };
