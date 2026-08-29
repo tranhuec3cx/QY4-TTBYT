@@ -25,6 +25,7 @@
     return `Còn ${n} ngày · ${fmtDate(date)}`;
   }
   function deadlineClass(days){
+    if(days==null||days==="") return "";
     const n=Number(days);
     if(Number.isFinite(n)&&n<0) return "overdue";
     if(Number.isFinite(n)&&n<=30) return "due";
@@ -65,12 +66,12 @@
     ].map(([label,days,date])=>`<div class="lifecycle-deadline ${deadlineClass(days)}"><span>${label}</span><b>${escLife(dayText(days,date))}</b></div>`).join("");
 
     const components=d.risk_components||{};
-    const maxByKey={age:30,repairs:20,status:25,maintenance:10,inspection:10,criticality:10,quality:10,repair_cost:5};
+    const maxByKey={age:20,repairs:15,status:20,maintenance:10,inspection:10,criticality:10,quality:10,repair_cost:5};
     const box=el("lifecycleRiskBreakdown");
     if(box){
       const entries=Object.entries(components);
       box.innerHTML=entries.length?entries.map(([k,v])=>{
-        const max=maxByKey[k]||25, pct=Math.max(0,Math.min(100,Number(v||0)/max*100));
+        const max=maxByKey[k]||20, pct=Math.max(0,Math.min(100,Number(v||0)/max*100));
         return `<div class="risk-row"><span>${escLife(riskLabels[k]||k)}</span><b>${fmtNum(v||0)} điểm</b><div class="risk-bar"><i style="width:${pct}%"></i></div></div>`;
       }).join(""):`<div class="lifecycle-empty">Chưa có dữ liệu cấu phần rủi ro.</div>`;
     }
