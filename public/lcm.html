@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LCM - Quản lý vòng đời thiết bị y tế</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/lcm.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h1 id="pageTitle" class="page-title"></h1>
+          <p id="pageSubtitle" class="page-subtitle"></p>
+        </div>
+        <div class="user-box">LCM - Life Cycle Management</div>
+      </div>
+
+      <section class="card lcm-hero">
+        <div>
+          <div class="lcm-kicker">QUẢN LÝ VÒNG ĐỜI THIẾT BỊ Y TẾ</div>
+          <h2>Từ tiếp nhận đến thanh lý trên một hồ sơ xuyên suốt</h2>
+          <p>Tiếp nhận · Nghiệm thu · Điều chuyển · Sự cố · Sửa chữa · Bảo dưỡng · Kiểm định · Hiệu quả khai thác · Thanh lý</p>
+        </div>
+        <button class="btn btn-primary" id="refreshAllBtn">Cập nhật dữ liệu</button>
+      </section>
+
+      <div class="lcm-tabs" id="lcmTabs">
+        <button class="active" data-tab="overview">Tổng quan</button>
+        <button data-tab="receipts">Tiếp nhận - nghiệm thu</button>
+        <button data-tab="transfers">Điều chuyển</button>
+        <button data-tab="risk">Hiệu quả & rủi ro</button>
+        <button data-tab="disposals">Thanh lý</button>
+      </div>
+
+      <section class="lcm-panel active" data-panel="overview">
+        <div class="lcm-kpi-grid">
+          <div class="card lcm-kpi"><span>Tổng thiết bị</span><b id="kTotal">0</b></div>
+          <div class="card lcm-kpi"><span>Đang hoạt động</span><b id="kActive">0</b></div>
+          <div class="card lcm-kpi"><span>Chờ sửa chữa</span><b id="kRepair">0</b></div>
+          <div class="card lcm-kpi"><span>Ngừng hoạt động</span><b id="kStopped">0</b></div>
+          <div class="card lcm-kpi"><span>Rủi ro cao</span><b id="kHighRisk">0</b></div>
+          <div class="card lcm-kpi"><span>Quá hạn bảo dưỡng</span><b id="kMaintOverdue">0</b></div>
+          <div class="card lcm-kpi"><span>Quá hạn kiểm định</span><b id="kInspOverdue">0</b></div>
+          <div class="card lcm-kpi"><span>Chờ thanh lý</span><b id="kDisposal">0</b></div>
+        </div>
+
+        <section class="card">
+          <div class="table-card-header"><h3>10 thiết bị cần ưu tiên quản lý</h3><button class="btn" data-go-tab="risk">Xem toàn bộ</button></div>
+          <div class="table-wrap">
+            <table class="lcm-table">
+              <thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Tuổi</th><th>Sửa chữa 12 tháng</th><th>Availability</th><th>Rủi ro</th><th>Khuyến nghị</th></tr></thead>
+              <tbody id="riskTopRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="lcm-panel" data-panel="receipts">
+        <section class="card">
+          <div class="table-card-header"><h3>Phiếu tiếp nhận - nghiệm thu - bàn giao</h3></div>
+          <form id="receiptForm" class="lcm-form">
+            <input type="hidden" id="receiptId" />
+            <select id="receiptDevice" required></select>
+            <input id="receiptContract" placeholder="Số hợp đồng" />
+            <input id="receiptSupplier" placeholder="Nhà cung cấp" />
+            <label>Ngày giao<input id="receiptDelivery" type="date" /></label>
+            <label>Ngày lắp đặt<input id="receiptInstall" type="date" /></label>
+            <label>Ngày nghiệm thu<input id="receiptAcceptance" type="date" /></label>
+            <label>Ngày đào tạo<input id="receiptTrainingDate" type="date" /></label>
+            <label>Ngày bàn giao<input id="receiptHandover" type="date" /></label>
+            <input id="receiptReceiver" placeholder="Người/bộ phận tiếp nhận" />
+            <select id="receiptCocq"><option>Chưa cập nhật</option><option>Đầy đủ</option><option>Thiếu hồ sơ</option><option>Không áp dụng</option></select>
+            <select id="receiptTraining"><option>Chưa thực hiện</option><option>Đã đào tạo</option><option>Đào tạo bổ sung</option></select>
+            <select id="receiptStatus"><option>Chuẩn bị tiếp nhận</option><option>Đã giao hàng</option><option>Đã lắp đặt</option><option>Đã nghiệm thu</option><option>Đã đào tạo</option><option>Đã bàn giao</option></select>
+            <textarea id="receiptNote" class="span-3" placeholder="Ghi chú"></textarea>
+            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu phiếu</button><button class="btn" type="button" id="receiptReset">Đặt lại</button></div>
+          </form>
+        </section>
+        <section class="card">
+          <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Thiết bị</th><th>Hợp đồng</th><th>NCC</th><th>Giao hàng</th><th>Nghiệm thu</th><th>Bàn giao</th><th>CO/CQ</th><th>Đào tạo</th><th>Trạng thái</th><th></th></tr></thead><tbody id="receiptRows"></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="lcm-panel" data-panel="transfers">
+        <section class="card">
+          <div class="table-card-header"><h3>Điều chuyển thiết bị</h3><span class="lcm-note">Lịch sử không xóa; nếu điều chuyển sai hãy lập phiếu điều chuyển ngược.</span></div>
+          <form id="transferForm" class="lcm-form">
+            <select id="transferDevice" required></select>
+            <label>Ngày điều chuyển<input id="transferDate" type="date" required /></label>
+            <select id="transferToDepartment" required></select>
+            <input id="transferToLocation" placeholder="Vị trí mới" />
+            <input id="transferReason" placeholder="Lý do điều chuyển" />
+            <input id="transferApprovedBy" placeholder="Người phê duyệt" />
+            <input id="transferReceiver" placeholder="Người nhận" />
+            <textarea id="transferNote" class="span-3" placeholder="Ghi chú"></textarea>
+            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Ghi nhận điều chuyển</button></div>
+          </form>
+        </section>
+        <section class="card"><div class="table-wrap"><table class="lcm-table"><thead><tr><th>Ngày</th><th>Thiết bị</th><th>Từ khoa</th><th>Đến khoa</th><th>Vị trí mới</th><th>Lý do</th><th>Người nhận</th></tr></thead><tbody id="transferRows"></tbody></table></div></section>
+      </section>
+
+      <section class="lcm-panel" data-panel="risk">
+        <section class="card">
+          <div class="lcm-filter-row">
+            <select id="riskDepartment"></select>
+            <select id="riskLevel"><option value="ALL">Tất cả mức rủi ro</option><option value="Cao">Rủi ro cao</option><option value="Trung bình">Rủi ro trung bình</option><option value="Thấp">Rủi ro thấp</option></select>
+            <input id="riskSearch" placeholder="Tìm mã / tên / serial" />
+            <button class="btn btn-primary" id="riskFilterBtn">Lọc</button>
+          </div>
+        </section>
+        <section class="card">
+          <div class="table-card-header"><h3>Hiệu quả khai thác và chỉ số rủi ro</h3><span class="lcm-note">Availability tính từ thời gian sửa chữa 12 tháng gần nhất.</span></div>
+          <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Tuổi</th><th>Sử dụng năm nay</th><th>Số lần sửa/12T</th><th>Downtime</th><th>Availability</th><th>Rủi ro</th><th>Khuyến nghị</th><th></th></tr></thead><tbody id="riskRows"></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="lcm-panel" data-panel="disposals">
+        <section class="card">
+          <div class="table-card-header"><h3>Hồ sơ ngừng sử dụng - thanh lý</h3></div>
+          <form id="disposalForm" class="lcm-form">
+            <input type="hidden" id="disposalId" />
+            <select id="disposalDevice" required></select>
+            <label>Ngày đề nghị<input id="disposalProposal" type="date" /></label>
+            <input id="disposalReason" placeholder="Lý do đề nghị thanh lý" />
+            <input id="disposalCondition" placeholder="Tình trạng kỹ thuật" />
+            <label>Ngày thẩm định<input id="disposalAppraisal" type="date" /></label>
+            <input id="disposalDecisionNo" placeholder="Số quyết định" />
+            <label>Ngày quyết định<input id="disposalDecisionDate" type="date" /></label>
+            <input id="disposalMethod" placeholder="Hình thức xử lý/thanh lý" />
+            <input id="disposalValue" type="number" placeholder="Giá trị thu hồi" />
+            <select id="disposalStatus"><option>Đề nghị thanh lý</option><option>Chờ thẩm định</option><option>Đã thẩm định</option><option>Đã phê duyệt</option><option>Đã thanh lý</option><option>Hủy</option></select>
+            <textarea id="disposalNote" class="span-3" placeholder="Ghi chú"></textarea>
+            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu hồ sơ</button><button class="btn" type="button" id="disposalReset">Đặt lại</button></div>
+          </form>
+        </section>
+        <section class="card"><div class="table-wrap"><table class="lcm-table"><thead><tr><th>Thiết bị</th><th>Khoa</th><th>Ngày đề nghị</th><th>Lý do</th><th>Quyết định</th><th>Hình thức</th><th>Giá trị thu hồi</th><th>Trạng thái</th><th></th></tr></thead><tbody id="disposalRows"></tbody></table></div></section>
+      </section>
+
+      <div id="profileModal" class="lcm-modal-backdrop" hidden>
+        <div class="lcm-modal card">
+          <h3>Cấu hình LCM cho thiết bị</h3>
+          <p id="profileDeviceName" class="lcm-note"></p>
+          <form id="profileForm" class="lcm-form lcm-form-modal">
+            <input type="hidden" id="profileDeviceId" />
+            <label>Mức độ quan trọng lâm sàng (1-5)<input id="profileCriticality" type="number" min="1" max="5" required /></label>
+            <label>Tuổi đời kế hoạch (năm)<input id="profileLife" type="number" min="1" max="30" required /></label>
+            <select id="profilePriority"><option>Bình thường</option><option>Theo dõi</option><option>Ưu tiên</option><option>Khẩn</option></select>
+            <input id="profileReplacementYear" type="number" placeholder="Năm dự kiến thay thế" />
+            <textarea id="profileNote" class="span-3" placeholder="Ghi chú"></textarea>
+            <div class="lcm-form-actions span-3"><button class="btn" type="button" id="profileClose">Hủy</button><button class="btn btn-primary" type="submit">Lưu cấu hình</button></div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/lcm.js"></script>
+</body>
+</html>
