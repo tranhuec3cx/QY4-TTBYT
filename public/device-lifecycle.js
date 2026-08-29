@@ -102,7 +102,7 @@
     try{
       const [devices,timeline]=await Promise.all([
         api("/api/lcm/devices"),
-        api(`/api/lcm/timeline/${id}`)
+        api(`/api/lcm/movement-timeline/${id}`)
       ]);
       const d=(devices||[]).find(x=>Number(x.id)===id);
       if(!d) throw new Error("Không tìm thấy dữ liệu LCM của thiết bị.");
