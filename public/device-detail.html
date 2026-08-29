@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hồ sơ máy</title>
+  <title>Hồ sơ vòng đời thiết bị</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/device-lifecycle.css" />
 </head>
 <body>
   <div class="layout">
@@ -15,13 +16,19 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box">Người dùng: Quản trị viên</div>
       </div>
 
       <section class="card">
         <div class="detail-head" style="margin-bottom:6px">
-          <div><h1 id="detailName" class="detail-title"></h1><div id="detailMeta" class="detail-meta"></div></div>
-          <div class="table-actions"><button class="btn" id="detailQrBtn" type="button">QR</button><div id="detailStatus"></div></div>
+          <div>
+            <h1 id="detailName" class="detail-title"></h1>
+            <div id="detailMeta" class="detail-meta"></div>
+          </div>
+          <div class="table-actions">
+            <a class="btn" id="openLcmBtn" href="/lcm.html">LCM</a>
+            <button class="btn" id="detailQrBtn" type="button">QR</button>
+            <div id="detailStatus"></div>
+          </div>
         </div>
         <div id="deviceCurrentState" class="device-current-state"></div>
         <div class="quick-stats device-quick-stats">
@@ -30,6 +37,54 @@
           <div class="quick-box"><span>Bảo dưỡng</span><b id="quickMaint">0</b></div>
           <div class="quick-box"><span>Kiểm định</span><b id="quickInspection">0</b></div>
           <div class="quick-box"><span>Tài liệu</span><b id="quickDocs">0</b></div>
+        </div>
+      </section>
+
+      <section class="card lifecycle-overview-card">
+        <div class="lifecycle-head">
+          <div>
+            <div class="lifecycle-kicker">HỒ SƠ VÒNG ĐỜI THIẾT BỊ</div>
+            <h2>Đánh giá nhanh phục vụ quyết định quản lý</h2>
+            <p>Tuổi thiết bị · hiệu quả khai thác · sửa chữa · downtime · bảo dưỡng · kiểm định · rủi ro · đề xuất xử lý</p>
+          </div>
+          <div id="lifecycleRiskBadge" class="lifecycle-risk-badge">Đang tính...</div>
+        </div>
+
+        <div class="lifecycle-kpi-grid">
+          <div class="lifecycle-kpi"><span>Giai đoạn vòng đời</span><b id="lifecycleStage">—</b></div>
+          <div class="lifecycle-kpi"><span>Tuổi thiết bị</span><b id="lifecycleAge">—</b></div>
+          <div class="lifecycle-kpi"><span>Availability 12T</span><b id="lifecycleAvailability">—</b></div>
+          <div class="lifecycle-kpi"><span>Sửa chữa 12T</span><b id="lifecycleRepairCount">—</b></div>
+          <div class="lifecycle-kpi"><span>Downtime 12T</span><b id="lifecycleDowntime">—</b></div>
+          <div class="lifecycle-kpi"><span>Tổng chi phí sửa chữa</span><b id="lifecycleRepairCost">—</b></div>
+          <div class="lifecycle-kpi"><span>Mức quan trọng LS</span><b id="lifecycleCriticality">—</b></div>
+          <div class="lifecycle-kpi"><span>Năm dự kiến thay</span><b id="lifecycleReplacement">—</b></div>
+        </div>
+
+        <div class="lifecycle-grid">
+          <div class="lifecycle-box lifecycle-decision">
+            <h3>Khuyến nghị quản lý</h3>
+            <div id="lifecycleRecommendation" class="lifecycle-recommendation">Đang tải...</div>
+            <div id="lifecycleDecisionMeta" class="lifecycle-decision-meta"></div>
+          </div>
+
+          <div class="lifecycle-box">
+            <h3>Mốc cần theo dõi</h3>
+            <div id="lifecycleDeadlines" class="lifecycle-deadlines"></div>
+          </div>
+
+          <div class="lifecycle-box">
+            <h3>Cấu phần điểm rủi ro</h3>
+            <div id="lifecycleRiskBreakdown" class="risk-breakdown"></div>
+          </div>
+        </div>
+
+        <div class="lifecycle-box lifecycle-timeline-box">
+          <div class="lifecycle-box-head">
+            <h3>Dòng thời gian vòng đời</h3>
+            <span id="lifecycleTimelineCount"></span>
+          </div>
+          <div id="lifecycleTimeline" class="lifecycle-timeline"></div>
         </div>
       </section>
 
@@ -68,8 +123,19 @@
             <input id="generalYearManufactured" type="number" placeholder="Năm sản xuất" required />
             <input id="generalYearInUse" type="number" placeholder="Năm sử dụng" required />
             <input id="generalWarranty" type="date" required />
-            <select id="generalStatus"><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
-            <select id="generalQuality"><option value="1">Cấp 1 - Rất tốt</option><option value="2">Cấp 2 - Tốt</option><option value="3">Cấp 3 - Trung bình</option><option value="4">Cấp 4 - Kém</option><option value="5">Cấp 5 - Rất kém</option></select>
+            <select id="generalStatus">
+              <option>Đang hoạt động</option>
+              <option>Chờ sửa chữa</option>
+              <option>Chờ thanh lý</option>
+              <option>Ngừng hoạt động</option>
+            </select>
+            <select id="generalQuality">
+              <option value="1">Cấp 1 - Rất tốt</option>
+              <option value="2">Cấp 2 - Tốt</option>
+              <option value="3">Cấp 3 - Trung bình</option>
+              <option value="4">Cấp 4 - Kém</option>
+              <option value="5">Cấp 5 - Rất kém</option>
+            </select>
             <input id="generalCost" type="number" placeholder="Nguyên giá" />
             <input id="generalFunding" placeholder="Nguồn kinh phí" />
             <input id="generalLocation" placeholder="Vị trí đặt máy" />
@@ -99,11 +165,13 @@
               <input id="accessorySerial" placeholder="Số series" />
               <textarea id="accessoryNote" class="span-2" placeholder="Ghi chú"></textarea>
             </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu phụ kiện</button><button class="btn" type="button" id="cancelAccessoryBtn">Hủy</button></div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Lưu phụ kiện</button>
+              <button class="btn" type="button" id="cancelAccessoryBtn">Hủy</button>
+            </div>
           </form>
         </div>
       </section>
-
 
       <section id="tab-incidents" class="card tab-panel">
         <div class="section-head">
@@ -142,7 +210,10 @@
               <input id="repairResult" placeholder="Kết quả sửa chữa" />
               <select id="repairStatusAfter"><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
             </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu sửa chữa</button><button class="btn" type="button" id="cancelRepairBtn">Hủy</button></div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Lưu sửa chữa</button>
+              <button class="btn" type="button" id="cancelRepairBtn">Hủy</button>
+            </div>
           </form>
         </div>
       </section>
@@ -173,7 +244,10 @@
               <label class="field"><span class="field-label">Tải file đính kèm</span><input id="maintFile" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip" /></label>
               <textarea id="maintNote" class="span-2" placeholder="Ghi chú"></textarea>
             </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu bảo dưỡng</button><button class="btn" type="button" id="cancelMaintBtn">Hủy</button></div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Lưu bảo dưỡng</button>
+              <button class="btn" type="button" id="cancelMaintBtn">Hủy</button>
+            </div>
           </form>
         </div>
       </section>
@@ -214,7 +288,10 @@
               <input id="opAfter" placeholder="TT sau sử dụng" />
               <textarea id="opNote" class="span-3" placeholder="Ghi chú bất thường"></textarea>
             </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu nhật ký</button><button class="btn" type="button" id="cancelOpBtn">Hủy</button></div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Lưu nhật ký</button>
+              <button class="btn" type="button" id="cancelOpBtn">Hủy</button>
+            </div>
           </form>
         </div>
       </section>
@@ -247,7 +324,10 @@
               <div id="docCurrentFile" class="muted-note">Chưa có file đính kèm.</div>
               <textarea id="docNote" class="span-2" placeholder="Ghi chú"></textarea>
             </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu tài liệu</button><button class="btn" type="button" id="cancelDocBtn">Hủy</button></div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Lưu tài liệu</button>
+              <button class="btn" type="button" id="cancelDocBtn">Hủy</button>
+            </div>
           </form>
         </div>
       </section>
@@ -255,5 +335,6 @@
   </div>
   <script src="/api.js"></script>
   <script src="/device-detail.js"></script>
+  <script src="/device-lifecycle.js"></script>
 </body>
 </html>
