@@ -6,6 +6,7 @@
   <title>LCM - Quản lý vòng đời thiết bị y tế</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/lcm.css" />
+  <link rel="stylesheet" href="/lcm-movements.css" />
 </head>
 <body>
   <div class="layout">
@@ -23,7 +24,7 @@
         <div>
           <div class="lcm-kicker">QUẢN LÝ VÒNG ĐỜI THIẾT BỊ Y TẾ</div>
           <h2>Từ tiếp nhận đến thanh lý trên một hồ sơ xuyên suốt</h2>
-          <p>Tiếp nhận · Nghiệm thu · Điều chuyển · Sự cố · Sửa chữa · Bảo dưỡng · Kiểm định · Hiệu quả khai thác · Thanh lý</p>
+          <p>Tiếp nhận · Nghiệm thu · Cấp phát · Thu hồi · Điều chuyển · Sự cố · Sửa chữa · Bảo dưỡng · Kiểm định · Hiệu quả khai thác · Thanh lý</p>
         </div>
         <button class="btn btn-primary" id="refreshAllBtn">Cập nhật dữ liệu</button>
       </section>
@@ -31,7 +32,7 @@
       <div class="lcm-tabs" id="lcmTabs">
         <button class="active" data-tab="overview">Tổng quan</button>
         <button data-tab="receipts">Tiếp nhận - nghiệm thu</button>
-        <button data-tab="transfers">Điều chuyển</button>
+        <button data-tab="transfers">Cấp phát - Thu hồi - Điều chuyển</button>
         <button data-tab="risk">Hiệu quả & rủi ro</button>
         <button data-tab="disposals">Thanh lý</button>
       </div>
@@ -48,7 +49,7 @@
           <div class="card lcm-kpi"><span>Chờ thanh lý</span><b id="kDisposal">0</b></div>
           <div class="card lcm-kpi"><span>Bảo hành sắp hết ≤30 ngày</span><b id="kWarrantyDue">0</b></div>
           <div class="card lcm-kpi"><span>Đã hết bảo hành</span><b id="kWarrantyExpired">0</b></div>
-          <div class="card lcm-kpi"><span>Điều chuyển năm nay</span><b id="kTransfers">0</b></div>
+          <div class="card lcm-kpi"><span>Biến động năm nay</span><b id="kTransfers">0</b></div>
           <div class="card lcm-kpi"><span>Ngừng hoạt động</span><b id="kStopped">0</b></div>
         </div>
 
@@ -96,21 +97,32 @@
 
       <section class="lcm-panel" data-panel="transfers">
         <section class="card">
-          <div class="table-card-header"><h3>Điều chuyển thiết bị</h3><span class="lcm-note">Lịch sử không xóa; nếu điều chuyển sai hãy lập phiếu điều chuyển ngược.</span></div>
+          <div class="table-card-header">
+            <div><h3>Cấp phát - Thu hồi - Điều chuyển thiết bị</h3><span class="lcm-note">Một phiếu biến động dùng chung; lịch sử không xóa để bảo đảm truy xuất vòng đời.</span></div>
+            <div class="movement-legend"><span class="movement-pill issue">Cấp phát</span><span class="movement-pill recall">Thu hồi</span><span class="movement-pill transfer">Điều chuyển</span></div>
+          </div>
           <form id="transferForm" class="lcm-form">
+            <label>Loại nghiệp vụ<select id="movementType" required><option>Điều chuyển</option><option>Cấp phát</option><option>Thu hồi</option></select></label>
             <select id="transferDevice" required></select>
-            <label>Ngày điều chuyển<input id="transferDate" type="date" required /></label>
-            <select id="transferToDepartment" required></select>
-            <input id="transferToLocation" placeholder="Vị trí mới" />
-            <input id="transferReason" placeholder="Lý do điều chuyển" />
-            <input id="transferApprovedBy" placeholder="Người phê duyệt" />
+            <label>Ngày thực hiện<input id="transferDate" type="date" required /></label>
+            <label><span id="movementTargetLabel">Khoa nhận</span><select id="transferToDepartment" required></select></label>
+            <input id="transferToLocation" placeholder="Vị trí mới / nơi tiếp nhận" />
+            <input id="transferReason" placeholder="Lý do / mục đích" />
+            <input id="transferDocumentNo" placeholder="Số văn bản / quyết định (nếu có)" />
+            <input id="transferCondition" placeholder="Tình trạng thiết bị khi bàn giao" />
+            <input id="transferGiver" placeholder="Người giao" />
             <input id="transferReceiver" placeholder="Người nhận" />
+            <input id="transferApprovedBy" placeholder="Người phê duyệt" />
             <div id="transferCurrent" class="lcm-current span-3">Chọn thiết bị để xem khoa/vị trí hiện tại.</div>
+            <div id="movementHint" class="movement-hint span-3"></div>
             <textarea id="transferNote" class="span-3" placeholder="Ghi chú"></textarea>
-            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Ghi nhận điều chuyển</button></div>
+            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu phiếu biến động</button></div>
           </form>
         </section>
-        <section class="card"><div class="table-wrap"><table class="lcm-table"><thead><tr><th>Ngày</th><th>Thiết bị</th><th>Từ khoa</th><th>Đến khoa</th><th>Vị trí cũ</th><th>Vị trí mới</th><th>Lý do</th><th>Người nhận</th></tr></thead><tbody id="transferRows"></tbody></table></div></section>
+        <section class="card">
+          <div class="table-card-header"><h3>Lịch sử biến động thiết bị</h3><span id="movementSummary" class="lcm-note"></span></div>
+          <div class="table-wrap"><table class="lcm-table movement-table"><thead><tr><th>Loại</th><th>Ngày</th><th>Thiết bị</th><th>Từ khoa</th><th>Đến khoa</th><th>Vị trí</th><th>Tình trạng bàn giao</th><th>Văn bản</th><th>Người giao</th><th>Người nhận</th><th>Lý do</th></tr></thead><tbody id="transferRows"></tbody></table></div>
+        </section>
       </section>
 
       <section class="lcm-panel" data-panel="risk">
@@ -176,5 +188,6 @@
   </div>
   <script src="/api.js"></script>
   <script src="/lcm.js"></script>
+  <script src="/lcm-movements.js"></script>
 </body>
 </html>
