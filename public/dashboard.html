@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tổng quan - Quản lý TTBYT BVQY4</title>
   <link rel="stylesheet" href="/styles.css" />
+  <style>.mini-kpi-grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.mini-kpi-grid-4>div{padding:10px 12px;border:1px solid #d7e8f2;border-radius:10px;background:#f8fcff}.mini-kpi-grid-4 span{display:block;color:#667085;font-size:12px}.mini-kpi-grid-4 b{display:block;margin-top:4px;font-size:22px;color:#0b5cad}@media(max-width:720px){.mini-kpi-grid-4{grid-template-columns:1fr 1fr}}</style>
 </head>
 <body>
   <div class="layout">
@@ -15,20 +16,25 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box">Người dùng: Quản trị viên</div>
       </div>
 
       <section class="dashboard-stats dashboard-stats-4">
         <div class="card stat-card simple-card"><h3>Tổng thiết bị</h3><div id="dbTotal" class="value">0</div></div>
         <div class="card stat-card simple-card"><h3>Đang hoạt động</h3><div id="dbActive" class="value">0</div></div>
         <div class="card stat-card simple-card"><h3>Chờ sửa chữa</h3><div id="dbWaitingRepair" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Ngừng hoạt động</h3><div id="dbStopped" class="value">0</div></div>
+        <div class="card stat-card simple-card"><h3>Ngừng/Chờ thanh lý</h3><div id="dbStopped" class="value">0</div></div>
       </section>
 
       <section class="card" style="display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap">
-        <div>
+        <div style="flex:1;min-width:280px">
           <h3 class="section-title" style="margin-bottom:6px">Quản lý vòng đời thiết bị y tế (LCM)</h3>
-          <p style="margin:0;color:#667085">Tiếp nhận - nghiệm thu - điều chuyển - đánh giá hiệu quả/rủi ro - thanh lý trên một hồ sơ xuyên suốt.</p>
+          <p style="margin:0 0 12px;color:#667085">Tiếp nhận - nghiệm thu - điều chuyển - đánh giá hiệu quả/rủi ro - thanh lý trên một hồ sơ xuyên suốt.</p>
+          <div class="mini-kpi-grid mini-kpi-grid-4">
+            <div><span>Rủi ro cao</span><b id="dbLcmRisk">0</b></div>
+            <div><span>Chờ tiếp nhận</span><b id="dbLcmReceipt">0</b></div>
+            <div><span>Chờ thanh lý</span><b id="dbLcmDisposal">0</b></div>
+            <div><span>Bảo hành ≤30 ngày</span><b id="dbLcmWarranty">0</b></div>
+          </div>
         </div>
         <a class="btn btn-primary" href="/lcm.html">Mở phân hệ LCM</a>
       </section>
@@ -48,6 +54,11 @@
           <div class="due-list-block"><h4>Bảo dưỡng sắp đến hạn</h4><ul id="dueMaints" class="task-list"></ul></div>
           <div class="due-list-block"><h4>Kiểm định sắp đến hạn</h4><ul id="dueInspections" class="task-list"></ul></div>
         </div>
+      </section>
+
+      <section class="card dashboard-upcoming-card">
+        <div class="table-card-header"><h3 class="section-title">Ưu tiên LCM</h3><a class="btn" href="/lcm.html">Xem chi tiết</a></div>
+        <ul id="lcmPriorityList" class="task-list"></ul>
       </section>
     </main>
   </div>
