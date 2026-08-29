@@ -206,10 +206,12 @@ module.exports = function registerLcmRoutes(app) {
             ELSE 0
           END
         ) FROM repairs r WHERE r.device_id=dv.id),0) AS downtime_hours_12m,
-        (SELECT MIN(m.next_date) FROM maintenances m
-          WHERE m.device_id=dv.id AND COALESCE(m.next_date,'') <> '' AND date(m.next_date) >= date('now','-365 days')) AS next_maintenance,
-        (SELECT MIN(i.next_date) FROM inspections i
-          WHERE i.device_id=dv.id AND COALESCE(i.next_date,'') <> '' AND date(i.next_date) >= date('now','-365 days')) AS next_inspection,
+        (SELECT m.next_date FROM maintenances m
+          WHERE m.device_id=dv.id AND COALESCE(m.next_date,'') <> ''
+          ORDER BY date(COALESCE(NULLIF(m.maintenance_date,''),m.next_date)) DESC, m.id DESC LIMIT 1) AS next_maintenance,
+        (SELECT i.next_date FROM inspections i
+          WHERE i.device_id=dv.id AND COALESCE(i.next_date,'') <> ''
+          ORDER BY date(COALESCE(NULLIF(i.inspection_date,''),i.next_date)) DESC, i.id DESC LIMIT 1) AS next_inspection,
         COALESCE((SELECT SUM(COALESCE(u.value,0)) FROM usage_reports u
           WHERE u.device_id=dv.id AND u.year=CAST(strftime('%Y','now') AS INTEGER)),0) AS usage_current_year,
         (SELECT r.status FROM device_receipts r WHERE r.device_id=dv.id ORDER BY r.id DESC LIMIT 1) AS receipt_status,
@@ -261,7 +263,7 @@ module.exports = function registerLcmRoutes(app) {
       waiting_repair: devices.filter(x => x.status === "Chờ sửa chữa").length,
       waiting_disposal: devices.filter(x => x.status === "Chờ thanh lý").length,
       stopped: devices.filter(x => x.status === "Ngừng hoạt động").length,
-      high_risk: alerts.high_risk.length,
+      high_risk: devices.filter(x => x.risk_level === "Cao").length,
       medium_risk: devices.filter(x => x.risk_level === "Trung bình").length,
       maintenance_overdue: alerts.maintenance_overdue.length,
       maintenance_due_30: alerts.maintenance_due_30.length,
