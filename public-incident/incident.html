@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <title>Báo sự cố thiết bị - Bệnh viện Quân y 4</title>
+  <link rel="stylesheet" href="/assets/incident.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="brand">
+      <img src="/assets/logo.jpg" alt="Bệnh viện Quân y 4" />
+      <div>
+        <strong>BỆNH VIỆN QUÂN Y 4</strong>
+        <span>Khoa Trang bị</span>
+      </div>
+    </header>
+
+    <section class="card device-card" id="deviceCard">
+      <div class="loading">Đang tải thông tin thiết bị...</div>
+    </section>
+
+    <section class="card">
+      <div class="title-row">
+        <div>
+          <div class="eyebrow">BÁO SỰ CỐ THIẾT BỊ</div>
+          <h1>Thông báo nhanh cho Khoa Trang bị</h1>
+        </div>
+      </div>
+      <p class="help">Vui lòng mô tả ngắn gọn hiện tượng bất thường. Hệ thống chỉ tiếp nhận báo sự cố, không hiển thị hồ sơ quản lý nội bộ.</p>
+
+      <form id="incidentForm" autocomplete="on">
+        <label>
+          <span>Người báo sự cố <b>*</b></span>
+          <input id="reporter" name="reporter" maxlength="100" required placeholder="Họ và tên" autocomplete="name" />
+        </label>
+
+        <label>
+          <span>Số điện thoại</span>
+          <input id="phone" name="phone" maxlength="30" inputmode="tel" placeholder="Số điện thoại liên hệ" autocomplete="tel" />
+        </label>
+
+        <fieldset>
+          <legend>Mức độ <b>*</b></legend>
+          <div class="severity-row">
+            <label class="choice">
+              <input type="radio" name="severity" value="Bình thường" checked />
+              <span>Bình thường</span>
+            </label>
+            <label class="choice urgent">
+              <input type="radio" name="severity" value="Khẩn" />
+              <span>Khẩn</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          <span>Mô tả sự cố <b>*</b></span>
+          <textarea id="description" name="description" maxlength="1200" required placeholder="Ví dụ: máy không khởi động, màn hình báo lỗi, có tiếng kêu bất thường..."></textarea>
+        </label>
+
+        <label>
+          <span>Ảnh sự cố</span>
+          <input id="images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+          <small>Tối đa 3 ảnh; mỗi ảnh tối đa 5MB.</small>
+        </label>
+
+        <label class="hp" aria-hidden="true">
+          <span>Website</span>
+          <input id="website" name="website" tabindex="-1" autocomplete="off" />
+        </label>
+
+        <button id="submitBtn" type="submit">GỬI BÁO SỰ CỐ</button>
+      </form>
+
+      <div id="message" class="message" hidden></div>
+    </section>
+
+    <footer>© 2026 Khoa Trang bị - Bệnh viện Quân y 4</footer>
+  </main>
+  <script src="/assets/incident.js" defer></script>
+</body>
+</html>
