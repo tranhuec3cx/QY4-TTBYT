@@ -10,7 +10,7 @@ function populateReplacementDepartments(){
   const el=document.getElementById("replacementDepartment");
   if(!el) return;
   const current=el.value||"ALL";
-  const deps=(window.LCM_META?.departments||[]);
+  const deps=(typeof LCM_META!=="undefined" && LCM_META?.departments ? LCM_META.departments : []);
   el.innerHTML='<option value="ALL">Tất cả khoa/phòng</option>'+deps.map(d=>`<option value="${rpEsc(d.code)}">${rpEsc(d.code)} - ${rpEsc(d.name)}</option>`).join("");
   el.value=deps.some(d=>d.code===current)?current:"ALL";
 }
@@ -88,10 +88,12 @@ async function loadReplacementPlan(){
   }
 }
 
-document.addEventListener("DOMContentLoaded",()=>{
+function initReplacementPlanning(){
   ["replacementDepartment","replacementHorizon","replacementPriority"].forEach(id=>{
     document.getElementById(id)?.addEventListener("change",()=>{renderReplacementRows();updateReplacementExport();});
   });
   document.getElementById("replacementSearch")?.addEventListener("input",renderReplacementRows);
   loadReplacementPlan();
-});
+}
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",initReplacementPlanning);
+else initReplacementPlanning();
