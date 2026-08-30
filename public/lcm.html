@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/lcm.css" />
   <link rel="stylesheet" href="/lcm-movements.css" />
+  <link rel="stylesheet" href="/lcm-replacement.css" />
+  <link rel="stylesheet" href="/lcm-simple.css" />
 </head>
 <body>
   <div class="layout">
@@ -20,85 +22,87 @@
         <div class="user-box">LCM - Life Cycle Management</div>
       </div>
 
-      <section class="card lcm-hero">
+      <section class="card simple-lcm-intro">
         <div>
           <div class="lcm-kicker">QUẢN LÝ VÒNG ĐỜI THIẾT BỊ Y TẾ</div>
-          <h2>Từ tiếp nhận đến thanh lý trên một hồ sơ xuyên suốt</h2>
-          <p>Tiếp nhận · Nghiệm thu · Cấp phát · Thu hồi · Điều chuyển · Sự cố · Sửa chữa · Bảo dưỡng · Kiểm định · Hiệu quả khai thác · Thanh lý</p>
+          <h2>Theo dõi · Biến động · Đánh giá</h2>
+          <p>LCM tổng hợp dữ liệu từ các phân hệ kỹ thuật để nhìn toàn bộ vòng đời và hỗ trợ quyết định quản lý.</p>
         </div>
         <button class="btn btn-primary" id="refreshAllBtn">Cập nhật dữ liệu</button>
       </section>
 
-      <div class="lcm-tabs" id="lcmTabs">
-        <button class="active" data-tab="overview">Tổng quan</button>
-        <button data-tab="receipts">Tiếp nhận - nghiệm thu</button>
-        <button data-tab="transfers">Cấp phát - Thu hồi - Điều chuyển</button>
-        <button data-tab="risk">Hiệu quả & rủi ro</button>
-        <button data-tab="disposals">Thanh lý</button>
+      <div class="simple-lcm-tabs" id="lcmTabs">
+        <button class="active" data-tab="profile">HỒ SƠ VÒNG ĐỜI</button>
+        <button data-tab="transfers">BIẾN ĐỘNG</button>
+        <button data-tab="assessment">ĐÁNH GIÁ – KẾ HOẠCH</button>
       </div>
 
-      <section class="lcm-panel active" data-panel="overview">
-        <div class="lcm-kpi-grid">
-          <div class="card lcm-kpi"><span>Tổng thiết bị</span><b id="kTotal">0</b></div>
-          <div class="card lcm-kpi"><span>Đang hoạt động</span><b id="kActive">0</b></div>
-          <div class="card lcm-kpi"><span>Chờ sửa chữa</span><b id="kRepair">0</b></div>
-          <div class="card lcm-kpi"><span>Rủi ro cao</span><b id="kHighRisk">0</b></div>
-          <div class="card lcm-kpi"><span>Quá hạn bảo dưỡng</span><b id="kMaintOverdue">0</b><small id="kMaintDue30">0 sắp đến hạn</small></div>
-          <div class="card lcm-kpi"><span>Quá hạn kiểm định</span><b id="kInspOverdue">0</b><small id="kInspDue30">0 sắp đến hạn</small></div>
-          <div class="card lcm-kpi"><span>Chờ tiếp nhận/bàn giao</span><b id="kReceipt">0</b></div>
-          <div class="card lcm-kpi"><span>Chờ thanh lý</span><b id="kDisposal">0</b></div>
-          <div class="card lcm-kpi"><span>Bảo hành sắp hết ≤30 ngày</span><b id="kWarrantyDue">0</b></div>
-          <div class="card lcm-kpi"><span>Đã hết bảo hành</span><b id="kWarrantyExpired">0</b></div>
-          <div class="card lcm-kpi"><span>Biến động năm nay</span><b id="kTransfers">0</b></div>
-          <div class="card lcm-kpi"><span>Ngừng hoạt động</span><b id="kStopped">0</b></div>
-        </div>
-
-        <section class="card">
-          <div class="table-card-header"><h3>Cảnh báo cần xử lý</h3><span class="lcm-note">Ưu tiên theo quá hạn, rủi ro và trạng thái vòng đời.</span></div>
-          <div id="alertGrid" class="lcm-alert-grid"></div>
-        </section>
-
-        <section class="card">
-          <div class="table-card-header"><h3>10 thiết bị cần ưu tiên quản lý</h3><button class="btn" data-go-tab="risk">Xem toàn bộ</button></div>
-          <div class="table-wrap">
-            <table class="lcm-table">
-              <thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Giai đoạn</th><th>Tuổi</th><th>Sửa chữa 12 tháng</th><th>Availability</th><th>Rủi ro</th><th>Khuyến nghị</th></tr></thead>
-              <tbody id="riskTopRows"></tbody>
-            </table>
-          </div>
-        </section>
-      </section>
-
-      <section class="lcm-panel" data-panel="receipts">
-        <section class="card">
-          <div class="table-card-header"><h3>Phiếu tiếp nhận - nghiệm thu - bàn giao</h3><span class="lcm-note">Theo dõi đủ các mốc từ giao hàng đến đưa vào sử dụng.</span></div>
-          <form id="receiptForm" class="lcm-form">
-            <input type="hidden" id="receiptId" />
-            <select id="receiptDevice" required></select>
-            <input id="receiptContract" placeholder="Số hợp đồng" />
-            <input id="receiptSupplier" placeholder="Nhà cung cấp" />
-            <label>Ngày giao<input id="receiptDelivery" type="date" /></label>
-            <label>Ngày lắp đặt<input id="receiptInstall" type="date" /></label>
-            <label>Ngày nghiệm thu<input id="receiptAcceptance" type="date" /></label>
-            <label>Ngày đào tạo<input id="receiptTrainingDate" type="date" /></label>
-            <label>Ngày bàn giao<input id="receiptHandover" type="date" /></label>
-            <input id="receiptReceiver" placeholder="Người/bộ phận tiếp nhận" />
-            <select id="receiptCocq"><option>Chưa cập nhật</option><option>Đầy đủ</option><option>Thiếu hồ sơ</option><option>Không áp dụng</option></select>
-            <select id="receiptTraining"><option>Chưa thực hiện</option><option>Đã đào tạo</option><option>Đào tạo bổ sung</option></select>
-            <select id="receiptStatus"><option>Chuẩn bị tiếp nhận</option><option>Đã giao hàng</option><option>Đã lắp đặt</option><option>Đã nghiệm thu</option><option>Đã đào tạo</option><option>Đã bàn giao</option></select>
-            <textarea id="receiptNote" class="span-3" placeholder="Ghi chú"></textarea>
-            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu phiếu</button><button class="btn" type="button" id="receiptReset">Đặt lại</button></div>
-          </form>
-        </section>
-        <section class="card">
-          <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Thiết bị</th><th>Hợp đồng</th><th>NCC</th><th>Giao hàng</th><th>Nghiệm thu</th><th>Bàn giao</th><th>CO/CQ</th><th>Đào tạo</th><th>Hoàn thiện</th><th>Trạng thái</th><th></th></tr></thead><tbody id="receiptRows"></tbody></table></div>
-        </section>
-      </section>
-
-      <section class="lcm-panel" data-panel="transfers">
+      <section class="lcm-panel simple-lcm-panel active" data-panel="profile">
         <section class="card">
           <div class="table-card-header">
-            <div><h3>Cấp phát - Thu hồi - Điều chuyển thiết bị</h3><span class="lcm-note">Một phiếu biến động dùng chung; lịch sử không xóa để bảo đảm truy xuất vòng đời.</span></div>
+            <div>
+              <h3>Hồ sơ vòng đời thiết bị</h3>
+              <span class="lcm-note">Chọn một thiết bị để xem nhanh tình trạng hiện tại; hồ sơ chi tiết hiển thị toàn bộ timeline vòng đời.</span>
+            </div>
+            <button class="btn" id="simpleRefreshProfile" type="button">Làm mới</button>
+          </div>
+          <div class="simple-profile-grid">
+            <div class="simple-profile-select">
+              <select id="simpleProfileDevice"></select>
+              <a class="btn btn-primary disabled" id="simpleProfileOpen" href="#">Mở hồ sơ vòng đời</a>
+              <button class="btn" id="simpleProfileAssess" type="button" disabled>Xem đánh giá</button>
+            </div>
+            <div class="simple-metric"><span>Giai đoạn hiện tại</span><b id="simpleProfileStage">—</b></div>
+            <div class="simple-metric"><span>Tuổi thiết bị</span><b id="simpleProfileAge">—</b></div>
+            <div class="simple-metric"><span>Rủi ro</span><b id="simpleProfileRisk">—</b></div>
+            <div class="simple-metric"><span>Availability 12 tháng</span><b id="simpleProfileAvailability">—</b></div>
+            <div class="simple-metric"><span>Sửa chữa</span><b id="simpleProfileRepairs">—</b></div>
+            <div class="simple-profile-decision"><b>Khuyến nghị quản lý</b><span id="simpleProfileDecision">Chọn thiết bị để xem tóm tắt vòng đời và khuyến nghị quản lý.</span></div>
+          </div>
+        </section>
+
+        <details class="simple-section" id="receiptDetails">
+          <summary>Tiếp nhận – nghiệm thu – bàn giao</summary>
+          <div class="simple-section-body">
+            <section class="card">
+              <div class="table-card-header"><h3>Phiếu tiếp nhận – nghiệm thu – bàn giao</h3><span class="lcm-note">Nghiệp vụ đầu vòng đời; chỉ mở khi cần cập nhật hồ sơ.</span></div>
+              <form id="receiptForm" class="lcm-form">
+                <input type="hidden" id="receiptId" />
+                <select id="receiptDevice" required></select>
+                <input id="receiptContract" placeholder="Số hợp đồng" />
+                <input id="receiptSupplier" placeholder="Nhà cung cấp" />
+                <label>Ngày giao<input id="receiptDelivery" type="date" /></label>
+                <label>Ngày lắp đặt<input id="receiptInstall" type="date" /></label>
+                <label>Ngày nghiệm thu<input id="receiptAcceptance" type="date" /></label>
+                <label>Ngày đào tạo<input id="receiptTrainingDate" type="date" /></label>
+                <label>Ngày bàn giao<input id="receiptHandover" type="date" /></label>
+                <input id="receiptReceiver" placeholder="Người/bộ phận tiếp nhận" />
+                <select id="receiptCocq"><option>Chưa cập nhật</option><option>Đầy đủ</option><option>Thiếu hồ sơ</option><option>Không áp dụng</option></select>
+                <select id="receiptTraining"><option>Chưa thực hiện</option><option>Đã đào tạo</option><option>Đào tạo bổ sung</option></select>
+                <select id="receiptStatus"><option>Chuẩn bị tiếp nhận</option><option>Đã giao hàng</option><option>Đã lắp đặt</option><option>Đã nghiệm thu</option><option>Đã đào tạo</option><option>Đã bàn giao</option></select>
+                <textarea id="receiptNote" class="span-3" placeholder="Ghi chú"></textarea>
+                <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu phiếu</button><button class="btn" type="button" id="receiptReset">Đặt lại</button></div>
+              </form>
+            </section>
+            <section class="card">
+              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Thiết bị</th><th>Hợp đồng</th><th>NCC</th><th>Giao hàng</th><th>Nghiệm thu</th><th>Bàn giao</th><th>CO/CQ</th><th>Đào tạo</th><th>Hoàn thiện</th><th>Trạng thái</th><th></th></tr></thead><tbody id="receiptRows"></tbody></table></div>
+            </section>
+          </div>
+        </details>
+
+        <div class="simple-hidden-host" aria-hidden="true">
+          <span id="kTotal"></span><span id="kActive"></span><span id="kRepair"></span><span id="kStopped"></span>
+          <span id="kHighRisk"></span><span id="kMaintOverdue"></span><span id="kMaintDue30"></span><span id="kInspOverdue"></span><span id="kInspDue30"></span>
+          <span id="kReceipt"></span><span id="kDisposal"></span><span id="kWarrantyDue"></span><span id="kWarrantyExpired"></span><span id="kTransfers"></span>
+          <div id="alertGrid"></div>
+          <table><tbody id="riskTopRows"></tbody></table>
+        </div>
+      </section>
+
+      <section class="lcm-panel simple-lcm-panel" data-panel="transfers">
+        <section class="card">
+          <div class="table-card-header">
+            <div><h3>Phiếu biến động thiết bị</h3><span class="lcm-note">Một phiếu dùng chung cho cấp phát, thu hồi và điều chuyển.</span></div>
             <div class="movement-legend"><span class="movement-pill issue">Cấp phát</span><span class="movement-pill recall">Thu hồi</span><span class="movement-pill transfer">Điều chuyển</span></div>
           </div>
           <form id="transferForm" class="lcm-form">
@@ -120,46 +124,80 @@
           </form>
         </section>
         <section class="card">
-          <div class="table-card-header"><h3>Lịch sử biến động thiết bị</h3><span id="movementSummary" class="lcm-note"></span></div>
+          <div class="table-card-header"><h3>Lịch sử biến động</h3><span id="movementSummary" class="lcm-note"></span></div>
           <div class="table-wrap"><table class="lcm-table movement-table"><thead><tr><th>Loại</th><th>Ngày</th><th>Thiết bị</th><th>Từ khoa</th><th>Đến khoa</th><th>Vị trí</th><th>Tình trạng bàn giao</th><th>Văn bản</th><th>Người giao</th><th>Người nhận</th><th>Lý do</th></tr></thead><tbody id="transferRows"></tbody></table></div>
         </section>
       </section>
 
-      <section class="lcm-panel" data-panel="risk">
-        <section class="card">
-          <div class="lcm-filter-row">
-            <select id="riskDepartment"></select>
-            <select id="riskLevel"><option value="ALL">Tất cả mức rủi ro</option><option value="Cao">Rủi ro cao</option><option value="Trung bình">Rủi ro trung bình</option><option value="Thấp">Rủi ro thấp</option></select>
-            <input id="riskSearch" placeholder="Tìm mã / tên / serial" />
-            <button class="btn btn-primary" id="riskFilterBtn">Lọc</button>
+      <section class="lcm-panel simple-lcm-panel" data-panel="assessment">
+        <details class="simple-section" id="riskDetails" open>
+          <summary>Hiệu quả khai thác – Rủi ro</summary>
+          <div class="simple-section-body">
+            <section class="card">
+              <div class="lcm-filter-row">
+                <select id="riskDepartment"></select>
+                <select id="riskLevel"><option value="ALL">Tất cả mức rủi ro</option><option value="Cao">Rủi ro cao</option><option value="Trung bình">Rủi ro trung bình</option><option value="Thấp">Rủi ro thấp</option></select>
+                <input id="riskSearch" placeholder="Tìm mã / tên / serial" />
+                <button class="btn btn-primary" id="riskFilterBtn" type="button">Lọc</button>
+              </div>
+            </section>
+            <section class="card">
+              <div class="table-card-header"><h3>Đánh giá thiết bị</h3><span class="lcm-note">Dữ liệu tự tổng hợp từ tuổi máy, sửa chữa, downtime, bảo dưỡng, kiểm định, chất lượng và chi phí.</span></div>
+              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Giai đoạn</th><th>Tuổi</th><th>Sử dụng năm nay</th><th>Sửa/12T</th><th>Downtime</th><th>Availability</th><th>CP sửa/Nguyên giá</th><th>Rủi ro</th><th>Khuyến nghị</th><th></th></tr></thead><tbody id="riskRows"></tbody></table></div>
+            </section>
           </div>
-        </section>
-        <section class="card">
-          <div class="table-card-header"><h3>Hiệu quả khai thác và chỉ số rủi ro</h3><span class="lcm-note">Điểm rủi ro có thể mở chi tiết để biết nguyên nhân.</span></div>
-          <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Giai đoạn</th><th>Tuổi</th><th>Sử dụng năm nay</th><th>Sửa/12T</th><th>Downtime</th><th>Availability</th><th>CP sửa/Nguyên giá</th><th>Rủi ro</th><th>Khuyến nghị</th><th></th></tr></thead><tbody id="riskRows"></tbody></table></div>
-        </section>
-      </section>
+        </details>
 
-      <section class="lcm-panel" data-panel="disposals">
-        <section class="card">
-          <div class="table-card-header"><h3>Hồ sơ ngừng sử dụng - thanh lý</h3><span class="lcm-note">Khi lập hồ sơ, thiết bị chuyển “Chờ thanh lý”; khi hủy sẽ khôi phục trạng thái trước đó.</span></div>
-          <form id="disposalForm" class="lcm-form">
-            <input type="hidden" id="disposalId" />
-            <select id="disposalDevice" required></select>
-            <label>Ngày đề nghị<input id="disposalProposal" type="date" /></label>
-            <input id="disposalReason" placeholder="Lý do đề nghị thanh lý" />
-            <input id="disposalCondition" placeholder="Tình trạng kỹ thuật" />
-            <label>Ngày thẩm định<input id="disposalAppraisal" type="date" /></label>
-            <input id="disposalDecisionNo" placeholder="Số quyết định" />
-            <label>Ngày quyết định<input id="disposalDecisionDate" type="date" /></label>
-            <input id="disposalMethod" placeholder="Hình thức xử lý/thanh lý" />
-            <input id="disposalValue" type="number" placeholder="Giá trị thu hồi" />
-            <select id="disposalStatus"><option>Đề nghị thanh lý</option><option>Chờ thẩm định</option><option>Đã thẩm định</option><option>Đã phê duyệt</option><option>Đã thanh lý</option><option>Hủy</option></select>
-            <textarea id="disposalNote" class="span-3" placeholder="Ghi chú"></textarea>
-            <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu hồ sơ</button><button class="btn" type="button" id="disposalReset">Đặt lại</button></div>
-          </form>
-        </section>
-        <section class="card"><div class="table-wrap"><table class="lcm-table"><thead><tr><th>Thiết bị</th><th>Khoa</th><th>Ngày đề nghị</th><th>Lý do</th><th>Quyết định</th><th>Hình thức</th><th>Giá trị thu hồi</th><th>Trạng thái</th><th></th></tr></thead><tbody id="disposalRows"></tbody></table></div></section>
+        <details class="simple-section" id="replacementDetails" open>
+          <summary>Kế hoạch thay thế 1 – 3 – 5 năm</summary>
+          <div class="simple-section-body">
+            <div class="simple-plan-kpis">
+              <div class="simple-plan-kpi"><span>Trong 1 năm</span><b id="rp1y">0</b><small id="rp1yCost"></small></div>
+              <div class="simple-plan-kpi"><span>Trong 3 năm</span><b id="rp3y">0</b><small id="rp3yCost"></small></div>
+              <div class="simple-plan-kpi"><span>Trong 5 năm</span><b id="rp5y">0</b><small id="rp5yCost"></small></div>
+              <div class="simple-plan-kpi"><span>Sau 5 năm / theo dõi</span><b id="rpLater">0</b><small>Tiếp tục theo dõi</small></div>
+            </div>
+            <section class="card">
+              <div class="lcm-filter-row">
+                <select id="replacementDepartment"></select>
+                <select id="replacementHorizon"><option value="ALL">Tất cả thời hạn</option><option value="1Y">≤ 1 năm</option><option value="3Y">≤ 3 năm</option><option value="5Y">≤ 5 năm</option><option value="LATER">Sau 5 năm / theo dõi</option></select>
+                <select id="replacementPriority"><option value="ALL">Tất cả mức ưu tiên</option><option>Khẩn</option><option>Cao</option><option>Trung bình</option><option>Theo dõi</option></select>
+                <input id="replacementSearch" placeholder="Tìm mã / tên / model / serial" />
+                <a class="btn btn-primary" id="replacementExportBtn" href="/api/lcm/replacement-plan.xlsx">Xuất Excel</a>
+              </div>
+            </section>
+            <section class="card">
+              <div class="table-card-header"><h3>Danh sách ưu tiên</h3><span id="replacementCount" class="lcm-note"></span></div>
+              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Ưu tiên</th><th>Năm gợi ý</th><th>Thiết bị</th><th>Khoa</th><th>Tuổi/KH</th><th>Sửa/12T</th><th>Availability</th><th>CP sửa</th><th>Điểm</th><th>Căn cứ</th><th></th></tr></thead><tbody id="replacementRows"></tbody></table></div>
+              <p class="simple-note">Nguyên giá chỉ là số tham chiếu; không thay thế dự toán, khảo sát giá hoặc quyết định đầu tư.</p>
+            </section>
+          </div>
+        </details>
+
+        <details class="simple-section" id="disposalDetails">
+          <summary>Kết thúc vòng đời – Thanh lý</summary>
+          <div class="simple-section-body">
+            <section class="card">
+              <div class="table-card-header"><h3>Hồ sơ thanh lý</h3><span class="lcm-note">Đề nghị → thẩm định → phê duyệt → đã thanh lý.</span></div>
+              <form id="disposalForm" class="lcm-form">
+                <input type="hidden" id="disposalId" />
+                <select id="disposalDevice" required></select>
+                <label>Ngày đề nghị<input id="disposalProposal" type="date" /></label>
+                <input id="disposalReason" placeholder="Lý do đề nghị thanh lý" />
+                <input id="disposalCondition" placeholder="Tình trạng kỹ thuật" />
+                <label>Ngày thẩm định<input id="disposalAppraisal" type="date" /></label>
+                <input id="disposalDecisionNo" placeholder="Số quyết định" />
+                <label>Ngày quyết định<input id="disposalDecisionDate" type="date" /></label>
+                <input id="disposalMethod" placeholder="Hình thức xử lý/thanh lý" />
+                <input id="disposalValue" type="number" placeholder="Giá trị thu hồi" />
+                <select id="disposalStatus"><option>Đề nghị thanh lý</option><option>Chờ thẩm định</option><option>Đã thẩm định</option><option>Đã phê duyệt</option><option>Đã thanh lý</option><option>Hủy</option></select>
+                <textarea id="disposalNote" class="span-3" placeholder="Ghi chú"></textarea>
+                <div class="lcm-form-actions span-3"><button class="btn btn-primary" type="submit">Lưu hồ sơ</button><button class="btn" type="button" id="disposalReset">Đặt lại</button></div>
+              </form>
+            </section>
+            <section class="card"><div class="table-wrap"><table class="lcm-table"><thead><tr><th>Thiết bị</th><th>Khoa</th><th>Ngày đề nghị</th><th>Lý do</th><th>Quyết định</th><th>Hình thức</th><th>Giá trị thu hồi</th><th>Trạng thái</th><th></th></tr></thead><tbody id="disposalRows"></tbody></table></div></section>
+          </div>
+        </details>
       </section>
 
       <div id="profileModal" class="lcm-modal-backdrop" hidden>
@@ -189,5 +227,7 @@
   <script src="/api.js"></script>
   <script src="/lcm.js"></script>
   <script src="/lcm-movements.js"></script>
+  <script src="/lcm-replacement.js"></script>
+  <script src="/lcm-simple.js"></script>
 </body>
 </html>
