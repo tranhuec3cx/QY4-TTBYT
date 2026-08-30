@@ -16,10 +16,12 @@ Nhánh phát triển: `feature/lcm-vong-doi`
 - Nội dung QR vẫn mở hồ sơ thiết bị bằng `device_id` nội bộ để liên kết không thay đổi khi thiết bị đổi khoa, vị trí hoặc cập nhật thông tin quản lý.
 - Tem QR hiển thị: Bệnh viện Quân y 4 → Tên thiết bị → Mã QR dạng `XQ.246489` → QR → hướng dẫn quét.
 - Ô tìm kiếm danh sách thiết bị nhận trực tiếp mã QR dạng `XQ.246489`, ngoài các trường đã có như tên thiết bị, serial, mã bảo hiểm, model.
+- Nút QR trong **Danh sách thiết bị** và trong **Hồ sơ chi tiết thiết bị** dùng cùng một quy tắc hiển thị.
 
 ## File thay đổi
 
 - `public/devices.js`
 - `public/index.html`
+- `public/device-lifecycle.js`
 
 Không thay đổi nhánh `main`.
