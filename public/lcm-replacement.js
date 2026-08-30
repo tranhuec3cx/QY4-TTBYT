@@ -1,4 +1,5 @@
 let LCM_REPLACEMENT = {summary:{},rows:[]};
+let RP_DEPARTMENTS = [];
 
 function rpMoney(v){ return typeof formatCurrency==="function" ? formatCurrency(Number(v||0)) : Number(v||0).toLocaleString("vi-VN")+" đ"; }
 function rpEsc(v){ return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c])); }
@@ -10,7 +11,7 @@ function populateReplacementDepartments(){
   const el=document.getElementById("replacementDepartment");
   if(!el) return;
   const current=el.value||"ALL";
-  const deps=(typeof LCM_META!=="undefined" && LCM_META?.departments ? LCM_META.departments : []);
+  const deps=RP_DEPARTMENTS;
   el.innerHTML='<option value="ALL">Tất cả khoa/phòng</option>'+deps.map(d=>`<option value="${rpEsc(d.code)}">${rpEsc(d.code)} - ${rpEsc(d.name)}</option>`).join("");
   el.value=deps.some(d=>d.code===current)?current:"ALL";
 }
@@ -76,7 +77,9 @@ function updateReplacementExport(){
 
 async function loadReplacementPlan(){
   try{
-    LCM_REPLACEMENT=await api("/api/lcm/replacement-plan");
+    const [plan,meta]=await Promise.all([api("/api/lcm/replacement-plan"),api("/api/meta")]);
+    LCM_REPLACEMENT=plan;
+    RP_DEPARTMENTS=meta?.departments||[];
     populateReplacementDepartments();
     renderReplacementSummary();
     renderReplacementRows();
@@ -93,6 +96,12 @@ function initReplacementPlanning(){
     document.getElementById(id)?.addEventListener("change",()=>{renderReplacementRows();updateReplacementExport();});
   });
   document.getElementById("replacementSearch")?.addEventListener("input",renderReplacementRows);
+  if(typeof saveProfile==="function" && !saveProfile.__replacementWrapped){
+    const originalSaveProfile=saveProfile;
+    const wrapped=async function(e){ await originalSaveProfile(e); await loadReplacementPlan(); };
+    wrapped.__replacementWrapped=true;
+    saveProfile=wrapped;
+  }
   loadReplacementPlan();
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",initReplacementPlanning);
