@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR báo sự cố thiết bị</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/incident-qr.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div>
+      </div>
+
+      <section class="card">
+        <div class="incident-qr-config">
+          <div><span>Địa chỉ công khai</span><b id="publicBase">Đang tải...</b></div>
+          <div id="publicBaseStatus" class="incident-qr-status"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="form-grid incident-qr-controls">
+          <label class="field span-2"><span class="field-label">Tìm thiết bị</span><input id="deviceSearch" placeholder="Tên thiết bị, Serial, khoa/phòng..." /></label>
+          <label class="field"><span class="field-label">Chọn thiết bị</span><select id="deviceSelect"></select></label>
+        </div>
+      </section>
+
+      <section class="card incident-qr-preview-card" id="previewCard">
+        <div class="center-empty">Chọn thiết bị để tạo QR báo sự cố.</div>
+      </section>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/incident-qr.js"></script>
+</body>
+</html>
