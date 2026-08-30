@@ -39,6 +39,7 @@ function renderMenu(active) {
     {key:"maintenance", href:"/maintenance.html", label:"Sửa chữa"},
     {key:"inspection", href:"/inspection.html", label:"Bảo dưỡng"},
     {key:"inspections", href:"/inspections.html", label:"Kiểm định"},
+    {key:"lcm", href:"/lcm.html", label:"Vòng đời thiết bị"},
     {key:"reports", href:"/reports.html", label:"Báo cáo"},
     {key:"settings", href:"/settings.html", label:"Cài đặt"}
   ];
@@ -70,6 +71,7 @@ function goBackSmart(defaultUrl = smartBackDefault()) {
     reports: "/reports.html",
     inspections: "/inspections.html",
     inspection: "/inspection.html",
+    lcm: "/lcm.html",
     devices: "/index.html",
     dashboard: "/dashboard.html"
   };
