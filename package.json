@@ -6,6 +6,7 @@
   "main": "bootstrap.js",
   "scripts": {
     "start": "node bootstrap.js",
+    "start:public-incident": "node public-incident-gateway.js",
     "backup": "node scripts/backup.js"
   },
   "dependencies": {
