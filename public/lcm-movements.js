@@ -117,3 +117,57 @@
     updateMovementCurrent();
   });
 })();
+
+(function installReplacementPlanning(){
+  function install(){
+    if(!document.querySelector('link[href="/lcm-replacement.css"]')){
+      const link=document.createElement("link"); link.rel="stylesheet"; link.href="/lcm-replacement.css"; document.head.appendChild(link);
+    }
+    const tabs=document.getElementById("lcmTabs");
+    if(tabs && !tabs.querySelector('[data-tab="replacement"]')){
+      const btn=document.createElement("button");
+      btn.dataset.tab="replacement"; btn.textContent="Kế hoạch thay thế";
+      const before=tabs.querySelector('[data-tab="disposals"]');
+      if(before) tabs.insertBefore(btn,before); else tabs.appendChild(btn);
+      btn.onclick=()=>setTab("replacement");
+    }
+    if(!document.querySelector('[data-panel="replacement"]')){
+      const panel=document.createElement("section");
+      panel.className="lcm-panel"; panel.dataset.panel="replacement";
+      panel.innerHTML=`
+        <section class="card">
+          <div class="table-card-header">
+            <div><h3>Kế hoạch thay thế thiết bị 1 – 3 – 5 năm</h3>
+            <span class="lcm-note">Xếp ưu tiên theo tuổi thiết bị, tình trạng, sửa chữa, chi phí, availability, chất lượng và mức độ quan trọng. Đây là gợi ý hỗ trợ quyết định; năm thay thế chính thức do đơn vị cấu hình/phê duyệt.</span></div>
+            <a class="btn" id="replacementExportBtn" href="/api/lcm/replacement-plan.xlsx">Xuất Excel</a>
+          </div>
+          <div class="replacement-kpi-grid">
+            <div class="replacement-kpi urgent"><span>Trong 1 năm</span><b id="rp1y">0</b><small id="rp1yCost">0 đ nguyên giá tham chiếu</small></div>
+            <div class="replacement-kpi high"><span>Trong 3 năm</span><b id="rp3y">0</b><small id="rp3yCost">0 đ nguyên giá tham chiếu</small></div>
+            <div class="replacement-kpi medium"><span>Trong 5 năm</span><b id="rp5y">0</b><small id="rp5yCost">0 đ nguyên giá tham chiếu</small></div>
+            <div class="replacement-kpi follow"><span>Sau 5 năm / theo dõi</span><b id="rpLater">0</b><small>Chưa cần đưa vào kế hoạch gần</small></div>
+          </div>
+          <div class="replacement-filter-row">
+            <select id="replacementDepartment"></select>
+            <select id="replacementHorizon"><option value="ALL">Tất cả thời hạn</option><option value="1Y">Trong 1 năm</option><option value="3Y">Trong 3 năm</option><option value="5Y">Trong 5 năm</option><option value="LATER">Sau 5 năm / theo dõi</option></select>
+            <select id="replacementPriority"><option value="ALL">Tất cả mức ưu tiên</option><option value="Khẩn">Khẩn</option><option value="Cao">Cao</option><option value="Trung bình">Trung bình</option><option value="Theo dõi">Theo dõi</option></select>
+            <input id="replacementSearch" placeholder="Tìm mã / tên / model / serial" />
+          </div>
+        </section>
+        <section class="card">
+          <div class="table-card-header"><h3>Danh sách ưu tiên thay thế</h3><span id="replacementCount" class="lcm-note">0 thiết bị</span></div>
+          <div class="table-wrap"><table class="lcm-table replacement-table">
+            <thead><tr><th>Ưu tiên</th><th>Năm dự kiến</th><th>Thiết bị</th><th>Khoa</th><th>Tuổi / tuổi đời</th><th>Sửa/12T</th><th>Availability</th><th>CP sửa/Nguyên giá</th><th>Điểm KH</th><th>Căn cứ gợi ý</th><th></th></tr></thead>
+            <tbody id="replacementRows"></tbody>
+          </table></div>
+        </section>`;
+      const disposals=document.querySelector('[data-panel="disposals"]');
+      if(disposals) disposals.parentNode.insertBefore(panel,disposals); else document.querySelector("main")?.appendChild(panel);
+    }
+    if(!document.querySelector('script[src="/lcm-replacement.js"]')){
+      const script=document.createElement("script"); script.src="/lcm-replacement.js"; document.body.appendChild(script);
+    }
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",install);
+  else install();
+})();
