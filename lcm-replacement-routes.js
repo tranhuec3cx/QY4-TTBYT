@@ -133,6 +133,17 @@ module.exports = function registerLcmReplacementRoutes(app) {
     );
   }
 
+  function filterPlan(rows, query = {}) {
+    const dep = String(query.department_code || "ALL");
+    const horizon = String(query.horizon || "ALL");
+    const priority = String(query.priority || "ALL");
+    return rows.filter(x =>
+      (dep === "ALL" || x.department_code === dep) &&
+      (horizon === "ALL" || x.horizon === horizon) &&
+      (priority === "ALL" || x.replacement_priority === priority)
+    );
+  }
+
   function summarize(rows) {
     const one = rows.filter(x=>x.horizon==="1Y");
     const three = rows.filter(x=>x.horizon==="3Y");
@@ -152,13 +163,13 @@ module.exports = function registerLcmReplacementRoutes(app) {
     };
   }
 
-  app.get("/api/lcm/replacement-plan", (_req,res)=>{
-    const rows = getPlan();
+  app.get("/api/lcm/replacement-plan", (req,res)=>{
+    const rows = filterPlan(getPlan(), req.query || {});
     res.json({ summary:summarize(rows), rows });
   });
 
-  app.get("/api/lcm/replacement-plan.xlsx", async (_req,res)=>{
-    const rows = getPlan();
+  app.get("/api/lcm/replacement-plan.xlsx", async (req,res)=>{
+    const rows = filterPlan(getPlan(), req.query || {});
     const wb = new ExcelJS.Workbook();
     wb.creator = "BVQY4 - Khoa Trang bị";
     const ws = wb.addWorksheet("Ke hoach thay the");
