@@ -10,6 +10,80 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\'":"&#039;"}[ch] || ch));
 }
 
+function qrGroupCode(device) {
+  const insurance = String(device?.insurance_code || "").trim().toUpperCase();
+  const insurancePrefix = insurance.split(".")[0].replace(/[^A-Z0-9]/g, "");
+  if (insurancePrefix) return insurancePrefix;
+  return String(device?.group_code || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function buildDeviceQrCode(device) {
+  const groupCode = qrGroupCode(device);
+  const serial = String(device?.serial || "").trim().replace(/\s+/g, "").toUpperCase();
+  if (!groupCode || !serial) return "";
+  return `${groupCode}.${serial}`;
+}
+
+function showDeviceQrModal(device) {
+  closeQrModal();
+  if (!device) return;
+  const qrCodeRaw = buildDeviceQrCode(device);
+  if (!qrCodeRaw) {
+    alert("Thiết bị chưa có Serial Number hoặc mã nhóm. Vui lòng bổ sung trước khi tạo mã QR.");
+    return;
+  }
+  const initialBase = getQrBaseUrl();
+  const url = buildQrCheckUrl(device, initialBase);
+  const name = qrModalEsc(device.name || "");
+  const code = qrModalEsc(qrCodeRaw);
+  const model = qrModalEsc(device.model || "");
+  const serial = qrModalEsc(device.serial || "");
+  const img = qrImageUrl(url, 280);
+  const backdrop = document.createElement("div");
+  backdrop.id = "deviceQrBackdrop";
+  backdrop.className = "qr-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="qr-modal-card" role="dialog" aria-modal="true">
+      <div class="qr-modal-head">
+        <h3>Mã QR thiết bị - ${code}</h3>
+        <button class="qr-close" type="button" onclick="closeQrModal()">×</button>
+      </div>
+      <div id="qrPrintArea" class="qr-print-area">
+        <div class="hospital">BỆNH VIỆN QUÂN Y 4</div>
+        <div class="name"><b>${name}</b></div>
+        <div class="code">${code}</div>
+        <img id="qrCodeImg" src="${img}" alt="QR ${code}" />
+        <div class="hint">Quét để xem hồ sơ / báo sự cố thiết bị</div>
+      </div>
+      <div class="qr-device-meta">
+        <b>${name}</b>
+        <div>Mã QR: <b>${code}</b></div>
+        <div>Serial Number: ${serial || "—"}</div>
+        <div>Model: ${model || "—"}</div>
+        <a id="qrCheckLink" href="${url}" target="_blank" rel="noopener">Mở hồ sơ thiết bị</a>
+        <div id="qrUrlText" class="qr-url-text">${qrModalEsc(url)}</div>
+      </div>
+      <div class="qr-mobile-config">
+        <label for="qrBaseUrlInput">Tên miền công khai dùng cho QR</label>
+        <div class="qr-base-row">
+          <input id="qrBaseUrlInput" list="qrBaseUrlOptions" value="${qrModalEsc(initialBase)}" placeholder="https://qy4.benhvien.vn" />
+          <datalist id="qrBaseUrlOptions"></datalist>
+          <button class="btn" type="button" id="qrApplyBaseBtn">Áp dụng</button>
+        </div>
+        <div id="qrBaseHint" class="qr-base-hint">QR mở đúng hồ sơ máy theo mã nội bộ; mã in trên tem được tạo từ mã nhóm và Serial Number.</div>
+      </div>
+      <div class="qr-actions">
+        <button class="btn" type="button" onclick="closeQrModal()">Đóng</button>
+        <button class="btn btn-primary" type="button" onclick="printQrLabel()">In mã QR</button>
+      </div>
+    </div>
+  `;
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeQrModal(); });
+  document.body.appendChild(backdrop);
+  backdrop.querySelector("#qrBaseUrlInput")?.addEventListener("input", () => updateQrPreview(device));
+  backdrop.querySelector("#qrApplyBaseBtn")?.addEventListener("click", () => saveQrBaseUrl(device));
+  loadQrOriginSuggestions(device);
+}
+
 function applyFilters() {
   const qText = q("searchInput").value.trim().toLowerCase();
   const dep = q("departmentFilter").value;
@@ -19,7 +93,8 @@ function applyFilters() {
   const quality = q("qualityFilter").value;
   const funding = q("fundingFilter") ? q("fundingFilter").value : "ALL";
   FILTERED = DEVICES.filter(d => {
-    const okText = !qText || [d.device_code, d.insurance_code, d.name, d.manufacturer, d.model, d.serial, departmentName(d.department_code)].join(" ").toLowerCase().includes(qText);
+    const qrCode = buildDeviceQrCode(d);
+    const okText = !qText || [qrCode, d.device_code, d.insurance_code, d.group_code, d.name, d.manufacturer, d.model, d.serial, departmentName(d.department_code)].join(" ").toLowerCase().includes(qText);
     return okText &&
       (dep === "ALL" || d.department_code === dep) &&
       (grp === "ALL" || d.group_code === grp) &&
