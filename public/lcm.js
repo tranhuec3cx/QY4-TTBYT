@@ -19,9 +19,9 @@ function addLcmMenuLink(){
   const menu=document.querySelector(".menu");
   if(!menu||menu.querySelector('[href="/lcm.html"]')) return;
   const a=document.createElement("a");
-  a.href="/lcm.html";a.textContent="Vòng đời LCM";a.className="active";
-  const deviceLink=menu.querySelector('[href="/index.html"]');
-  if(deviceLink) deviceLink.insertAdjacentElement("afterend",a); else menu.appendChild(a);
+  a.href="/lcm.html";a.textContent="Vòng đời thiết bị";a.className="active";
+  const inspectionLink=menu.querySelector('[href="/inspections.html"]');
+  if(inspectionLink) inspectionLink.insertAdjacentElement("afterend",a); else menu.appendChild(a);
 }
 
 function setTab(name){
@@ -173,8 +173,8 @@ function openRiskDetail(deviceId){
   q("riskDetailBody").innerHTML=`
     <div class="lcm-risk-summary">
       <div>${riskPill(d.risk_level,d.risk_score)}<small>Tổng điểm rủi ro</small></div>
-      <div><b>${pct(d.availability_percent)}</b><small>Availability 12 tháng</small></div>
-      <div><b>${Number(d.downtime_hours_12m||0).toFixed(1)} giờ</b><small>Downtime 12 tháng</small></div>
+      <div><b>${pct(d.availability_percent)}</b><small>Tỷ lệ sẵn sàng 12 tháng</small></div>
+      <div><b>${Number(d.downtime_hours_12m||0).toFixed(1)} giờ</b><small>Thời gian ngừng máy 12 tháng</small></div>
       <div><b>${d.quality_grade||"—"}</b><small>Phân loại chất lượng</small></div>
     </div>
     <table class="lcm-component-table"><thead><tr><th>Thành phần</th><th>Điểm</th><th>Mức đóng góp</th></tr></thead><tbody>${componentRows}</tbody></table>
@@ -215,7 +215,7 @@ async function reloadLcm(){
     ]);
     LCM_META=meta;LCM_DEVICES=devices;LCM_RECEIPTS=receipts;LCM_TRANSFERS=transfers;LCM_DISPOSALS=disposals;LCM_ALERTS=alerts;
     populateSelectors();renderSummary(summary);renderAlerts();renderReceipts();renderTransfers();renderRisk();renderDisposals();updateTransferCurrent();
-  }catch(e){console.error(e);alert("Không tải được phân hệ LCM: "+e.message);}
+  }catch(e){console.error(e);alert("Không tải được phân hệ vòng đời: "+e.message);}
 }
 
 document.addEventListener("DOMContentLoaded",async()=>{
