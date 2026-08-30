@@ -7,6 +7,9 @@ uploads/
 # Environment
 .env
 
+# Public incident QR secret
+config/public-qr-secret.txt
+
 # Logs
 *.log
 
