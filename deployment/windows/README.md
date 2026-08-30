@@ -2,6 +2,8 @@
 
 Mô hình: **01 máy tính Khoa Trang bị làm máy chủ nội bộ**, các máy khác truy cập bằng trình duyệt qua LAN/Wi-Fi bệnh viện.
 
+Khung giờ vận hành dự kiến hiện tại: **08:00–16:10 hằng ngày**. Ngoài thời gian này, nếu PC C10 tắt thì hệ thống nội bộ và QR báo sự cố công khai cũng tạm ngừng phục vụ.
+
 ## 1. Điều kiện
 
 - Windows 10/11 64-bit.
@@ -44,7 +46,7 @@ cd C:\QY4-TTBYT
 Chạy:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\deployment\windows\setup.ps1 -Port 5000 -BackupTime "17:00"
+powershell -ExecutionPolicy Bypass -File .\deployment\windows\setup.ps1 -Port 5000 -BackupTime "16:00"
 ```
 
 Bộ cài sẽ:
@@ -93,7 +95,7 @@ Mục tiêu là địa chỉ của máy chủ không thay đổi sau khi khởi 
 
 ## 6. Sao lưu
 
-Backup tự động mặc định lúc **17:00 mỗi ngày**.
+Backup tự động mặc định lúc **16:00 mỗi ngày**, trước giờ kết thúc vận hành **16:10** để bảo đảm bản sao lưu cuối ngày được tạo trước khi tắt máy.
 
 Thư mục mặc định:
 
@@ -105,6 +107,7 @@ Mỗi bản gồm:
 
 - `qy4_ttbyt.sqlite` được sao lưu bằng API backup của `better-sqlite3`;
 - thư mục `uploads/` nếu có;
+- khóa ký QR công khai nếu đã được tạo;
 - `backup-info.json`.
 
 Mặc định giữ **30 ngày**. Có thể chạy thủ công:
@@ -121,8 +124,9 @@ Có thể đặt biến môi trường `QY4_BACKUP_DIR` để chuyển backup sa
 2. Sao lưu riêng database hiện tại trước khi thay thế.
 3. Chép `qy4_ttbyt.sqlite` từ bản backup về `db/`.
 4. Khôi phục `uploads/` tương ứng nếu cần.
-5. Khởi động lại task `QY4-TTBYT Server`.
-6. Kiểm tra `/api/system/health` và mở vài hồ sơ thiết bị.
+5. Khôi phục khóa QR nếu đang dùng QR công khai.
+6. Khởi động lại task `QY4-TTBYT Server`.
+7. Kiểm tra `/api/system/health` và mở vài hồ sơ thiết bị.
 
 ## 8. Gỡ chế độ tự chạy
 
@@ -139,5 +143,5 @@ Lệnh này chỉ gỡ Scheduled Task và firewall rule, **không xóa database,
 - Chỉ dùng trong LAN/Wi-Fi nội bộ được bệnh viện cho phép.
 - Không port-forward TCP 5000 ra Internet.
 - Không đặt máy chủ trên Wi-Fi công cộng/Guest.
-- Không dùng dịch vụ tunnel công khai cho dữ liệu vận hành thật.
-- Khi mở rộng toàn viện cần phối hợp CNTT để bổ sung tài khoản/phân quyền, HTTPS nội bộ, nhật ký truy cập, chính sách sao lưu và phương án chuyển SQLite sang PostgreSQL khi số người dùng đồng thời tăng.
+- Nếu dùng QR qua Internet, chỉ tunnel gateway báo sự cố công khai ở cổng 5050; **không tunnel cổng quản trị 5000**.
+- Khi mở rộng toàn viện cần phối hợp CNTT để bổ sung tài khoản/phân quyền, HTTPS nội bộ, nhật ký truy cập, chính sách sao lưu và phương án chuyển SQLite sang SQL Server/PostgreSQL khi số người dùng đồng thời tăng.
