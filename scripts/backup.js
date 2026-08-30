@@ -6,6 +6,7 @@ const Database = require("better-sqlite3");
 const ROOT = path.resolve(__dirname, "..");
 const DB_PATH = path.join(ROOT, "db", "qy4_ttbyt.sqlite");
 const UPLOADS_PATH = path.join(ROOT, "uploads");
+const PUBLIC_QR_SECRET_PATH = path.join(ROOT, "config", "public-qr-secret.txt");
 const BACKUP_ROOT = process.env.QY4_BACKUP_DIR
   ? path.resolve(process.env.QY4_BACKUP_DIR)
   : path.join(ROOT, "backups");
@@ -63,12 +64,21 @@ async function main() {
     uploadsCopied = true;
   }
 
+  let publicQrSecretCopied = false;
+  if (fs.existsSync(PUBLIC_QR_SECRET_PATH)) {
+    const configDestination = path.join(destination, "config");
+    ensureDir(configDestination);
+    fs.copyFileSync(PUBLIC_QR_SECRET_PATH, path.join(configDestination, "public-qr-secret.txt"));
+    publicQrSecretCopied = true;
+  }
+
   const manifest = {
     application: "QY4-TTBYT",
     created_at_local: isoLocal(),
     hostname: os.hostname(),
     database: "qy4_ttbyt.sqlite",
     uploads_copied: uploadsCopied,
+    public_qr_secret_copied: publicQrSecretCopied,
     retention_days: RETENTION_DAYS,
     source_root: ROOT
   };
@@ -76,6 +86,7 @@ async function main() {
 
   const removed = purgeOldBackups();
   console.log(`[QY4-TTBYT] Backup hoàn thành: ${destination}`);
+  if (publicQrSecretCopied) console.log("[QY4-TTBYT] Đã sao lưu khóa ký QR công khai.");
   if (removed.length) console.log(`[QY4-TTBYT] Đã xóa ${removed.length} bản sao lưu quá ${RETENTION_DAYS} ngày.`);
 }
 
