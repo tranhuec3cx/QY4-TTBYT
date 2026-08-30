@@ -10,12 +10,17 @@ uploads/
 # Logs
 *.log
 
+# Local backups
+backups/
+
 # MacOS
 .DS_Store
 
 # Database
 db/*.sqlite
 db/*.db
+db/*.sqlite-wal
+db/*.sqlite-shm
 
 # VSCode
 .vscode/
