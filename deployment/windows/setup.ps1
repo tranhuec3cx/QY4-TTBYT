@@ -1,6 +1,7 @@
 param(
   [int]$Port = 5000,
-  [string]$BackupTime = "17:00"
+  [string]$BackupTime = "17:00",
+  [switch]$AllowDemoSeed
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +19,7 @@ Require-Administrator
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $RunServerScript = Join-Path $PSScriptRoot "run-server.ps1"
 $BackupScript = Join-Path $Root "scripts\backup.js"
+$DatabasePath = Join-Path $Root "db\qy4_ttbyt.sqlite"
 $PowerShellExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $ServerTask = "QY4-TTBYT Server"
 $BackupTask = "QY4-TTBYT Backup"
@@ -25,6 +27,13 @@ $FirewallName = "QY4-TTBYT LAN TCP $Port"
 
 Write-Host "=== CAI DAT QY4-TTBYT NOI BO ===" -ForegroundColor Cyan
 Write-Host "Thu muc: $Root"
+
+if (-not (Test-Path $DatabasePath) -and -not $AllowDemoSeed) {
+  throw "Chưa có database triển khai tại $DatabasePath. Bộ cài đã dừng để tránh tự sinh dữ liệu demo. Hãy chép database đang dùng thật vào thư mục db rồi chạy lại. Chỉ dùng -AllowDemoSeed khi cố ý dựng máy DEMO."
+}
+if (-not (Test-Path $DatabasePath) -and $AllowDemoSeed) {
+  Write-Host "CANH BAO: Chua co database. Lan chay dau co the sinh du lieu DEMO." -ForegroundColor Yellow
+}
 
 $node = Get-Command node -ErrorAction Stop
 $npm = Get-Command npm -ErrorAction Stop
