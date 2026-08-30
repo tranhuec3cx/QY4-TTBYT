@@ -1,6 +1,6 @@
 (function(){
-  const GROUP_MAP={overview:"profile",receipts:"profile",profile:"profile",transfers:"transfers",movement:"transfers",risk:"assessment",replacement:"assessment",disposals:"assessment",assessment:"assessment"};
-  const detailsMap={receipts:"receiptDetails",risk:"riskDetails",replacement:"replacementDetails",disposals:"disposalDetails"};
+  const GROUP_MAP={overview:"profile",receipts:"profile",profile:"profile",transfers:"transfers",movement:"transfers",risk:"assessment",finance:"assessment",replacement:"assessment",disposals:"assessment",assessment:"assessment"};
+  const detailsMap={receipts:"receiptDetails",risk:"riskDetails",finance:"financeDetails",replacement:"replacementDetails",disposals:"disposalDetails"};
 
   function simpleSetTab(name){
     const group=GROUP_MAP[name]||"profile";
@@ -53,7 +53,7 @@
 
   if(typeof reloadLcm==="function"){
     const originalReload=reloadLcm;
-    reloadLcm=async function(){const r=await originalReload();fillProfileSelector();return r;};
+    reloadLcm=async function(){const r=await originalReload();fillProfileSelector();if(typeof reloadLcmFinance==="function")await reloadLcmFinance();return r;};
   }
 
   document.addEventListener("DOMContentLoaded",()=>{
