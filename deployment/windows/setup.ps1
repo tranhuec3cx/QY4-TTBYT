@@ -1,6 +1,6 @@
 param(
   [int]$Port = 5000,
-  [string]$BackupTime = "17:00",
+  [string]$BackupTime = "16:00",
   [switch]$AllowDemoSeed
 )
 
@@ -78,7 +78,7 @@ Register-ScheduledTask -TaskName $ServerTask -Action $serverAction -Trigger $ser
 try {
   $backupAt = [DateTime]::ParseExact($BackupTime, "HH:mm", $null)
 } catch {
-  throw "BackupTime phải có dạng HH:mm, ví dụ 17:00."
+  throw "BackupTime phải có dạng HH:mm, ví dụ 16:00."
 }
 $backupArgs = "-NoProfile -ExecutionPolicy Bypass -Command `"Set-Location -LiteralPath '$Root'; & '$($node.Source)' '$BackupScript' *>> '$Root\logs\qy4-ttbyt-backup.log'`""
 $backupAction = New-ScheduledTaskAction -Execute $PowerShellExe -Argument $backupArgs -WorkingDirectory $Root
@@ -95,6 +95,7 @@ Start-Sleep -Seconds 3
 Write-Host ""
 Write-Host "=== HOAN TAT ===" -ForegroundColor Green
 Write-Host "Tu dong chay khi bat may: CO"
+Write-Host "Khung gio van hanh du kien tai C10: 08:00 - 16:10"
 Write-Host "Backup hang ngay luc: $BackupTime"
 Write-Host "Thu muc backup mac dinh: $(Join-Path $Root 'backups')"
 Write-Host "Kiem tra tai may chu: http://127.0.0.1:$Port/api/system/health"
