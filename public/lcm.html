@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LCM - Quản lý vòng đời thiết bị y tế</title>
+  <title>Quản lý vòng đời thiết bị y tế</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/lcm.css" />
   <link rel="stylesheet" href="/lcm-movements.css" />
   <link rel="stylesheet" href="/lcm-replacement.css" />
+  <link rel="stylesheet" href="/lcm-finance.css" />
   <link rel="stylesheet" href="/lcm-simple.css" />
 </head>
 <body>
@@ -19,14 +20,14 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box">LCM - Life Cycle Management</div>
+        <div class="user-box">Quản lý vòng đời thiết bị</div>
       </div>
 
       <section class="card simple-lcm-intro">
         <div>
           <div class="lcm-kicker">QUẢN LÝ VÒNG ĐỜI THIẾT BỊ Y TẾ</div>
           <h2>Theo dõi · Biến động · Đánh giá</h2>
-          <p>LCM tổng hợp dữ liệu từ các phân hệ kỹ thuật để nhìn toàn bộ vòng đời và hỗ trợ quyết định quản lý.</p>
+          <p>Phân hệ vòng đời tổng hợp dữ liệu từ các nghiệp vụ kỹ thuật để theo dõi toàn bộ quá trình sử dụng và hỗ trợ quyết định quản lý.</p>
         </div>
         <button class="btn btn-primary" id="refreshAllBtn">Cập nhật dữ liệu</button>
       </section>
@@ -42,7 +43,7 @@
           <div class="table-card-header">
             <div>
               <h3>Hồ sơ vòng đời thiết bị</h3>
-              <span class="lcm-note">Chọn một thiết bị để xem nhanh tình trạng hiện tại; hồ sơ chi tiết hiển thị toàn bộ timeline vòng đời.</span>
+              <span class="lcm-note">Chọn một thiết bị để xem nhanh tình trạng hiện tại; hồ sơ chi tiết hiển thị toàn bộ dòng thời gian vòng đời.</span>
             </div>
             <button class="btn" id="simpleRefreshProfile" type="button">Làm mới</button>
           </div>
@@ -55,7 +56,7 @@
             <div class="simple-metric"><span>Giai đoạn hiện tại</span><b id="simpleProfileStage">—</b></div>
             <div class="simple-metric"><span>Tuổi thiết bị</span><b id="simpleProfileAge">—</b></div>
             <div class="simple-metric"><span>Rủi ro</span><b id="simpleProfileRisk">—</b></div>
-            <div class="simple-metric"><span>Availability 12 tháng</span><b id="simpleProfileAvailability">—</b></div>
+            <div class="simple-metric"><span>Tỷ lệ sẵn sàng 12 tháng</span><b id="simpleProfileAvailability">—</b></div>
             <div class="simple-metric"><span>Sửa chữa</span><b id="simpleProfileRepairs">—</b></div>
             <div class="simple-profile-decision"><b>Khuyến nghị quản lý</b><span id="simpleProfileDecision">Chọn thiết bị để xem tóm tắt vòng đời và khuyến nghị quản lý.</span></div>
           </div>
@@ -142,8 +143,35 @@
               </div>
             </section>
             <section class="card">
-              <div class="table-card-header"><h3>Đánh giá thiết bị</h3><span class="lcm-note">Dữ liệu tự tổng hợp từ tuổi máy, sửa chữa, downtime, bảo dưỡng, kiểm định, chất lượng và chi phí.</span></div>
-              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Giai đoạn</th><th>Tuổi</th><th>Sử dụng năm nay</th><th>Sửa/12T</th><th>Downtime</th><th>Availability</th><th>CP sửa/Nguyên giá</th><th>Rủi ro</th><th>Khuyến nghị</th><th></th></tr></thead><tbody id="riskRows"></tbody></table></div>
+              <div class="table-card-header"><h3>Đánh giá thiết bị</h3><span class="lcm-note">Dữ liệu tự tổng hợp từ tuổi máy, sửa chữa, thời gian ngừng máy, bảo dưỡng, kiểm định, chất lượng và chi phí.</span></div>
+              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Giai đoạn</th><th>Tuổi</th><th>Sử dụng năm nay</th><th>Sửa/12T</th><th>Ngừng máy</th><th>Sẵn sàng</th><th>CP sửa/Nguyên giá</th><th>Rủi ro</th><th>Khuyến nghị</th><th></th></tr></thead><tbody id="riskRows"></tbody></table></div>
+            </section>
+          </div>
+        </details>
+
+        <details class="simple-section" id="financeDetails" open>
+          <summary>Chi phí vòng đời</summary>
+          <div class="simple-section-body">
+            <div class="finance-kpis">
+              <div class="finance-kpi"><span>Tổng nguyên giá</span><b id="financeOriginalTotal">0 đ</b><small>Nguyên giá đang có trong hồ sơ thiết bị.</small></div>
+              <div class="finance-kpi"><span>Chi phí sửa chữa lũy kế</span><b id="financeRepairTotal">0 đ</b><small>Tổng chi phí từ các phiếu sửa chữa.</small></div>
+              <div class="finance-kpi"><span>Giá trị còn lại ước tính</span><b id="financeRemainingTotal">0 đ</b><small>Ước tính quản lý theo tuổi máy và tuổi đời kế hoạch.</small></div>
+              <div class="finance-kpi"><span>Chi phí kỹ thuật vòng đời</span><b id="financeTechnicalTotal">0 đ</b><small>Nguyên giá + chi phí sửa chữa đã ghi nhận.</small></div>
+            </div>
+            <section class="card">
+              <div class="table-card-header"><div><h3>Phân tích chi phí theo thiết bị</h3><span id="financeCount" class="lcm-note"></span></div></div>
+              <div class="lcm-filter-row">
+                <select id="financeDepartment"><option value="ALL">Tất cả khoa/phòng</option></select>
+                <input id="financeSearch" placeholder="Tìm mã / tên / model / serial" />
+                <button class="btn" id="financeReset" type="button">Đặt lại</button>
+              </div>
+              <div class="table-wrap">
+                <table class="lcm-table finance-table">
+                  <thead><tr><th>Mã</th><th>Thiết bị</th><th>Khoa</th><th>Nguyên giá</th><th>Tuổi/KH</th><th>CP sửa lũy kế</th><th>CP sửa/NG</th><th>Giá trị còn lại ước tính</th><th>CP kỹ thuật vòng đời</th><th>Gợi ý quản lý</th><th></th></tr></thead>
+                  <tbody id="financeRows"></tbody>
+                </table>
+              </div>
+              <p class="finance-note"><b>Lưu ý:</b> “Giá trị còn lại ước tính” chỉ phục vụ quản lý kỹ thuật, được tính theo nguyên giá, tuổi thiết bị và tuổi đời kế hoạch. Không thay thế giá trị còn lại trên sổ kế toán, khấu hao hoặc quyết định tài chính của cơ quan có thẩm quyền.</p>
             </section>
           </div>
         </details>
@@ -168,7 +196,7 @@
             </section>
             <section class="card">
               <div class="table-card-header"><h3>Danh sách ưu tiên</h3><span id="replacementCount" class="lcm-note"></span></div>
-              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Ưu tiên</th><th>Năm gợi ý</th><th>Thiết bị</th><th>Khoa</th><th>Tuổi/KH</th><th>Sửa/12T</th><th>Availability</th><th>CP sửa</th><th>Điểm</th><th>Căn cứ</th><th></th></tr></thead><tbody id="replacementRows"></tbody></table></div>
+              <div class="table-wrap"><table class="lcm-table"><thead><tr><th>Ưu tiên</th><th>Năm gợi ý</th><th>Thiết bị</th><th>Khoa</th><th>Tuổi/KH</th><th>Sửa/12T</th><th>Sẵn sàng</th><th>CP sửa</th><th>Điểm</th><th>Căn cứ</th><th></th></tr></thead><tbody id="replacementRows"></tbody></table></div>
               <p class="simple-note">Nguyên giá chỉ là số tham chiếu; không thay thế dự toán, khảo sát giá hoặc quyết định đầu tư.</p>
             </section>
           </div>
@@ -202,7 +230,7 @@
 
       <div id="profileModal" class="lcm-modal-backdrop" hidden>
         <div class="lcm-modal card">
-          <h3>Cấu hình LCM cho thiết bị</h3>
+          <h3>Cấu hình vòng đời cho thiết bị</h3>
           <p id="profileDeviceName" class="lcm-note"></p>
           <form id="profileForm" class="lcm-form lcm-form-modal">
             <input type="hidden" id="profileDeviceId" />
@@ -228,6 +256,7 @@
   <script src="/lcm.js"></script>
   <script src="/lcm-movements.js"></script>
   <script src="/lcm-replacement.js"></script>
+  <script src="/lcm-finance.js"></script>
   <script src="/lcm-simple.js"></script>
 </body>
 </html>
