@@ -10,6 +10,7 @@ express.application.listen = function patchedListen(...args) {
   if (!lcmRegistered) {
     require(path.join(__dirname, "lcm-routes"))(this);
     require(path.join(__dirname, "lcm-movements-routes"))(this);
+    require(path.join(__dirname, "lcm-replacement-routes"))(this);
     lcmRegistered = true;
   }
   return originalListen.apply(this, args);
