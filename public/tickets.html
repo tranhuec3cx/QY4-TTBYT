@@ -52,7 +52,7 @@
             <label class="field span-3"><span class="field-label">Thiết bị</span><select id="deviceId" required></select></label>
             <label class="field"><span class="field-label">Khoa</span><input id="incidentDept" readonly /></label>
             <label class="field"><span class="field-label">Vị trí</span><input id="incidentLocation" readonly /></label>
-            <label class="field"><span class="field-label">Thời gian ghi nhận</span><input id="incidentTime" type="datetime-local" required /></label>
+            <label class="field"><span class="field-label">Thời gian ghi nhận (tự nhập)</span><input id="incidentTime" type="datetime-local" required /></label>
             <label class="field"><span class="field-label">Người ghi nhận</span><input id="reporter" placeholder="Người ghi nhận" required /></label>
             <label class="field"><span class="field-label">Số điện thoại</span><input id="reporterPhone" placeholder="Số điện thoại liên hệ" /></label>
             <label class="field"><span class="field-label">Mức độ</span><select id="severity"><option>Thấp</option><option>Trung bình</option><option>Cao</option><option>Khẩn cấp</option></select></label>
@@ -65,11 +65,28 @@
           <div class="form-actions"><button class="btn btn-primary" type="submit" id="saveIncidentBtn">Lưu sự cố</button><button class="btn" type="button" id="resetIncidentBtn">Làm mới form</button></div>
         </form>
       </section>
-          <dialog id="mediaDialog" class="wide-dialog media-dialog"><div class="dialog-head"><h2>Ảnh/Video sự cố</h2><button class="btn" onclick="q('mediaDialog').close()">Đóng</button></div><div id="mediaDialogBody" class="media-dialog-body"></div></dialog>
+
+      <dialog id="transferRepairDialog" class="wide-dialog" style="max-width:620px">
+        <form id="transferRepairForm">
+          <input type="hidden" id="transferIncidentId" />
+          <div class="dialog-head">
+            <div><h2>Chuyển sang sửa chữa</h2><p class="page-subtitle">Anh chủ động nhập thời gian tiếp nhận sửa chữa.</p></div>
+            <button class="btn" type="button" id="cancelTransferRepairBtn">Hủy</button>
+          </div>
+          <div class="repair-section">
+            <div id="transferIncidentSummary" class="notice" style="margin-bottom:12px"></div>
+            <label class="field"><span class="field-label">Thời gian tiếp nhận sửa chữa</span><input id="transferRepairTime" type="datetime-local" required /></label>
+          </div>
+          <div class="dialog-footer"><button class="btn" type="button" id="cancelTransferRepairBtn2" onclick="q('transferRepairDialog').close()">Hủy</button><button class="btn btn-primary" type="submit">Tạo phiếu sửa chữa</button></div>
+        </form>
+      </dialog>
+
+      <dialog id="mediaDialog" class="wide-dialog media-dialog"><div class="dialog-head"><h2>Ảnh/Video sự cố</h2><button class="btn" onclick="q('mediaDialog').close()">Đóng</button></div><div id="mediaDialogBody" class="media-dialog-body"></div></dialog>
     </main>
   </div>
   <script src="/api.js"></script>
   <script src="/vendor/xlsx.full.min.js"></script>
   <script src="/tickets.js"></script>
+  <script src="/manual-datetime.js"></script>
 </body>
 </html>
