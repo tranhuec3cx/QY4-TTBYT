@@ -84,7 +84,7 @@
           <section class="repair-section">
             <h3>2. Thông tin hỏng / sự cố</h3>
             <div class="form-grid repair-form-grid">
-              <label class="field"><span class="field-label">Thời gian tiếp nhận</span><input id="repairDate" type="datetime-local" required /></label>
+              <label class="field"><span class="field-label">Thời gian tiếp nhận (tự nhập)</span><input id="repairDate" type="datetime-local" required /></label>
               <label class="field"><span class="field-label">Mức độ ưu tiên</span><select id="priority"><option>Bình thường</option><option>Thấp</option><option>Trung bình</option><option>Cao</option><option>Khẩn cấp</option></select></label>
               <label class="field"><span class="field-label">Người báo / người ghi nhận</span><input id="reporter" /></label>
               <label class="field span-3"><span class="field-label">Tình trạng / nguyên nhân hỏng</span><textarea id="issue" class="textarea-medium" placeholder="Mô tả tình trạng hỏng, dấu hiệu bất thường, nguyên nhân ban đầu..." required></textarea></label>
@@ -97,7 +97,7 @@
               <label class="field"><span class="field-label">Trạng thái xử lý</span><select id="repairStatus"><option>Đang xử lý</option><option>Chờ linh kiện</option><option>Đã hoàn thành</option><option>Không sửa được</option></select></label>
               <label class="field"><span class="field-label">Hình thức sửa chữa</span><select id="method"><option>Nội bộ</option><option>Thuê ngoài</option><option>Thay thế linh kiện</option><option>Nâng cấp thiết bị</option></select></label>
               <label class="field"><span class="field-label">Người thực hiện</span><input id="person" /></label>
-              <label class="field"><span class="field-label">Thời gian cập nhật / thực hiện</span><input id="actionTime" type="datetime-local" /></label>
+              <label class="field"><span class="field-label">Thời gian cập nhật / thực hiện (tự nhập)</span><input id="actionTime" type="datetime-local" /></label>
               <label class="field"><span class="field-label">Kinh phí</span><input id="cost" type="number" min="0" value="0" /></label>
               <label class="field span-3"><span class="field-label">Nội dung thực hiện</span><textarea id="work" class="textarea-large" placeholder="Ghi rõ thao tác đã làm: kiểm tra nguồn, vệ sinh, thay linh kiện, chạy thử..."></textarea></label>
               <label class="field"><span class="field-label">Kết quả sửa chữa</span><input id="result" placeholder="VD: Theo dõi thêm / Đã xử lý / Không sửa được" /></label>
@@ -123,5 +123,6 @@
   <script src="/api.js"></script>
   <script src="/vendor/xlsx.full.min.js"></script>
   <script src="/maintenance.js"></script>
+  <script src="/manual-datetime.js"></script>
 </body>
 </html>
