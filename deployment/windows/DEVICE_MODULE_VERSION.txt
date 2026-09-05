@@ -1,0 +1,4 @@
+QY4-TTBYT device module review
+Date: 2026-09-05
+Commit: 4f858d518b33f22e03bd7419fca846d409e46f39
+Scope: terminology, status filter, table escaping, delete warning; no DB schema changes.
