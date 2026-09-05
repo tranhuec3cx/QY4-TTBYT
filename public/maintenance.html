@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sửa chữa thiết bị</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/maintenance-ui.css" />
 </head>
 <body>
   <div class="layout">
     <div id="menuHost"></div>
     <main class="main">
-      <div class="topbar">
+      <div class="topbar repair-page-topbar">
         <div>
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
@@ -21,24 +22,39 @@
         </div>
       </div>
 
-      <section class="repair-stats" id="repairStats"></section>
-
-      <section class="card compact-card">
+      <section class="card compact-card repair-filter-card">
+        <div class="repair-filter-head">
+          <h3>Bộ lọc tìm kiếm</h3>
+          <div class="small">Các số liệu tổng quan bên dưới cập nhật theo bộ lọc hiện tại.</div>
+        </div>
         <div class="filters repair-filter-grid-v2">
-          <label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date" /></label>
-          <label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date" /></label>
-          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên, model, Số Serial, nguyên nhân, nội dung" /></label>
-          <label class="field"><span class="field-label">Khoa/phòng</span><select id="departmentFilter"><option value="ALL">Tất cả khoa/phòng</option></select></label>
-          <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả nhóm thiết bị</option></select></label>
-          <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
-          <label class="field"><span class="field-label">Trạng thái</span><select id="repairStatusFilter"><option value="ALL">Tất cả trạng thái</option><option>Đang xử lý</option><option>Chờ linh kiện</option><option>Đã hoàn thành</option><option>Không sửa được</option></select></label>
-          <label class="field"><span class="field-label">Hình thức</span><select id="methodFilter"><option value="ALL">Tất cả hình thức</option><option>Nội bộ</option><option>Bảo hành</option><option>Thuê ngoài</option></select></label>
+          <label class="field filter-date-from"><span class="field-label">Từ ngày</span><input id="fromDate" type="date" /></label>
+          <label class="field filter-date-to"><span class="field-label">Đến ngày</span><input id="toDate" type="date" /></label>
+          <label class="field field-wide filter-search"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên thiết bị, model, Số Serial, nguyên nhân, nội dung sửa chữa" /></label>
+          <label class="field filter-department"><span class="field-label">Khoa/phòng</span><select id="departmentFilter"><option value="ALL">Tất cả khoa/phòng</option></select></label>
+          <label class="field filter-group"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả nhóm thiết bị</option></select></label>
+          <label class="field filter-device"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
+          <label class="field filter-status"><span class="field-label">Trạng thái</span><select id="repairStatusFilter"><option value="ALL">Tất cả trạng thái</option><option>Đang xử lý</option><option>Chờ linh kiện</option><option>Đã hoàn thành</option><option>Không sửa được</option></select></label>
+          <label class="field filter-method"><span class="field-label">Hình thức</span><select id="methodFilter"><option value="ALL">Tất cả hình thức</option><option>Nội bộ</option><option>Bảo hành</option><option>Thuê ngoài</option></select></label>
           <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Xóa lọc</button></div>
         </div>
       </section>
 
+      <section class="repair-summary-section">
+        <div class="repair-summary-head">
+          <h3>Tổng quan kết quả</h3>
+          <div class="small">Tổng số phiếu và chi phí tương ứng với danh sách đang hiển thị.</div>
+        </div>
+        <div class="repair-stats" id="repairStats"></div>
+      </section>
+
       <section class="card repair-table-card">
-        <div class="table-card-header"><h3 id="countLabel">0 bản ghi</h3></div>
+        <div class="table-card-header repair-table-title">
+          <div>
+            <h3>Danh sách phiếu sửa chữa</h3>
+            <div id="countLabel" class="small">0 bản ghi</div>
+          </div>
+        </div>
         <div class="table-wrap scroll-area">
           <table class="repair-table-v2">
             <thead>
