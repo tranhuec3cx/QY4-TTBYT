@@ -1,0 +1,1 @@
+Launcher fix baseline commit chain created on 2026-09-05. Use latest feature/lcm-vong-doi and verify ports 5000 and 5050 before operational use.
