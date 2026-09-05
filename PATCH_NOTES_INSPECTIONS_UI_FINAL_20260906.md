@@ -1,0 +1,1 @@
+Final UI polish complete for inspections page.
