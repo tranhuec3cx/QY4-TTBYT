@@ -1,0 +1,83 @@
+/* Trang Sự cố - bố cục thao tác: Lọc -> KPI -> Bảng; form nhập trong modal */
+.incident-page-topbar{margin-bottom:12px}
+.incident-page-topbar .page-subtitle{max-width:760px}
+
+.incident-filter-card{padding:16px;border-radius:12px;margin-bottom:12px;box-shadow:0 5px 16px rgba(18,62,110,.045)}
+.incident-filter-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:12px}
+.incident-filter-head h3,.incident-summary-head h3,.incident-table-title h3{margin:0;font-size:16.5px;letter-spacing:.2px;text-transform:uppercase;color:#17324d}
+.incident-filter-head .small,.incident-summary-head .small,.incident-table-title .small{font-size:12.2px;color:#6c8097;line-height:1.35}
+
+.incident-filter-grid{display:grid!important;grid-template-columns:repeat(12,minmax(0,1fr))!important;gap:10px 12px!important;align-items:end!important}
+.incident-filter-grid .field{min-width:0}
+.incident-filter-grid .field-label{font-size:12.8px;margin-bottom:5px;font-weight:700}
+.incident-filter-grid input,.incident-filter-grid select{min-height:40px!important;height:40px!important;padding:8px 10px!important;border-radius:8px!important;background:#fff!important;font-size:13.4px!important;border-color:#b9ccdf!important}
+.incident-filter-grid input:focus,.incident-filter-grid select:focus{outline:none;border-color:#4e82b7!important;box-shadow:0 0 0 2px rgba(47,111,174,.10)}
+.incident-filter-grid .filter-date-from,.incident-filter-grid .filter-date-to{grid-column:span 2}
+.incident-filter-grid .filter-search{grid-column:span 4}
+.incident-filter-grid .filter-device{grid-column:span 4}
+.incident-filter-grid .filter-severity,.incident-filter-grid .filter-status{grid-column:span 2}
+.incident-filter-grid .filter-actions{grid-column:span 4;display:flex;align-items:end;gap:8px;justify-content:flex-start}
+.incident-filter-grid .filter-actions .btn{min-height:40px!important;height:40px;padding:8px 18px;border-radius:8px;font-size:13px}
+
+.incident-summary-section{margin:0 0 12px}
+.incident-summary-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 2px 8px}
+.incident-stats{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important;margin:0!important}
+.incident-stat-card{min-height:86px!important;border-radius:12px!important;padding:12px 14px!important;text-align:left!important;display:flex;flex-direction:column;justify-content:space-between;background:#fff!important;box-shadow:0 5px 16px rgba(18,62,110,.05)!important;border:1px solid #dbe5ef!important;border-top-width:3px!important}
+.incident-stat-card h3{margin:0!important;font-size:12.5px!important;font-weight:700!important;color:#607791!important;text-transform:none!important}
+.incident-stat-card .value{font-size:29px!important;line-height:1.05!important;color:#184b7c!important;font-weight:750!important}
+.incident-stat-card:nth-child(1){border-top-color:#2f6fae!important;background:linear-gradient(180deg,#f8fbff 0%,#fff 46%)!important}
+.incident-stat-card:nth-child(2){border-top-color:#df8a3c!important;background:linear-gradient(180deg,#fffaf5 0%,#fff 46%)!important}.incident-stat-card:nth-child(2) .value{color:#b86726!important}
+.incident-stat-card:nth-child(3){border-top-color:#d4a62c!important;background:linear-gradient(180deg,#fffdf5 0%,#fff 46%)!important}.incident-stat-card:nth-child(3) .value{color:#9a7614!important}
+.incident-stat-card:nth-child(4){border-top-color:#45a56c!important;background:linear-gradient(180deg,#f7fcf9 0%,#fff 46%)!important}.incident-stat-card:nth-child(4) .value{color:#2d7f50!important}
+
+.incident-table-card{padding:14px 14px 12px!important;border-radius:12px!important}
+.incident-table-card .table-card-header{margin-bottom:10px}
+.incident-table-title .small{margin-top:3px}
+.incident-table-card .scroll-area{border:1px solid #dce6f0;border-radius:10px;max-height:calc(100vh - 385px);overflow:auto}
+.incident-table-v2{min-width:1280px}
+.incident-table-v2 thead th{position:sticky;top:0;z-index:3;background:#eaf2f9!important;color:#17324d;font-size:12.4px!important;padding:10px 9px!important;text-align:center!important;border-bottom:1px solid #cbd9e7}
+.incident-table-v2 tbody td{font-size:13px!important;padding:9px 9px!important;line-height:1.4;border-bottom:1px solid #e6edf4;vertical-align:top}
+.incident-table-v2 tbody tr:nth-child(even) td{background:#fbfdff}
+.incident-table-v2 tbody tr:hover td{background:#f3f8fd!important}
+.incident-table-v2 td.device-code{font-weight:700;color:#1e5b93;white-space:nowrap}
+.incident-table-v2 td:nth-child(4) b{font-weight:700;color:#17324d}
+.incident-table-v2 th:nth-child(1),.incident-table-v2 td:nth-child(1),.incident-table-v2 th:nth-child(2),.incident-table-v2 td:nth-child(2),.incident-table-v2 th:nth-child(7),.incident-table-v2 td:nth-child(7),.incident-table-v2 th:nth-child(9),.incident-table-v2 td:nth-child(9),.incident-table-v2 th:nth-child(10),.incident-table-v2 td:nth-child(10){text-align:center}
+.incident-table-v2 .tag{font-size:11.8px!important;padding:5px 8px!important;border-radius:7px!important;white-space:nowrap;font-weight:700}
+.incident-table-v2 th:last-child{position:sticky;right:0;z-index:5;background:#dfeaf4!important;box-shadow:-4px 0 7px rgba(18,62,110,.05)}
+.incident-table-v2 td:last-child{position:sticky;right:0;z-index:2;background:#fff;box-shadow:-4px 0 7px rgba(18,62,110,.04)}
+.incident-table-v2 tbody tr:nth-child(even) td:last-child{background:#fbfdff}
+.incident-table-v2 tbody tr:hover td:last-child{background:#f3f8fd!important}
+.incident-table-v2 .compact-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px!important;min-width:150px}
+.incident-table-v2 .compact-actions .btn{min-height:30px!important;height:30px;padding:4px 7px!important;border-radius:7px!important;font-size:11.5px!important;white-space:nowrap}
+.incident-table-v2 .media-thumb{width:42px;height:34px;object-fit:cover;border-radius:6px}
+
+.incident-dialog{width:min(980px,94vw)!important;max-height:92vh;padding:0!important;border:0;border-radius:16px;overflow:auto}
+.incident-dialog::backdrop{background:rgba(15,28,42,.42)}
+.incident-dialog .dialog-head{position:sticky;top:0;z-index:4;background:#fff;padding:16px 18px;border-bottom:1px solid #dce6f0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.incident-dialog .dialog-head h2{margin:0;color:#17324d}
+.incident-dialog .dialog-head p{margin:4px 0 0}
+.incident-dialog .incident-form-body{padding:16px 18px}
+.incident-dialog .incident-form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.incident-dialog .incident-form-grid .field{display:flex;flex-direction:column;gap:6px}
+.incident-dialog .incident-form-grid .span-3{grid-column:1/-1}
+.incident-dialog input,.incident-dialog select,.incident-dialog textarea{font-size:13.5px}
+.incident-dialog textarea{min-height:92px}
+.incident-dialog .incident-form-actions{position:sticky;bottom:0;z-index:4;background:#fff;border-top:1px solid #dce6f0;padding:12px 18px;display:flex;justify-content:flex-end;gap:8px}
+.incident-dialog .file-help{font-size:11.8px;color:#6c8097;margin-top:4px}
+
+@media (max-width:1200px){
+  .incident-filter-grid{grid-template-columns:repeat(8,minmax(0,1fr))!important}
+  .incident-filter-grid .filter-date-from,.incident-filter-grid .filter-date-to,.incident-filter-grid .filter-severity,.incident-filter-grid .filter-status{grid-column:span 2}
+  .incident-filter-grid .filter-search,.incident-filter-grid .filter-device,.incident-filter-grid .filter-actions{grid-column:span 4}
+  .incident-stats{grid-template-columns:repeat(2,1fr)!important}
+  .incident-table-card .scroll-area{max-height:none}
+}
+@media (max-width:800px){
+  .incident-filter-head,.incident-summary-head{align-items:flex-start;flex-direction:column}
+  .incident-filter-grid{grid-template-columns:1fr!important}
+  .incident-filter-grid .field,.incident-filter-grid .filter-actions{grid-column:1!important}
+  .incident-stats{grid-template-columns:1fr!important}
+  .incident-dialog .incident-form-grid{grid-template-columns:1fr}
+  .incident-dialog .incident-form-grid .span-3{grid-column:1}
+  .incident-page-topbar{align-items:flex-start}
+}
