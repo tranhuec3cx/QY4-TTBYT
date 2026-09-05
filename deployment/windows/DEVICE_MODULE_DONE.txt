@@ -1,0 +1,2 @@
+Completed first-pass review of Thiết bị y tế module on feature/lcm-vong-doi.
+Head after this marker should be used for personal workstation testing before moving to Sự cố module.
