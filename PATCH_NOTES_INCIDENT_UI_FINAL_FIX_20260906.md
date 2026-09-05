@@ -1,0 +1,1 @@
+The incident entry modal button fix is complete. This note accompanies the final incident UI batch.
