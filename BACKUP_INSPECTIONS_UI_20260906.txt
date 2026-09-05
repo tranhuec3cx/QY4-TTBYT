@@ -1,0 +1,1 @@
+Checkpoint: inspection/calibration/ATBX UI redesign completed on feature/lcm-vong-doi.
