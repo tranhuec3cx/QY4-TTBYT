@@ -1,0 +1,1 @@
+The one-click launcher inherits PUBLIC_INCIDENT_BASE_URL and PUBLIC_INCIDENT_HOST into child CMD processes. Do not expose admin port 5000 through ngrok.
