@@ -1,0 +1,1 @@
+Final feature checkpoint commit follows this file. Use a backup branch from the current feature head if needed.
