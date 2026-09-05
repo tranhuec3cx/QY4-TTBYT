@@ -1,0 +1,7 @@
+Kiem tra sau cap nhat phan he Thiet bi:
+1. Mo /index.html.
+2. Kiem tra cot So Serial va o tim kiem.
+3. Bo loc Tinh trang co Cho thanh ly.
+4. Thu mo Cap nhat mot thiet bi va Dat lai form.
+5. Thu Xoa: phai hien canh bao ro rang; khong xoa thiet bi that neu chi dang test.
+6. Xuat bao cao Excel.
