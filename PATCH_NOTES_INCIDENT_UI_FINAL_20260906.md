@@ -1,0 +1,1 @@
+Final incident UI state: filter -> KPI -> table layout, modal incident entry, and reliable `+ Ghi nhận sự cố` modal opening. No API/database changes.
