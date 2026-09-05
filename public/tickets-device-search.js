@@ -1,6 +1,6 @@
 /* Searchable device picker for Incident form.
  * Keeps the existing hidden #deviceId contract so tickets.js/API logic is unchanged.
- * Suggestions are filtered dynamically by code, name, model, serial, department or location.
+ * Suggestions are filtered dynamically by device code, device name or model only.
  */
 (function(){
   const $ = (id) => document.getElementById(id);
@@ -20,18 +20,12 @@
       : (typeof DEVICES !== "undefined" && Array.isArray(DEVICES) ? DEVICES : []);
   }
 
-  function departmentLabel(d){
-    return d?.department_name || d?.department_code || "";
-  }
-
   function richDeviceLabel(d){
     if (!d) return "";
     const parts = [
-      d.device_code || d.serial || `TB-${d.id}`,
+      d.device_code || `TB-${d.id}`,
       d.name || "",
-      d.model || "",
-      d.serial ? `SN: ${d.serial}` : "",
-      departmentLabel(d)
+      d.model || ""
     ].filter(Boolean);
     return parts.join(" - ");
   }
@@ -40,11 +34,7 @@
     return normalize([
       d?.device_code,
       d?.name,
-      d?.model,
-      d?.serial,
-      d?.department_code,
-      d?.department_name,
-      d?.location
+      d?.model
     ].filter(Boolean).join(" "));
   }
 
@@ -151,7 +141,7 @@
       event.stopImmediatePropagation();
       alert(matches.length > 1
         ? "Có nhiều thiết bị phù hợp. Vui lòng chọn đúng thiết bị trong danh sách gợi ý."
-        : "Không tìm thấy thiết bị phù hợp. Vui lòng chọn thiết bị trong danh sách gợi ý.");
+        : "Không tìm thấy thiết bị phù hợp. Vui lòng tìm theo mã thiết bị, tên thiết bị hoặc model.");
       search.focus();
     }, true);
 
