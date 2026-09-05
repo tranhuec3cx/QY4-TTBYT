@@ -120,8 +120,10 @@
     const originalEditRepair = window.editRepair;
     window.editRepair = function (id) {
       const row = (typeof REPAIR_ROWS !== "undefined" ? REPAIR_ROWS : []).find(r => Number(r.id) === Number(id));
-      if (row) setStandardMethods(el("method"), row.method || "Nội bộ");
       originalEditRepair(id);
+      // resetRepairForm() bên trong editRepair đưa danh sách về 3 hình thức chuẩn;
+      // nếu là dữ liệu cũ thì thêm tạm giá trị cũ để không làm mất thông tin khi chỉnh sửa.
+      if (row) setStandardMethods(el("method"), row.method || "Nội bộ");
       const c = CONTEXTS.get(Number(id)) || {};
       if (el("priority")) el("priority").value = row?.repair_priority || c.priority || "Bình thường";
       if (el("reporter")) el("reporter").value = row?.repair_reporter || c.reporter || "";
