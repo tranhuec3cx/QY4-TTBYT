@@ -1,5 +1,6 @@
 /* Searchable device picker for Incident form.
  * Keeps the existing hidden #deviceId contract so tickets.js/API logic is unchanged.
+ * Suggestions are filtered dynamically by code, name, model, serial, department or location.
  */
 (function(){
   const $ = (id) => document.getElementById(id);
@@ -7,9 +8,16 @@
     if (typeof window.norm === "function") return window.norm(value);
     return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   };
+  const escAttr = (value) => String(value || "")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/\"/g,"&quot;");
 
   function devices(){
-    return Array.isArray(window.DEVICES) ? window.DEVICES : (typeof DEVICES !== "undefined" && Array.isArray(DEVICES) ? DEVICES : []);
+    return Array.isArray(window.DEVICES)
+      ? window.DEVICES
+      : (typeof DEVICES !== "undefined" && Array.isArray(DEVICES) ? DEVICES : []);
   }
 
   function departmentLabel(d){
@@ -40,22 +48,25 @@
     ].filter(Boolean).join(" "));
   }
 
-  function renderOptions(){
-    const list = $("incidentDeviceOptions");
-    const rows = devices();
-    if (!list || !rows.length) return false;
-    list.innerHTML = rows.map(d => `<option value="${String(richDeviceLabel(d)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;")}"></option>`).join("");
-    return true;
-  }
-
   function findMatches(raw){
     const value = String(raw || "").trim();
-    if (!value) return [];
-    const n = normalize(value);
     const rows = devices();
+    if (!value) return rows;
+    const n = normalize(value);
     const exact = rows.find(d => normalize(richDeviceLabel(d)) === n);
     if (exact) return [exact];
     return rows.filter(d => searchableText(d).includes(n));
+  }
+
+  function renderOptions(raw = ""){
+    const list = $("incidentDeviceOptions");
+    if (!list) return false;
+    const rows = findMatches(raw);
+    list.innerHTML = rows
+      .slice(0, 50)
+      .map(d => `<option value="${escAttr(richDeviceLabel(d))}"></option>`)
+      .join("");
+    return devices().length > 0;
   }
 
   function applyDevice(device, rewriteSearch = true){
@@ -111,12 +122,18 @@
     let tries = 0;
     const optionTimer = window.setInterval(() => {
       tries += 1;
-      if (renderOptions() || tries >= 50) window.clearInterval(optionTimer);
+      if (renderOptions(search.value) || tries >= 50) window.clearInterval(optionTimer);
     }, 100);
 
-    search.addEventListener("focus", renderOptions);
-    search.addEventListener("input", () => syncFromSearch(false));
-    search.addEventListener("change", () => syncFromSearch(true));
+    search.addEventListener("focus", () => renderOptions(search.value));
+    search.addEventListener("input", () => {
+      renderOptions(search.value);
+      syncFromSearch(false);
+    });
+    search.addEventListener("change", () => {
+      renderOptions(search.value);
+      syncFromSearch(true);
+    });
     search.addEventListener("blur", () => {
       if (search.value.trim() && !$("deviceId").value) syncFromSearch(true);
     });
@@ -141,7 +158,7 @@
     if (dialog) {
       const observer = new MutationObserver(() => {
         if (dialog.open) {
-          renderOptions();
+          renderOptions(search.value);
           window.setTimeout(reflectHiddenSelection, 0);
         }
       });
@@ -157,7 +174,7 @@
     });
 
     window.setTimeout(() => {
-      renderOptions();
+      renderOptions(search.value);
       reflectHiddenSelection();
     }, 250);
   }
