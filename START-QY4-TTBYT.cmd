@@ -40,7 +40,7 @@ where ngrok >nul 2>nul || (
 netstat -ano | findstr /R /C:":5000 .*LISTENING" >nul
 if errorlevel 1 (
   echo [1/3] Khoi dong quan tri cong 5000...
-  start "QY4 TTBYT - Quan tri 5000" cmd /k "cd /d \"%~dp0\" && set PUBLIC_INCIDENT_BASE_URL=%PUBLIC_INCIDENT_BASE_URL% && npm start"
+  start "QY4 TTBYT - Quan tri 5000" /D "%~dp0" cmd /k "npm start"
 ) else (
   echo [1/3] Cong 5000 dang hoat dong - bo qua.
 )
@@ -48,7 +48,7 @@ if errorlevel 1 (
 netstat -ano | findstr /R /C:":5050 .*LISTENING" >nul
 if errorlevel 1 (
   echo [2/3] Khoi dong gateway bao su co cong 5050...
-  start "QY4 TTBYT - Bao su co 5050" cmd /k "cd /d \"%~dp0\" && set PUBLIC_INCIDENT_HOST=%PUBLIC_INCIDENT_HOST% && npm run start:public-incident"
+  start "QY4 TTBYT - Bao su co 5050" /D "%~dp0" cmd /k "npm run start:public-incident"
 ) else (
   echo [2/3] Cong 5050 dang hoat dong - bo qua.
 )
