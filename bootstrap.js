@@ -10,6 +10,7 @@ express.application.listen = function patchedListen(...args) {
   if (!extensionsRegistered) {
     require(path.join(__dirname, "deployment-routes"))(this);
     require(path.join(__dirname, "public-incident-admin-routes"))(this);
+    require(path.join(__dirname, "repair-context-routes"))(this);
     require(path.join(__dirname, "lcm-routes"))(this);
     require(path.join(__dirname, "lcm-movements-routes"))(this);
     require(path.join(__dirname, "lcm-replacement-routes"))(this);
