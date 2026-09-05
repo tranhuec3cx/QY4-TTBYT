@@ -69,7 +69,7 @@
           </div>
           <div class="incident-form-body">
             <div class="form-grid incident-form-grid">
-              <label class="field span-3"><span class="field-label">Thiết bị</span><select id="deviceId" required></select></label>
+              <label class="field span-3"><span class="field-label">Thiết bị</span><input id="incidentDeviceSearch" list="incidentDeviceOptions" placeholder="Gõ mã, tên thiết bị, model, Số Serial hoặc khoa/phòng để tìm" autocomplete="off" /><datalist id="incidentDeviceOptions"></datalist><input type="hidden" id="deviceId" /></label>
               <label class="field"><span class="field-label">Khoa</span><input id="incidentDept" readonly /></label>
               <label class="field"><span class="field-label">Vị trí</span><input id="incidentLocation" readonly /></label>
               <label class="field"><span class="field-label">Thời gian ghi nhận (tự nhập)</span><input id="incidentTime" type="datetime-local" required /></label>
@@ -112,6 +112,7 @@
   <script src="/api.js"></script>
   <script src="/vendor/xlsx.full.min.js"></script>
   <script src="/tickets.js"></script>
+  <script src="/tickets-device-search.js"></script>
   <script src="/manual-datetime.js"></script>
   <script src="/repair-workflow-hardening.js"></script>
   <script src="/tickets-ui.js"></script>
