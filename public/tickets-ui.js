@@ -5,11 +5,11 @@
     if (!dialog) return;
     resetIncidentForm();
     const presetDeviceId = new URLSearchParams(window.location.search).get("device_id");
-    if (presetDeviceId && DEVICES.some(d => String(d.id) === String(presetDeviceId))) {
+    if (presetDeviceId && typeof DEVICES !== "undefined" && DEVICES.some(d => String(d.id) === String(presetDeviceId))) {
       q("deviceId").value = presetDeviceId;
       fillDeviceMeta();
     }
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
   }
 
   function closeIncidentDialog(){
@@ -17,14 +17,27 @@
     if (dialog?.open) dialog.close();
   }
 
+  /*
+   * Gắn handler capture ngay khi file được nạp.
+   * tickets.js có một handler cũ được gắn sau khi loadData() hoàn tất và có thể
+   * ghi đè onclick của nút. Capture listener này luôn chạy trước handler cũ,
+   * mở modal và chặn hành động "scrollIntoView" cũ.
+   */
+  const immediateNewBtn = q("newIncidentBtn");
+  if (immediateNewBtn) {
+    immediateNewBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      openIncidentDialog();
+    }, true);
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const dialog = q("incidentDialog");
     const form = q("incidentForm");
-    const newBtn = q("newIncidentBtn");
     const closeBtn = q("closeIncidentDialogBtn");
     const cancelBtn = q("cancelIncidentBtn");
 
-    if (newBtn) newBtn.onclick = openIncidentDialog;
     if (closeBtn) closeBtn.onclick = closeIncidentDialog;
     if (cancelBtn) cancelBtn.onclick = closeIncidentDialog;
 
