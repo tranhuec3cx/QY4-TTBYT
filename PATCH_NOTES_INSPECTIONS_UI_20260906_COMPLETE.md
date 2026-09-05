@@ -1,0 +1,1 @@
+Inspection / calibration / ATBX UI redesign complete at this checkpoint. See PATCH_NOTES_INSPECTIONS_UI_20260906.md for details.
