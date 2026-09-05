@@ -53,7 +53,13 @@ if errorlevel 1 (
   echo [2/3] Cong 5050 dang hoat dong - bo qua.
 )
 
-timeout /t 2 /nobreak >nul
+echo Dang cho cong 5050 san sang...
+powershell -NoProfile -Command "$deadline=(Get-Date).AddSeconds(30); do { try { $c=New-Object Net.Sockets.TcpClient; $iar=$c.BeginConnect('127.0.0.1',5050,$null,$null); if($iar.AsyncWaitHandle.WaitOne(300) -and $c.Connected){$c.EndConnect($iar);$c.Close();exit 0};$c.Close() } catch {}; Start-Sleep -Milliseconds 700 } while((Get-Date)-lt $deadline); exit 1"
+if errorlevel 1 (
+  echo [CANH BAO] Cong 5050 chua san sang sau 30 giay.
+) else (
+  echo Cong 5050 da san sang.
+)
 
 tasklist /FI "IMAGENAME eq ngrok.exe" 2>nul | find /I "ngrok.exe" >nul
 if errorlevel 1 (
@@ -63,11 +69,20 @@ if errorlevel 1 (
   echo [3/3] ngrok dang hoat dong - bo qua.
 )
 
-timeout /t 4 /nobreak >nul
+echo Dang cho cong 5000 san sang...
+powershell -NoProfile -Command "$deadline=(Get-Date).AddSeconds(30); do { try { $c=New-Object Net.Sockets.TcpClient; $iar=$c.BeginConnect('127.0.0.1',5000,$null,$null); if($iar.AsyncWaitHandle.WaitOne(300) -and $c.Connected){$c.EndConnect($iar);$c.Close();exit 0};$c.Close() } catch {}; Start-Sleep -Milliseconds 700 } while((Get-Date)-lt $deadline); exit 1"
+if errorlevel 1 (
+  echo [LOI] Cong 5000 khong san sang sau 30 giay. Khong mo trinh duyet.
+  echo Hay xem cua so "QY4 TTBYT - Quan tri 5000" de kiem tra loi.
+  pause
+  exit /b 1
+)
+
+echo Cong 5000 da san sang. Mo trang Su co...
 start "" "http://localhost:5000/tickets.html"
 
 echo.
-echo Da gui lenh khoi dong.
+echo Da khoi dong he thong.
 echo Quan tri: http://localhost:5000
 echo QR Internet: %PUBLIC_INCIDENT_BASE_URL%
 echo.
