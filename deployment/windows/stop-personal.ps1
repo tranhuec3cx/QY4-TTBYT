@@ -42,7 +42,7 @@ function Stop-ListenerNode {
         } catch {}
       }
     } catch {
-      Write-Warning "Khong dung duoc tien trinh tren cong $Port: $($_.Exception.Message)"
+      Write-Warning "Khong dung duoc tien trinh tren cong ${Port}: $($_.Exception.Message)"
     }
   }
 }
