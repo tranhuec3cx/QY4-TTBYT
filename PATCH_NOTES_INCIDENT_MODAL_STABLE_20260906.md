@@ -1,0 +1,1 @@
+Stable behavior confirmed in code: the incident entry button uses a capture-phase listener to open the modal reliably.
