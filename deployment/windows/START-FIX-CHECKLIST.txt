@@ -1,0 +1,6 @@
+After updating launcher:
+- Stop old 5000/5050/ngrok windows.
+- Pull feature/lcm-vong-doi.
+- Run START-QY4-TTBYT.cmd.
+- Confirm windows titled Quan tri 5000, Bao su co 5050, ngrok 5050.
+- Confirm http://localhost:5000/tickets.html opens.
