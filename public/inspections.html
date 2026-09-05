@@ -1,5 +1,115 @@
-<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Kiểm định - Hiệu chuẩn</title><link rel="stylesheet" href="/styles.css"/></head><body><div class="layout"><div id="menuHost"></div><main class="main"><div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="user-box">Người dùng: Quản trị viên</div></div>
-<section class="card"><div class="filters" style="grid-template-columns:150px 150px 1.1fr 1fr 1fr 1fr auto auto auto"><label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date"/></label><label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date"/></label><input id="searchInput" placeholder="Tìm mã/tên thiết bị, số chứng nhận"/><select id="deviceFilter"></select><select id="typeFilter"><option value="ALL">Tất cả loại</option><option>Kiểm định</option><option>Hiệu chuẩn</option><option>Kiểm định an toàn bức xạ</option><option>Kiểm xạ</option></select><select id="orgFilter"><option value="ALL">Tất cả đơn vị</option></select><button class="btn" id="filterBtn">Lọc</button><button class="btn btn-primary" onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm hồ sơ</button><button class="btn" id="exportBtn">Xuất Excel</button></div></section>
-<section class="card"><div class="table-card-header"><h3 id="countLabel">0 bản ghi</h3></div><div class="table-wrap scroll-area"><table><thead><tr><th>Hạn tiếp theo</th><th>Thời gian thực hiện</th><th>Mã TBị</th><th>Tên thiết bị</th><th>Khoa</th><th>Loại</th><th>Đơn vị</th><th>Số CN</th><th>Kết quả</th><th>File/Ghi chú</th><th>Hồ sơ TB</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div></section>
-<section id="formCard" class="card"><div class="table-card-header"><h3>Thêm / cập nhật kiểm định - hiệu chuẩn</h3></div><form id="form"><input type="hidden" id="recordId"/><div class="form-grid"><select id="deviceId" required></select><input id="dept" readonly placeholder="Khoa"/><input id="location" readonly placeholder="Vị trí"/><select id="type"><option>Kiểm định</option><option>Hiệu chuẩn</option><option>Kiểm định an toàn bức xạ</option><option>Kiểm xạ</option></select><input id="inspectionDate" type="datetime-local" required/><input id="organization" placeholder="Đơn vị thực hiện"/><input id="certificateNo" placeholder="Số giấy chứng nhận"/><select id="result"><option>Đạt</option><option>Đạt có lưu ý</option><option>Không đạt</option></select><input id="nextDate" type="date"/><input id="fileNote" placeholder="Tên file đính kèm / ghi chú nội bộ"/><input id="fileUpload" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip"/><textarea id="note" class="span-3" placeholder="Ghi chú"></textarea></div><div class="form-actions"><button class="btn btn-primary" type="submit">Lưu vào hồ sơ thiết bị</button><button class="btn" type="button" id="resetBtn">Đặt lại</button></div></form></section>
-</main></div><script src="/api.js"></script><script src="/vendor/xlsx.full.min.js"></script><script src="/inspections.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kiểm định - Hiệu chuẩn - ATBX</title>
+  <link rel="stylesheet" href="/styles.css"/>
+  <link rel="stylesheet" href="/inspections-ui.css"/>
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar inspections-page-topbar">
+        <div>
+          <h1 id="pageTitle" class="page-title"></h1>
+          <p id="pageSubtitle" class="page-subtitle"></p>
+        </div>
+        <div class="page-actions">
+          <button class="btn btn-primary" id="newInspectionBtn">+ Thêm hồ sơ</button>
+          <button class="btn" id="exportBtn">Xuất Excel</button>
+        </div>
+      </div>
+
+      <section class="card inspections-filter-card">
+        <div class="inspections-filter-head">
+          <h3>Bộ lọc tìm kiếm</h3>
+          <div class="small">Các số liệu tổng quan bên dưới cập nhật theo bộ lọc hiện tại.</div>
+        </div>
+        <div class="inspections-filter-grid">
+          <label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date"/></label>
+          <label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date"/></label>
+          <label class="field"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên thiết bị, số chứng nhận, đơn vị"/></label>
+          <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
+          <label class="field"><span class="field-label">Loại hồ sơ</span><select id="typeFilter"><option value="ALL">Tất cả loại</option><option>Kiểm định</option><option>Hiệu chuẩn</option><option>Kiểm định an toàn bức xạ</option><option>Kiểm xạ</option></select></label>
+          <label class="field"><span class="field-label">Đơn vị thực hiện</span><select id="orgFilter"><option value="ALL">Tất cả đơn vị</option></select></label>
+          <label class="field"><span class="field-label">Kết quả</span><select id="resultFilter"><option value="ALL">Tất cả kết quả</option><option>Đạt</option><option>Đạt có lưu ý</option><option>Không đạt</option></select></label>
+          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Xóa lọc</button></div>
+        </div>
+      </section>
+
+      <section class="inspections-summary-section">
+        <div class="inspections-summary-head">
+          <h3>Tổng quan kết quả</h3>
+          <div class="small">Theo dõi hiệu lực hồ sơ và kết quả kiểm định/hiệu chuẩn trong danh sách đang hiển thị.</div>
+        </div>
+        <div class="inspections-stats">
+          <div class="inspections-stat-card"><h3>Tổng hồ sơ</h3><div class="value" id="stInspectionTotal">0</div></div>
+          <div class="inspections-stat-card stat-valid"><h3>Còn hạn</h3><div class="value" id="stInspectionValid">0</div></div>
+          <div class="inspections-stat-card stat-soon"><h3>Sắp hạn ≤ 30 ngày</h3><div class="value" id="stInspectionSoon">0</div></div>
+          <div class="inspections-stat-card stat-overdue"><h3>Quá hạn</h3><div class="value" id="stInspectionOverdue">0</div></div>
+          <div class="inspections-stat-card stat-fail"><h3>Không đạt</h3><div class="value" id="stInspectionFail">0</div></div>
+          <div class="inspections-stat-card stat-missing"><h3>Chưa nhập hạn tiếp theo</h3><div class="value" id="stInspectionMissing">0</div></div>
+        </div>
+      </section>
+
+      <section class="card inspections-table-card">
+        <div class="table-card-header inspections-table-title">
+          <div><h3>Danh sách hồ sơ kiểm định - hiệu chuẩn - ATBX</h3><div id="countLabel" class="small">0 bản ghi</div></div>
+        </div>
+        <div class="table-wrap scroll-area">
+          <table class="inspections-table-v2">
+            <thead>
+              <tr><th>Hạn tiếp theo</th><th>Thời gian thực hiện</th><th>Mã TB</th><th>Tên thiết bị</th><th>Khoa/vị trí</th><th>Loại</th><th>Đơn vị</th><th>Số CN</th><th>Kết quả</th><th>File</th><th>Thao tác</th></tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <dialog id="inspectionDialog" class="inspections-dialog">
+        <form id="form">
+          <input type="hidden" id="recordId"/>
+          <div class="dialog-head">
+            <div>
+              <h2 id="inspectionFormTitle">Thêm hồ sơ kiểm định - hiệu chuẩn - ATBX</h2>
+              <p class="page-subtitle">Ghi nhận hồ sơ kỹ thuật, kết quả và thời hạn theo dõi tiếp theo của thiết bị.</p>
+            </div>
+            <button class="btn" type="button" id="closeInspectionDialogBtn">Đóng</button>
+          </div>
+          <div class="inspections-form-body">
+            <div class="form-grid inspections-form-grid">
+              <label class="field span-3 inspection-device-picker">
+                <span class="field-label">Thiết bị</span>
+                <input id="inspectionDeviceSearch" placeholder="Gõ mã thiết bị, tên thiết bị hoặc model để tìm" autocomplete="off" required/>
+                <div id="inspectionDeviceSuggestions" class="inspection-device-suggestions" hidden></div>
+                <select id="deviceId" aria-hidden="true" tabindex="-1" style="display:none"></select>
+              </label>
+              <label class="field"><span class="field-label">Khoa</span><input id="dept" readonly/></label>
+              <label class="field"><span class="field-label">Vị trí</span><input id="location" readonly/></label>
+              <label class="field"><span class="field-label">Loại thực hiện</span><select id="type"><option>Kiểm định</option><option>Hiệu chuẩn</option><option>Kiểm định an toàn bức xạ</option><option>Kiểm xạ</option></select></label>
+              <label class="field"><span class="field-label">Thời gian thực hiện (tự nhập)</span><input id="inspectionDate" type="datetime-local" required/></label>
+              <label class="field"><span class="field-label">Đơn vị thực hiện</span><input id="organization"/></label>
+              <label class="field"><span class="field-label">Số giấy chứng nhận</span><input id="certificateNo"/></label>
+              <label class="field"><span class="field-label">Kết quả</span><select id="result"><option>Đạt</option><option>Đạt có lưu ý</option><option>Không đạt</option></select></label>
+              <label class="field"><span class="field-label">Hạn tiếp theo</span><input id="nextDate" type="date"/></label>
+              <label class="field span-2"><span class="field-label">Tải file đính kèm</span><input id="fileUpload" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip"/><span class="small" id="inspectionFileHint">Chọn tệp chứng nhận hoặc hồ sơ liên quan nếu có.</span></label>
+              <label class="field"><span class="field-label">Tên/nội dung file</span><input id="fileNote" placeholder="Tên file hoặc ghi chú file"/></label>
+              <label class="field span-3"><span class="field-label">Ghi chú</span><textarea id="note"></textarea></label>
+            </div>
+          </div>
+          <div class="inspections-form-actions">
+            <button class="btn" type="button" id="resetBtn">Làm mới form</button>
+            <button class="btn" type="button" id="cancelInspectionBtn">Hủy</button>
+            <button class="btn btn-primary" type="submit" id="saveInspectionBtn">Lưu hồ sơ</button>
+          </div>
+        </form>
+      </dialog>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/vendor/xlsx.full.min.js"></script>
+  <script src="/inspections.js"></script>
+</body>
+</html>
