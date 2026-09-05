@@ -1,0 +1,1 @@
+Reliability fix: capture-phase listener ensures the `+ Ghi nhận sự cố` button opens the incident modal even after the legacy async handler assigns its old action.
