@@ -1,0 +1,1 @@
+Incident UI modal button fix finalized on 2026-09-06. The `+ Ghi nhận sự cố` action now opens the incident dialog reliably despite the legacy async handler in tickets.js. No backend or database changes.
