@@ -41,6 +41,14 @@
     updateMovementType();
   }
 
+  function movementDocumentCell(t){
+    const no=String(t.document_no||"").trim();
+    const filePath=String(t.document_file_path||"").trim();
+    const fileName=String(t.document_original_name||"File đính kèm").trim();
+    if(!no&&!filePath) return "—";
+    return `<div class="movement-document-cell">${no?`<span>${esc(no)}</span>`:""}${filePath?`<a href="${esc(filePath)}" target="_blank" rel="noopener" title="${esc(fileName)}">Mở file</a>`:""}</div>`;
+  }
+
   function renderMovements(){
     const rows=LCM_TRANSFERS||[];
     if(q("transferRows")) q("transferRows").innerHTML=rows.map(t=>`
@@ -51,7 +59,7 @@
         <td class="movement-route-cell"><b>${esc(t.from_department||"—")}</b><span>→</span><b>${esc(t.to_department||"—")}</b><small>${[t.from_department_name,t.to_department_name].filter(Boolean).map(esc).join(" → ")}</small></td>
         <td>${esc(t.to_location||"—")}</td>
         <td>${esc(t.handover_condition||"—")}</td>
-        <td>${esc(t.document_no||"—")}</td>
+        <td>${movementDocumentCell(t)}</td>
         <td class="movement-handover-cell"><span>${esc(t.giver||"—")} → ${esc(t.receiver||"—")}</span>${t.approved_by?`<small>Duyệt: ${esc(t.approved_by)}</small>`:""}</td>
         <td>${esc(t.reason||"—")}</td>
       </tr>`).join("")||emptyRow(9);
@@ -61,6 +69,27 @@
       rows.forEach(x=>{const k=x.movement_type||"Điều chuyển";counts[k]=(counts[k]||0)+1;});
       q("movementSummary").textContent=`Tổng ${rows.length} phiếu · Cấp phát ${counts["Cấp phát"]||0} · Thu hồi ${counts["Thu hồi"]||0} · Điều chuyển ${counts["Điều chuyển"]||0}`;
     }
+  }
+
+  function ensureMovementAttachmentField(){
+    const docInput=q("transferDocumentNo");
+    if(!docInput||q("transferDocumentFile"))return;
+    const docLabel=docInput.closest(".movement-field");
+    if(!docLabel)return;
+    docLabel.classList.remove("span-2");
+    const fileLabel=document.createElement("label");
+    fileLabel.className="movement-field movement-file-field";
+    fileLabel.innerHTML=`
+      <span>File đính kèm</span>
+      <input id="transferDocumentFile" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip" />
+      <small class="movement-file-hint">PDF, Word, Excel, ảnh hoặc ZIP · tối đa 20 MB</small>`;
+    docLabel.insertAdjacentElement("afterend",fileLabel);
+  }
+
+  function startAttachmentWatcher(){
+    ensureMovementAttachmentField();
+    const observer=new MutationObserver(()=>ensureMovementAttachmentField());
+    observer.observe(document.documentElement,{childList:true,subtree:true});
   }
 
   async function saveMovement(e){
@@ -82,17 +111,31 @@
       note:q("transferNote").value.trim()
     };
     if(!p.device_id){alert("Vui lòng chọn thiết bị.");return false;}
+    if(!p.transfer_date){alert("Vui lòng nhập ngày thực hiện.");return false;}
     if(type!=="Thu hồi"&&!p.to_department){alert("Vui lòng chọn khoa nhận.");return false;}
+
+    const file=q("transferDocumentFile")?.files?.[0]||null;
+    if(file&&file.size>20*1024*1024){alert("File đính kèm không được vượt quá 20 MB.");return false;}
+
     const confirmText=type==="Thu hồi"
       ?"Xác nhận thu hồi thiết bị về Khoa Trang bị?"
       :type==="Cấp phát"?"Xác nhận cấp phát thiết bị cho khoa sử dụng?":"Xác nhận điều chuyển thiết bị?";
     if(!confirm(confirmText)) return false;
+
+    const fd=new FormData();
+    Object.entries(p).forEach(([key,value])=>fd.append(key,value??""));
+    if(file)fd.append("file",file);
+
     try{
-      await api("/api/lcm/movements",{method:"POST",body:JSON.stringify(p)});
+      const res=await fetch("/api/lcm/movements",{method:"POST",body:fd});
+      const text=await res.text();
+      let data={};
+      try{data=text?JSON.parse(text):{};}catch{data={error:text};}
+      if(!res.ok)throw new Error(data.error||text||"Không lưu được phiếu biến động.");
+
       const savedDeviceId=p.device_id;
       q("transferForm").reset();
       q("movementType").value="Điều chuyển";
-      q("transferDate").value=todayISO();
       await reloadLcm();
       updateMovementCurrent();
       document.dispatchEvent(new CustomEvent("lcm:movement-saved",{detail:{device_id:savedDeviceId,movement_type:type}}));
@@ -131,7 +174,9 @@
       }
     });
     updateMovementCurrent();
+    ensureMovementAttachmentField();
   });
 
   loadMovementUiAssets();
+  startAttachmentWatcher();
 })();
