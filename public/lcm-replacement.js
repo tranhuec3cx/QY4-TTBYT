@@ -25,7 +25,7 @@ function prepareReplacementUi(){
   const table=details?.querySelector("table");
   if(table){
     const head=table.querySelector("thead tr");
-    if(head) head.innerHTML="<th>Mức ưu tiên</th><th>Năm dự kiến</th><th>Thiết bị</th><th>Khoa</th><th>Đã dùng / Dự kiến</th><th>Lý do chính</th><th>Hồ sơ</th>";
+    if(head) head.innerHTML="<th>Kế hoạch</th><th>Thiết bị</th><th>Khoa</th><th>Đã dùng / Dự kiến</th><th>Lý do chính</th><th>Hồ sơ</th>";
     table.classList.add("replacement-simple-table");
   }
   const priority=document.getElementById("replacementPriority");
@@ -40,7 +40,9 @@ function prepareReplacementUi(){
   const h3=details?.querySelector(".table-card-header h3");
   if(h3)h3.textContent="Danh sách cần xem xét";
   const note=details?.querySelector(".simple-note");
-  if(note)note.textContent="Danh sách này hỗ trợ lập kế hoạch; việc thay mới vẫn cần khảo sát, dự toán và phê duyệt theo quy định.";
+  if(note)note.textContent="Danh sách hỗ trợ lập kế hoạch; việc thay mới vẫn cần khảo sát, dự toán và phê duyệt theo quy định.";
+  const laterCard=document.getElementById("rpLater")?.closest(".simple-plan-kpi");
+  if(laterCard)laterCard.hidden=true;
 }
 
 function populateReplacementDepartments(){
@@ -59,7 +61,7 @@ function renderReplacementSummary(){
   set("rp3y",s.within_3y||0);
   set("rp5y",s.within_5y||0);
   set("rpLater",s.later||0);
-  set("rp1yCost","Cần xem xét trong 1 năm");
+  set("rp1yCost","Trong 1 năm");
   set("rp3yCost","Cộng dồn đến 3 năm");
   set("rp5yCost","Cộng dồn đến 5 năm");
 }
@@ -92,15 +94,14 @@ function renderReplacementRows(){
     const reasons=(d.reasons||[]).slice(0,2);
     const extra=(d.reasons||[]).length-reasons.length;
     return `<tr>
-      <td><span class="replacement-priority ${rpPriorityClass(d.replacement_priority)}">${rpEsc(d.replacement_priority)}</span></td>
-      <td><b>${d.suggested_replacement_year||"—"}</b></td>
+      <td><span class="replacement-priority ${rpPriorityClass(d.replacement_priority)}">${rpEsc(d.replacement_priority)}</span><small><b>${d.suggested_replacement_year||"—"}</b></small></td>
       <td><div class="lcm-device-name">${rpEsc(d.name)}</div><small class="lcm-code">${rpEsc(rpCode(d))}</small>${d.model?`<small>${rpEsc(d.model)}</small>`:""}</td>
       <td>${rpEsc(d.department_code||"—")}</td>
       <td>${Number(d.age_years||0)} / ${Number(d.planned_life_years||10)} năm</td>
       <td><ul class="replacement-reasons">${reasons.map(x=>`<li>${rpEsc(x)}</li>`).join("")}${extra>0?`<li class="more">+${extra} lý do khác</li>`:""}</ul></td>
-      <td><div class="lcm-action-group"><a class="btn btn-sm" href="/device-detail.html?id=${d.id}&from=replacement">Hồ sơ</a><button class="btn btn-sm" onclick="openProfile(${d.id})">Cấu hình</button></div></td>
+      <td><div class="lcm-action-group"><a class="btn btn-sm" href="/device-detail.html?id=${d.id}&from=replacement">Hồ sơ</a><button class="btn btn-sm" onclick="openProfile(${d.id})">Điều chỉnh</button></div></td>
     </tr>`;
-  }).join(""):'<tr><td colspan="7" class="lcm-empty">Không có thiết bị phù hợp bộ lọc.</td></tr>';
+  }).join(""):'<tr><td colspan="6" class="lcm-empty">Không có thiết bị phù hợp bộ lọc.</td></tr>';
 }
 
 function updateReplacementExport(){
@@ -122,7 +123,7 @@ async function loadReplacementPlan(){
   }catch(e){
     console.error("Replacement plan:",e);
     const body=document.getElementById("replacementRows");
-    if(body) body.innerHTML=`<tr><td colspan="7" class="lcm-empty">Không tải được kế hoạch thay mới: ${rpEsc(e.message||"Lỗi không xác định")}</td></tr>`;
+    if(body) body.innerHTML=`<tr><td colspan="6" class="lcm-empty">Không tải được kế hoạch thay mới: ${rpEsc(e.message||"Lỗi không xác định")}</td></tr>`;
   }
 }
 
