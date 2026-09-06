@@ -1,4 +1,6 @@
 const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 const Database = require("better-sqlite3");
 
 module.exports = function registerLcmMovementRoutes(app) {
@@ -6,6 +8,26 @@ module.exports = function registerLcmMovementRoutes(app) {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+
+  const uploadsDir = path.join(__dirname, "uploads", "documents");
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  const movementStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const safeBase = path.basename(file.originalname || "van-ban").replace(/[^a-zA-Z0-9._-]/g, "_");
+      cb(null, `movement-${Date.now()}-${safeBase}`);
+    }
+  });
+  const uploadMovementDocument = multer({
+    storage: movementStorage,
+    limits: { fileSize: 20 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allow = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".zip"];
+      const ext = path.extname(file.originalname || "").toLowerCase();
+      if (!allow.includes(ext)) return cb(new Error("Định dạng file không được hỗ trợ."));
+      cb(null, true);
+    }
+  });
 
   // Khoa Trang bị là điểm quản lý trung gian cho nghiệp vụ thu hồi/cấp phát.
   db.prepare("INSERT OR IGNORE INTO departments (code,name) VALUES ('C10','C10 - Khoa Trang bị')").run();
@@ -16,7 +38,12 @@ module.exports = function registerLcmMovementRoutes(app) {
     ["handover_condition", "TEXT"],
     ["giver", "TEXT"],
     ["status_before", "TEXT"],
-    ["status_after", "TEXT"]
+    ["status_after", "TEXT"],
+    ["document_original_name", "TEXT"],
+    ["document_stored_name", "TEXT"],
+    ["document_file_path", "TEXT"],
+    ["document_file_mime", "TEXT"],
+    ["document_file_size", "INTEGER DEFAULT 0"]
   ];
   const existing = new Set(db.prepare("PRAGMA table_info(device_transfers)").all().map(x => x.name));
   for (const [name, type] of movementColumns) {
@@ -33,6 +60,12 @@ module.exports = function registerLcmMovementRoutes(app) {
 
   function departmentExists(code) {
     return Boolean(db.prepare("SELECT 1 FROM departments WHERE code=?").get(code));
+  }
+
+  function safeUnlink(filePath) {
+    try {
+      if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (_) {}
   }
 
   function getMovementRows(whereSql = "", params = []) {
@@ -73,73 +106,104 @@ module.exports = function registerLcmMovementRoutes(app) {
   });
 
   app.post("/api/lcm/movements", (req, res) => {
-    const p = req.body || {};
-    const type = String(p.movement_type || "Điều chuyển").trim();
-    if (!["Cấp phát","Thu hồi","Điều chuyển"].includes(type)) {
-      return res.status(400).json({ error:"Loại nghiệp vụ không hợp lệ." });
-    }
+    uploadMovementDocument.single("file")(req, res, (uploadErr) => {
+      if (uploadErr) return res.status(400).json({ error: uploadErr.message || "Không tải được file đính kèm." });
 
-    const deviceId = Number(p.device_id || 0);
-    const dv = db.prepare("SELECT department_code,location,status FROM devices WHERE id=?").get(deviceId);
-    if (!dv) return res.status(404).json({ error:"Không tìm thấy thiết bị." });
+      const cleanupAndReply = (status, error) => {
+        if (req.file) safeUnlink(req.file.path);
+        return res.status(status).json({ error });
+      };
 
-    let toDepartment = String(p.to_department || "").trim();
-    let toLocation = String(p.to_location || "").trim();
-    const oldDepartment = String(dv.department_code || "");
-    const oldLocation = String(dv.location || "").trim();
+      try {
+        const p = req.body || {};
+        const type = String(p.movement_type || "Điều chuyển").trim();
+        if (!["Cấp phát","Thu hồi","Điều chuyển"].includes(type)) {
+          return cleanupAndReply(400, "Loại nghiệp vụ không hợp lệ.");
+        }
 
-    if (type === "Thu hồi") {
-      if (oldDepartment === "C10") return res.status(400).json({ error:"Thiết bị hiện đã thuộc Khoa Trang bị (C10), không cần lập phiếu thu hồi." });
-      toDepartment = "C10";
-      if (!toLocation) toLocation = "Khoa Trang bị / Kho";
-    } else {
-      if (!toDepartment) return res.status(400).json({ error:"Chưa chọn khoa nhận." });
-      if (!departmentExists(toDepartment)) return res.status(400).json({ error:"Khoa nhận không tồn tại trong danh mục." });
-      if (type === "Cấp phát" && oldDepartment !== "C10") {
-        return res.status(400).json({ error:"Cấp phát chỉ thực hiện khi thiết bị đang do Khoa Trang bị (C10) quản lý. Nếu chuyển trực tiếp giữa hai khoa, hãy chọn Điều chuyển." });
+        const deviceId = Number(p.device_id || 0);
+        const dv = db.prepare("SELECT department_code,location,status FROM devices WHERE id=?").get(deviceId);
+        if (!dv) return cleanupAndReply(404, "Không tìm thấy thiết bị.");
+
+        let toDepartment = String(p.to_department || "").trim();
+        let toLocation = String(p.to_location || "").trim();
+        const oldDepartment = String(dv.department_code || "");
+        const oldLocation = String(dv.location || "").trim();
+
+        if (type === "Thu hồi") {
+          if (oldDepartment === "C10") return cleanupAndReply(400, "Thiết bị hiện đã thuộc Khoa Trang bị (C10), không cần lập phiếu thu hồi.");
+          toDepartment = "C10";
+          if (!toLocation) toLocation = "Khoa Trang bị / Kho";
+        } else {
+          if (!toDepartment) return cleanupAndReply(400, "Chưa chọn khoa nhận.");
+          if (!departmentExists(toDepartment)) return cleanupAndReply(400, "Khoa nhận không tồn tại trong danh mục.");
+          if (type === "Cấp phát" && oldDepartment !== "C10") {
+            return cleanupAndReply(400, "Cấp phát chỉ thực hiện khi thiết bị đang do Khoa Trang bị (C10) quản lý. Nếu chuyển trực tiếp giữa hai khoa, hãy chọn Điều chuyển.");
+          }
+          if (type === "Cấp phát" && toDepartment === "C10") {
+            return cleanupAndReply(400, "Khoa nhận cấp phát phải là khoa sử dụng, không phải C10.");
+          }
+        }
+
+        if (toDepartment === oldDepartment && (!toLocation || toLocation === oldLocation)) {
+          return cleanupAndReply(400, "Khoa và vị trí không thay đổi. Không cần lập phiếu biến động.");
+        }
+
+        const file = req.file || null;
+        const filePath = file ? `/uploads/documents/${file.filename}` : "";
+        const tx = db.transaction(() => {
+          const info = db.prepare(`
+            INSERT INTO device_transfers (
+              device_id,transfer_date,from_department,to_department,from_location,to_location,
+              reason,approved_by,receiver,note,created_at,movement_type,document_no,
+              handover_condition,giver,status_before,status_after,
+              document_original_name,document_stored_name,document_file_path,document_file_mime,document_file_size
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(
+            deviceId,
+            p.transfer_date || todayISO(),
+            oldDepartment,
+            toDepartment,
+            oldLocation,
+            toLocation,
+            String(p.reason || "").trim(),
+            String(p.approved_by || "").trim(),
+            String(p.receiver || "").trim(),
+            String(p.note || "").trim(),
+            nowSql(),
+            type,
+            String(p.document_no || "").trim(),
+            String(p.handover_condition || "").trim(),
+            String(p.giver || "").trim(),
+            String(dv.status || "").trim(),
+            String(dv.status || "").trim(),
+            file ? file.originalname : "",
+            file ? file.filename : "",
+            filePath,
+            file ? file.mimetype : "",
+            file ? Number(file.size || 0) : 0
+          );
+
+          db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?")
+            .run(toDepartment, toLocation || oldLocation, deviceId);
+          return info.lastInsertRowid;
+        });
+
+        const id = tx();
+        res.json({
+          id,
+          movement_type:type,
+          from_department:oldDepartment,
+          to_department:toDepartment,
+          document_file_path:filePath || null,
+          document_original_name:file ? file.originalname : null
+        });
+      } catch (err) {
+        if (req.file) safeUnlink(req.file.path);
+        console.error("LCM movement save error:", err);
+        res.status(500).json({ error:"Không lưu được phiếu biến động." });
       }
-      if (type === "Cấp phát" && toDepartment === "C10") {
-        return res.status(400).json({ error:"Khoa nhận cấp phát phải là khoa sử dụng, không phải C10." });
-      }
-    }
-
-    if (toDepartment === oldDepartment && (!toLocation || toLocation === oldLocation)) {
-      return res.status(400).json({ error:"Khoa và vị trí không thay đổi. Không cần lập phiếu biến động." });
-    }
-
-    const tx = db.transaction(() => {
-      const info = db.prepare(`
-        INSERT INTO device_transfers (
-          device_id,transfer_date,from_department,to_department,from_location,to_location,
-          reason,approved_by,receiver,note,created_at,movement_type,document_no,
-          handover_condition,giver,status_before,status_after
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        deviceId,
-        p.transfer_date || todayISO(),
-        oldDepartment,
-        toDepartment,
-        oldLocation,
-        toLocation,
-        String(p.reason || "").trim(),
-        String(p.approved_by || "").trim(),
-        String(p.receiver || "").trim(),
-        String(p.note || "").trim(),
-        nowSql(),
-        type,
-        String(p.document_no || "").trim(),
-        String(p.handover_condition || "").trim(),
-        String(p.giver || "").trim(),
-        String(dv.status || "").trim(),
-        String(dv.status || "").trim()
-      );
-
-      db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?")
-        .run(toDepartment, toLocation || oldLocation, deviceId);
-      return info.lastInsertRowid;
     });
-
-    res.json({ id:tx(), movement_type:type, from_department:oldDepartment, to_department:toDepartment });
   });
 
   app.delete("/api/lcm/movements/:id", (_req, res) => {
@@ -179,5 +243,5 @@ module.exports = function registerLcmMovementRoutes(app) {
     res.json(events);
   });
 
-  console.log("LCM movements loaded: issue, recall, transfer");
+  console.log("LCM movements loaded: issue, recall, transfer, document attachment");
 };
