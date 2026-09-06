@@ -7,6 +7,21 @@ function rpCode(d){ return d.device_code||d.insurance_code||`TB-${d.id}`; }
 function rpPriorityClass(p){ return p==="Khẩn"?"urgent":p==="Cao"?"high":p==="Trung bình"?"medium":"follow"; }
 function rpHorizonLabel(h){ return h==="1Y"?"≤ 1 năm":h==="3Y"?"≤ 3 năm":h==="5Y"?"≤ 5 năm":"> 5 năm / theo dõi"; }
 
+function loadAssessmentUiAssets(){
+  if(!document.querySelector('link[href="/lcm-assessment-ui.css"]')){
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/lcm-assessment-ui.css";
+    document.head.appendChild(link);
+  }
+  if(!document.querySelector('script[src="/lcm-assessment-ui.js"]')){
+    const script=document.createElement("script");
+    script.src="/lcm-assessment-ui.js";
+    script.async=false;
+    document.head.appendChild(script);
+  }
+}
+
 function populateReplacementDepartments(){
   const el=document.getElementById("replacementDepartment");
   if(!el) return;
@@ -106,6 +121,7 @@ function initReplacementPlanning(){
     saveProfile=wrapped;
   }
   loadReplacementPlan();
+  loadAssessmentUiAssets();
 }
 if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",initReplacementPlanning);
 else initReplacementPlanning();
