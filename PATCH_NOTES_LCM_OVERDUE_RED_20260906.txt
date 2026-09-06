@@ -1,1 +1,0 @@
-Temporary checkpoint note before changing overdue warning styling in LCM assessment tab. Remove after backup branch is created.
