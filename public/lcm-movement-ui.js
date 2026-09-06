@@ -104,7 +104,7 @@
         <select id="transferToDepartment" required></select>
       </label>
       <label class="movement-field" id="movementLocationField">
-        <span>Vị trí mới</span>
+        <span id="movementLocationLabel">Vị trí mới</span>
         <input id="transferToLocation" placeholder="Vị trí mới (nếu có)" />
       </label>
       <label class="movement-field">
@@ -117,19 +117,18 @@
       </label>
 
       <div class="movement-form-section span-2">Bàn giao</div>
-      <label class="movement-field">
-        <span>Tình trạng thiết bị</span>
-        <input id="transferCondition" placeholder="Tình trạng khi bàn giao" />
+      <label class="movement-field span-2">
+        <span>Tình trạng thiết bị khi bàn giao</span>
+        <input id="transferCondition" placeholder="Ví dụ: Hoạt động tốt, đủ phụ kiện" />
       </label>
       <label class="movement-field">
         <span>Người giao</span>
-        <input id="transferGiver" placeholder="Người giao" />
+        <input id="transferGiver" placeholder="Nhập người giao" />
       </label>
       <label class="movement-field">
         <span>Người nhận</span>
-        <input id="transferReceiver" placeholder="Người nhận" />
+        <input id="transferReceiver" placeholder="Nhập người nhận" />
       </label>
-      <div id="transferCurrent" class="movement-current-line"></div>
 
       <label class="movement-field span-2">
         <span>Ghi chú</span>
@@ -210,30 +209,31 @@
     const target=document.getElementById("transferToDepartment");
     const targetField=document.getElementById("movementTargetField");
     const targetLabel=document.getElementById("movementTargetLabel");
+    const locationLabel=document.getElementById("movementLocationLabel");
     const locationInput=document.getElementById("transferToLocation");
-    const current=document.getElementById("transferCurrent");
 
     typeSelect.value=type;
     deviceSelect.value=String(d.id);
     document.getElementById("transferDate").value="";
     document.getElementById("transferApprovedBy").value="";
 
+    targetField.hidden=false;
     if(type==="Thu hồi"){
       target.value="C10";
       target.disabled=true;
       target.required=false;
-      targetField.hidden=true;
-      locationInput.placeholder="Vị trí tại Khoa Trang bị (mặc định: Kho)";
+      targetLabel.textContent="Nơi thu hồi";
+      if(locationLabel)locationLabel.textContent="Vị trí lưu";
+      locationInput.placeholder="Mặc định: Kho";
     }else{
       target.disabled=false;
       target.required=true;
-      targetField.hidden=false;
       if(type==="Cấp phát"&&target.value==="C10")target.value="";
-      targetLabel.innerHTML=type==="Cấp phát"?"Khoa nhận cấp phát <em>*</em>":"Khoa nhận điều chuyển <em>*</em>";
-      locationInput.placeholder="Vị trí mới (nếu có)";
+      targetLabel.innerHTML="Khoa nhận <em>*</em>";
+      if(locationLabel)locationLabel.textContent=type==="Cấp phát"?"Vị trí đặt máy":"Vị trí mới";
+      locationInput.placeholder=type==="Cấp phát"?"Vị trí đặt máy (nếu có)":"Vị trí mới (nếu có)";
     }
 
-    if(current)current.textContent=`Hiện tại: ${d.department_code||"Chưa rõ khoa"} · ${d.location||"Chưa cập nhật vị trí"} · ${d.status||"Chưa rõ trạng thái"}`;
     const save=document.getElementById("movementSaveBtn");
     if(save)save.textContent=type==="Cấp phát"?"Lưu cấp phát":type==="Thu hồi"?"Lưu thu hồi":"Lưu điều chuyển";
     return true;
