@@ -6,140 +6,126 @@
   const number=v=>Number(v||0);
 
   function setText(id,value){const el=$(id);if(el)el.textContent=value;}
-  function daysText(v){const n=Math.abs(Number(v||0));return `${n} ngày`;}
+  function daysText(v){return `${Math.abs(Number(v||0))} ngày`;}
   function unique(items){return [...new Set(items.filter(Boolean))];}
 
   function installPrimaryLayout(){
     const panel=document.querySelector('[data-panel="assessment"]');
-    if(!panel||panel.dataset.assessmentMinimal==="1")return;
-    panel.dataset.assessmentMinimal="1";
+    if(!panel||panel.dataset.assessmentUltraMinimal==="1")return;
+    panel.dataset.assessmentUltraMinimal="1";
 
     const risk=$("riskDetails");
     const finance=$("financeDetails");
     const replacement=$("replacementDetails");
     const disposal=$("disposalDetails");
 
-    if(risk){
-      risk.open=false;
-      risk.classList.add("assessment-secondary");
-      const s=risk.querySelector("summary");
-      if(s)s.textContent="Xem chi tiết đánh giá toàn bộ thiết bị";
-    }
-    if(finance){
-      finance.open=false;
-      finance.classList.add("assessment-secondary");
-      const s=finance.querySelector("summary");
-      if(s)s.textContent="Xem thêm: Chi phí kỹ thuật";
-    }
+    // Giữ dữ liệu/logic cũ nhưng không đưa lên màn hình chính.
+    [risk,finance,disposal].forEach(el=>{if(el){el.open=false;el.hidden=true;}});
+
     if(replacement){
-      replacement.open=true;
+      replacement.open=false;
       replacement.classList.add("assessment-primary-plan");
       const s=replacement.querySelector("summary");
       if(s)s.textContent="Kế hoạch xem xét thay mới";
+      const laterCard=$("rpLater")?.closest(".simple-plan-kpi");
+      if(laterCard)laterCard.hidden=true;
     }
-    if(disposal){
-      disposal.open=false;
-      disposal.classList.add("assessment-secondary");
-      const s=disposal.querySelector("summary");
-      if(s)s.textContent="Hồ sơ thanh lý (khi cần)";
-    }
-
-    if(replacement&&risk)panel.insertBefore(replacement,risk);
 
     if(!$("assessmentActionRoot")){
       const root=document.createElement("section");
       root.id="assessmentActionRoot";
       root.className="assessment-action-root";
       root.innerHTML=`
-        <div class="assessment-action-head">
+        <div class="assessment-compact-head">
           <div>
-            <h3>Cần quan tâm</h3>
-            <p>Chỉ hiển thị những thiết bị đang có việc cần xử lý hoặc cần theo dõi.</p>
+            <h3>Cần xử lý</h3>
+            <span id="assessmentActionCount">0 thiết bị</span>
           </div>
-          <button class="btn" type="button" id="assessmentActionRefresh">Cập nhật</button>
+          <div class="assessment-action-filters">
+            <select id="assessmentActionDepartment"><option value="ALL">Tất cả khoa/phòng</option></select>
+            <input id="assessmentActionSearch" placeholder="Tìm mã / tên / model" autocomplete="off" />
+          </div>
         </div>
         <div class="assessment-action-kpis">
-          <div class="assessment-action-kpi urgent"><span>Cần xử lý ngay</span><b id="assessmentUrgent">0</b><small>Ngừng hoạt động hoặc cảnh báo cao.</small></div>
-          <div class="assessment-action-kpi overdue"><span>Quá hạn kỹ thuật</span><b id="assessmentOverdue">0</b><small>Bảo dưỡng hoặc kiểm định/hiệu chuẩn.</small></div>
-          <div class="assessment-action-kpi repair"><span>Chờ sửa chữa / ngừng</span><b id="assessmentRepairStopped">0</b><small>Cần xử lý để đưa máy trở lại sử dụng.</small></div>
-          <div class="assessment-action-kpi replace"><span>Xem xét thay mới ≤ 1 năm</span><b id="assessmentReplace1Y">0</b><small>Theo dữ liệu vòng đời hiện có.</small></div>
+          <div class="assessment-action-kpi urgent"><span>Xử lý ngay</span><b id="assessmentUrgent">0</b></div>
+          <div class="assessment-action-kpi overdue"><span>Quá hạn kỹ thuật</span><b id="assessmentOverdue">0</b></div>
+          <div class="assessment-action-kpi replace"><span>Thay mới ≤ 1 năm</span><b id="assessmentReplace1Y">0</b></div>
         </div>
         <div class="assessment-action-card">
-          <div class="assessment-action-title">
-            <div><h3>Danh sách cần xử lý</h3><span id="assessmentActionCount">0 thiết bị</span></div>
-            <div class="assessment-action-filters">
-              <select id="assessmentActionDepartment"><option value="ALL">Tất cả khoa/phòng</option></select>
-              <select id="assessmentActionLevel">
-                <option value="ALL">Tất cả mức độ</option>
-                <option value="urgent">Cần xử lý ngay</option>
-                <option value="action">Cần xử lý</option>
-                <option value="watch">Theo dõi</option>
-              </select>
-              <input id="assessmentActionSearch" placeholder="Tìm mã / tên / model" autocomplete="off" />
-            </div>
-          </div>
           <div class="table-wrap">
             <table class="lcm-table assessment-action-table">
-              <thead><tr><th>Mức độ</th><th>Thiết bị</th><th>Khoa</th><th>Cần chú ý</th><th>Việc cần làm</th><th>Hồ sơ</th></tr></thead>
+              <thead><tr><th>Thiết bị</th><th>Khoa</th><th>Cần xử lý</th><th>Việc cần làm</th><th>Hồ sơ</th></tr></thead>
               <tbody id="assessmentActionRows"></tbody>
             </table>
           </div>
-          <p class="assessment-action-note">Cảnh báo và gợi ý dùng để sàng lọc, hỗ trợ quản lý; không thay thế đánh giá chuyên môn hoặc quyết định của người có thẩm quyền.</p>
+          <p class="assessment-action-note">Gợi ý để sàng lọc và theo dõi; quyết định xử lý thực hiện theo đánh giá chuyên môn và thẩm quyền.</p>
         </div>`;
-      const anchor=replacement||risk||finance||disposal||panel.firstChild;
-      panel.insertBefore(root,anchor);
 
+      const anchor=replacement||panel.firstChild;
+      panel.insertBefore(root,anchor);
       $("assessmentActionDepartment")?.addEventListener("change",renderActions);
-      $("assessmentActionLevel")?.addEventListener("change",renderActions);
       $("assessmentActionSearch")?.addEventListener("input",renderActions);
-      $("assessmentActionRefresh")?.addEventListener("click",loadAssessmentData);
     }
   }
 
   function actionForDevice(d,planRow){
     let rank=0;
     let level="watch";
+    let primaryTask="";
     const issues=[];
-    const tasks=[];
     let overdue=false;
 
-    const promote=(newRank,newLevel)=>{if(newRank>rank){rank=newRank;level=newLevel;}};
+    const promote=(newRank,newLevel,task)=>{
+      if(newRank>rank){rank=newRank;level=newLevel;primaryTask=task||primaryTask;}
+      else if(newRank===rank&&!primaryTask&&task)primaryTask=task;
+    };
+
     const status=String(d.status||"").trim();
     const maint=d.days_to_maintenance;
     const insp=d.days_to_inspection;
 
     if(status==="Ngừng hoạt động"){
-      promote(3,"urgent"); issues.push("Thiết bị đang ngừng hoạt động"); tasks.push("Đánh giá sửa chữa, thay mới hoặc thanh lý");
+      promote(3,"urgent","Đánh giá sửa chữa hoặc thay mới");
+      issues.push("Đang ngừng hoạt động");
     }else if(status==="Chờ thanh lý"){
-      promote(3,"urgent"); issues.push("Thiết bị đang chờ thanh lý"); tasks.push("Hoàn thiện hồ sơ thanh lý");
+      promote(3,"urgent","Hoàn thiện hồ sơ thanh lý");
+      issues.push("Đang chờ thanh lý");
     }else if(status==="Chờ sửa chữa"){
-      promote(2,"action"); issues.push("Thiết bị đang chờ sửa chữa"); tasks.push("Hoàn tất xử lý sửa chữa");
+      promote(2,"action","Hoàn tất sửa chữa");
+      issues.push("Đang chờ sửa chữa");
     }
 
     if(d.risk_level==="Cao"){
-      promote(3,"urgent"); issues.push(`Cảnh báo cao ${number(d.risk_score)}/100`); tasks.push("Rà soát nguyên nhân và phương án xử lý");
-    }else if(d.risk_level==="Trung bình"){
-      promote(1,"watch"); issues.push(`Cảnh báo trung bình ${number(d.risk_score)}/100`); tasks.push("Theo dõi tăng cường");
+      promote(3,"urgent","Rà soát nguyên nhân và phương án xử lý");
+      issues.push("Cảnh báo cao");
     }
 
     if(maint!==null&&maint!==undefined&&Number(maint)<0){
-      promote(2,"action"); overdue=true; issues.push(`Bảo dưỡng quá hạn ${daysText(maint)}`); tasks.push("Thực hiện bảo dưỡng");
+      promote(2,"action","Thực hiện bảo dưỡng");
+      overdue=true;
+      issues.push(`Bảo dưỡng quá hạn ${daysText(maint)}`);
     }else if(maint!==null&&maint!==undefined&&Number(maint)>=0&&Number(maint)<=30){
-      promote(1,"watch"); issues.push(`Bảo dưỡng đến hạn trong ${daysText(maint)}`); tasks.push("Lên lịch bảo dưỡng");
+      promote(1,"watch","Lên lịch bảo dưỡng");
+      issues.push(`Bảo dưỡng đến hạn trong ${daysText(maint)}`);
     }
 
     if(insp!==null&&insp!==undefined&&Number(insp)<0){
-      promote(2,"action"); overdue=true; issues.push(`Kiểm định/hiệu chuẩn quá hạn ${daysText(insp)}`); tasks.push("Thực hiện kiểm định/hiệu chuẩn");
+      promote(2,"action","Thực hiện kiểm định/hiệu chuẩn");
+      overdue=true;
+      issues.push(`Kiểm định/hiệu chuẩn quá hạn ${daysText(insp)}`);
     }else if(insp!==null&&insp!==undefined&&Number(insp)>=0&&Number(insp)<=30){
-      promote(1,"watch"); issues.push(`Kiểm định/hiệu chuẩn đến hạn trong ${daysText(insp)}`); tasks.push("Lên lịch kiểm định/hiệu chuẩn");
+      promote(1,"watch","Lên lịch kiểm định/hiệu chuẩn");
+      issues.push(`Kiểm định/hiệu chuẩn đến hạn trong ${daysText(insp)}`);
     }
 
     if(planRow?.horizon==="1Y"){
-      promote(2,"action"); issues.push("Nằm trong kế hoạch xem xét thay mới ≤ 1 năm"); tasks.push("Rà soát phương án thay mới");
+      promote(2,"action","Rà soát phương án thay mới");
+      issues.push("Cần xem xét thay mới trong 1 năm");
     }
 
+    // Không đưa thiết bị chỉ có cảnh báo trung bình lên danh sách hành động chính.
     if(!rank)return null;
-    return {...d,level,rank,issues:unique(issues),tasks:unique(tasks),overdue,plan:planRow||null};
+    return {...d,level,rank,issues:unique(issues),primaryTask:primaryTask||"Theo dõi",overdue,plan:planRow||null};
   }
 
   function fillDepartmentFilter(){
@@ -154,18 +140,16 @@
 
   function filteredActions(){
     const dep=$("assessmentActionDepartment")?.value||"ALL";
-    const level=$("assessmentActionLevel")?.value||"ALL";
     const text=($("assessmentActionSearch")?.value||"").trim().toLowerCase();
     return STATE.actions.filter(d=>{
       if(dep!=="ALL"&&d.department_code!==dep)return false;
-      if(level!=="ALL"&&d.level!==level)return false;
       if(text&&!([codeOf(d),d.name,d.model,d.department_code].join(" ").toLowerCase().includes(text)))return false;
       return true;
     });
   }
 
   function levelLabel(level){
-    return level==="urgent"?"Xử lý ngay":level==="action"?"Cần xử lý":"Theo dõi";
+    return level==="urgent"?"Xử lý ngay":level==="action"?"Cần xử lý":"Sắp đến hạn";
   }
 
   function renderActions(){
@@ -173,28 +157,23 @@
     setText("assessmentActionCount",`${rows.length} thiết bị`);
     const body=$("assessmentActionRows");
     if(!body)return;
+
     body.innerHTML=rows.length?rows.map(d=>{
       const issues=d.issues.slice(0,2);
       const extra=d.issues.length-issues.length;
-      const task=d.tasks.slice(0,2).join("; ");
       return `<tr>
-        <td><span class="assessment-level ${esc(d.level)}">${esc(levelLabel(d.level))}</span></td>
         <td><b>${esc(d.name||"")}</b><small>${esc(codeOf(d))}${d.model?` · ${esc(d.model)}`:""}</small></td>
         <td>${esc(d.department_code||"—")}</td>
-        <td><ul class="assessment-issues">${issues.map(x=>`<li>${esc(x)}</li>`).join("")}${extra>0?`<li class="more">+${extra} nội dung khác</li>`:""}</ul></td>
-        <td>${esc(task||"Theo dõi")}</td>
-        <td><a class="btn btn-sm" href="/device-detail.html?id=${Number(d.id)}&from=lcm">Mở hồ sơ</a></td>
+        <td><span class="assessment-level ${esc(d.level)}">${esc(levelLabel(d.level))}</span><ul class="assessment-issues">${issues.map(x=>`<li>${esc(x)}</li>`).join("")}${extra>0?`<li class="more">+${extra} nội dung khác</li>`:""}</ul></td>
+        <td>${esc(d.primaryTask)}</td>
+        <td><a class="btn btn-sm assessment-profile-btn" href="/device-detail.html?id=${Number(d.id)}&from=lcm">Mở hồ sơ</a></td>
       </tr>`;
-    }).join(""):'<tr><td colspan="6" class="lcm-empty">Không có thiết bị cần xử lý theo bộ lọc.</td></tr>';
+    }).join(""):'<tr><td colspan="5" class="lcm-empty">Không có thiết bị cần xử lý theo bộ lọc.</td></tr>';
   }
 
   function renderSummary(){
-    const urgent=STATE.actions.filter(x=>x.level==="urgent").length;
-    const overdue=STATE.actions.filter(x=>x.overdue).length;
-    const repairStopped=STATE.devices.filter(x=>["Chờ sửa chữa","Ngừng hoạt động"].includes(String(x.status||""))).length;
-    setText("assessmentUrgent",urgent);
-    setText("assessmentOverdue",overdue);
-    setText("assessmentRepairStopped",repairStopped);
+    setText("assessmentUrgent",STATE.actions.filter(x=>x.level==="urgent").length);
+    setText("assessmentOverdue",STATE.actions.filter(x=>x.overdue).length);
     setText("assessmentReplace1Y",number(STATE.plan?.summary?.within_1y));
   }
 
@@ -224,7 +203,7 @@
     }catch(err){
       console.error("Assessment action view:",err);
       const body=$("assessmentActionRows");
-      if(body)body.innerHTML=`<tr><td colspan="6" class="lcm-empty">Không tải được dữ liệu đánh giá: ${esc(err.message||"Lỗi không xác định")}</td></tr>`;
+      if(body)body.innerHTML=`<tr><td colspan="5" class="lcm-empty">Không tải được dữ liệu: ${esc(err.message||"Lỗi không xác định")}</td></tr>`;
     }
   }
 
