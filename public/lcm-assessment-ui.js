@@ -107,13 +107,27 @@
     }catch(err){console.error("Assessment availability:",err);renderOverview();}
   }
 
+  function wrapReload(){
+    if(typeof reloadLcm!=="function"||reloadLcm.__assessmentWrapped)return;
+    const original=reloadLcm;
+    const wrapped=async function(){
+      const result=await original();
+      await refreshReliableAvailability();
+      return result;
+    };
+    wrapped.__assessmentWrapped=true;
+    reloadLcm=wrapped;
+  }
+
   function init(){
     installAssessmentLayout();
+    wrapReload();
     renderOverview();
-    setTimeout(refreshReliableAvailability,0);
+    setTimeout(refreshReliableAvailability,50);
+    setTimeout(refreshReliableAvailability,500);
     document.querySelector('[data-tab="assessment"]')?.addEventListener("click",()=>setTimeout(refreshReliableAvailability,0));
     const refresh=e("refreshAllBtn");
-    refresh?.addEventListener("click",()=>setTimeout(refreshReliableAvailability,250));
+    refresh?.addEventListener("click",()=>setTimeout(refreshReliableAvailability,300));
   }
 
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init,{once:true});else init();
