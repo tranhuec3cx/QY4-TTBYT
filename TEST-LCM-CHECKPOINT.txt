@@ -1,1 +1,0 @@
-LCM smoke-test checkpoint. Pre-test-harness application head: b7fea8cfd09cd0e35f8aee2a568ba75756f1755e
