@@ -20,6 +20,14 @@
   function dateSimple(v){return v?(typeof formatDateVN==="function"?formatDateVN(String(v).slice(0,10)):String(v).slice(0,10)):"—";}
   function deviceSearchText(d){return normalizeSimple([codeOfSimple(d),d?.name,d?.model].filter(Boolean).join(" "));}
   function deviceSearchLabel(d){return [codeOfSimple(d),d?.name,d?.model].filter(Boolean).join(" - ");}
+  function friendlyStage(stage){
+    const s=String(stage||"");
+    if(s==="Khai thác")return "Đang sử dụng";
+    if(s==="Sửa chữa")return "Đang sửa chữa";
+    if(s==="Ngừng khai thác")return "Ngừng sử dụng";
+    if(s==="Thanh lý")return "Chờ thanh lý";
+    return s||"Đang sử dụng";
+  }
 
   function installProfileShell(){
     const grid=document.querySelector('[data-panel="profile"] .simple-profile-grid');
@@ -52,38 +60,38 @@
         </div>
 
         <div class="simple-profile-kpis">
-          <div class="simple-metric stage"><span>Giai đoạn hiện tại</span><b id="simpleProfileStage">—</b></div>
-          <div class="simple-metric age"><span>Tuổi / tuổi đời KH</span><b id="simpleProfileAge">—</b></div>
-          <div class="simple-metric risk"><span>Rủi ro nội bộ</span><b id="simpleProfileRisk">—</b></div>
-          <div class="simple-metric availability"><span>Sẵn sàng kỹ thuật ước tính (12T)</span><b id="simpleProfileAvailability">—</b></div>
-          <div class="simple-metric repairs"><span>Sửa chữa 12 tháng</span><b id="simpleProfileRepairs">—</b></div>
-          <div class="simple-metric cost"><span>CP sửa chữa lũy kế</span><b id="simpleProfileRepairCost">—</b></div>
+          <div class="simple-metric stage"><span>Tình trạng hiện tại</span><b id="simpleProfileStage">—</b></div>
+          <div class="simple-metric age"><span>Đã sử dụng / Dự kiến</span><b id="simpleProfileAge">—</b></div>
+          <div class="simple-metric risk"><span>Mức cảnh báo</span><b id="simpleProfileRisk">—</b></div>
+          <div class="simple-metric availability"><span>Khả năng hoạt động 12 tháng (ước tính)</span><b id="simpleProfileAvailability">—</b></div>
+          <div class="simple-metric repairs"><span>Số lần sửa trong 12 tháng</span><b id="simpleProfileRepairs">—</b></div>
+          <div class="simple-metric cost"><span>Tổng tiền sửa chữa</span><b id="simpleProfileRepairCost">—</b></div>
         </div>
 
         <div class="simple-lifecycle-card">
           <div class="simple-card-heading">
-            <div><b>TIẾN TRÌNH VÒNG ĐỜI</b><span>Vị trí hiện tại của thiết bị trong chu trình quản lý.</span></div>
+            <div><b>QUÁ TRÌNH SỬ DỤNG THIẾT BỊ</b><span>Cho biết thiết bị đang ở bước nào từ tiếp nhận đến thanh lý.</span></div>
           </div>
           <div id="simpleLifecycleProgress" class="simple-lifecycle-progress"></div>
         </div>
 
         <div class="simple-deadline-grid">
           <div id="simpleDeadlineMaintenance" class="simple-deadline"><span>Bảo dưỡng tiếp theo</span><b>—</b><small>—</small></div>
-          <div id="simpleDeadlineInspection" class="simple-deadline"><span>Kiểm định/Hiệu chuẩn</span><b>—</b><small>—</small></div>
+          <div id="simpleDeadlineInspection" class="simple-deadline"><span>Kiểm định / hiệu chuẩn tiếp theo</span><b>—</b><small>—</small></div>
           <div id="simpleDeadlineWarranty" class="simple-deadline"><span>Bảo hành</span><b>—</b><small>—</small></div>
         </div>
 
         <div class="simple-profile-decision">
-          <div><b>KHUYẾN NGHỊ QUẢN LÝ</b><span id="simpleProfileDecision">—</span></div>
-          <small>Điểm rủi ro và khuyến nghị là công cụ sàng lọc nội bộ, hỗ trợ quản lý kỹ thuật; không thay thế đánh giá chuyên môn hoặc quyết định của cấp có thẩm quyền.</small>
+          <div><b>GỢI Ý XỬ LÝ</b><span id="simpleProfileDecision">—</span></div>
+          <small>Mức cảnh báo và gợi ý chỉ giúp theo dõi, sắp xếp ưu tiên công việc; không thay thế đánh giá chuyên môn hoặc quyết định của người có thẩm quyền.</small>
         </div>
 
         <div class="simple-timeline-card">
           <div class="simple-card-heading">
-            <div><b>DÒNG THỜI GIAN GẦN ĐÂY</b><span id="simpleTimelineCount">Chưa có dữ liệu</span></div>
+            <div><b>HOẠT ĐỘNG GẦN ĐÂY</b><span id="simpleTimelineCount">Chưa có dữ liệu</span></div>
             <a id="simpleTimelineOpen" class="simple-text-link disabled" href="#">Xem toàn bộ hồ sơ</a>
           </div>
-          <div id="simpleTimeline" class="simple-timeline"><div class="simple-timeline-empty">Chọn thiết bị để xem lịch sử gần đây.</div></div>
+          <div id="simpleTimeline" class="simple-timeline"><div class="simple-timeline-empty">Chọn thiết bị để xem các hoạt động gần đây.</div></div>
         </div>
       </div>`;
   }
@@ -115,7 +123,7 @@
   function renderLifecycleProgress(d){
     const host=document.getElementById("simpleLifecycleProgress");
     if(!host)return;
-    const stages=["Tiếp nhận","Nghiệm thu","Bàn giao","Khai thác","Đánh giá thay thế","Thanh lý"];
+    const stages=["Tiếp nhận","Nghiệm thu","Bàn giao","Đang sử dụng","Xem xét thay mới","Thanh lý"];
     const state=stageState(d);
     host.innerHTML=stages.map((name,index)=>{
       const done=state.allDone||index<state.index;
@@ -126,7 +134,7 @@
   }
 
   function deadlineText(days,date){
-    if(!date)return {title:"Chưa thiết lập",meta:"Chưa có ngày tiếp theo",cls:"missing"};
+    if(!date)return {title:"Chưa có lịch",meta:"Chưa nhập ngày tiếp theo",cls:"missing"};
     if(days===null||days===undefined||!Number.isFinite(Number(days)))return {title:dateSimple(date),meta:"Đã có lịch",cls:"normal"};
     const n=Number(days);
     if(n<0)return {title:`Quá hạn ${Math.abs(n)} ngày`,meta:dateSimple(date),cls:"overdue"};
@@ -193,16 +201,16 @@
     const count=document.getElementById("simpleTimelineCount");
     if(!host)return;
     const rows=(Array.isArray(items)?items:[]).slice(0,5);
-    if(count)count.textContent=rows.length?`${rows.length} sự kiện gần nhất`:"Chưa có sự kiện";
+    if(count)count.textContent=rows.length?`${rows.length} hoạt động gần nhất`:"Chưa có hoạt động";
     host.innerHTML=rows.length?rows.map(x=>`
       <div class="simple-timeline-item">
         <div class="simple-timeline-axis"><i></i></div>
         <div class="simple-timeline-body">
-          <div class="simple-timeline-top"><b>${escSimple(x.type||"Sự kiện")}${x.title?` · ${escSimple(x.title)}`:""}</b><time>${escSimple(dateSimple(x.date))}</time></div>
+          <div class="simple-timeline-top"><b>${escSimple(x.type||"Hoạt động")}${x.title?` · ${escSimple(x.title)}`:""}</b><time>${escSimple(dateSimple(x.date))}</time></div>
           ${x.detail?`<span>${escSimple(x.detail)}</span>`:""}
           ${x.status?`<small>${escSimple(x.status)}</small>`:""}
         </div>
-      </div>`).join(""):'<div class="simple-timeline-empty">Chưa có sự kiện vòng đời được ghi nhận.</div>';
+      </div>`).join(""):'<div class="simple-timeline-empty">Chưa có hoạt động nào được ghi nhận.</div>';
     const timelineOpen=document.getElementById("simpleTimelineOpen");
     if(timelineOpen&&d){timelineOpen.href=`/device-detail.html?id=${d.id}&from=lcm`;timelineOpen.classList.remove("disabled");}
   }
@@ -211,7 +219,7 @@
     const request=++profileTimelineRequest;
     const host=document.getElementById("simpleTimeline");
     const count=document.getElementById("simpleTimelineCount");
-    if(host)host.innerHTML='<div class="simple-timeline-empty">Đang tải dòng thời gian...</div>';
+    if(host)host.innerHTML='<div class="simple-timeline-empty">Đang tải hoạt động gần đây...</div>';
     if(count)count.textContent="Đang tải...";
     try{
       const items=await api(`/api/lcm/movement-timeline/${d.id}`);
@@ -220,7 +228,7 @@
     }catch(err){
       if(request!==profileTimelineRequest)return;
       console.error("LCM profile timeline:",err);
-      if(host)host.innerHTML='<div class="simple-timeline-empty">Chưa tải được dòng thời gian. Hồ sơ thiết bị vẫn có thể mở bình thường.</div>';
+      if(host)host.innerHTML='<div class="simple-timeline-empty">Chưa tải được hoạt động gần đây. Hồ sơ thiết bị vẫn có thể mở bình thường.</div>';
       if(count)count.textContent="Không tải được lịch sử";
     }
   }
@@ -240,15 +248,15 @@
     set("simpleAssetCodeModel",[codeOfSimple(d),d.manufacturer,d.model].filter(Boolean).join(" · "));
     set("simpleAssetLocation",[d.department_code,d.department_name,d.location].filter(Boolean).join(" · "));
     const status=document.getElementById("simpleAssetStatus");
-    if(status){status.textContent=d.status||d.lifecycle_stage||"Chưa cập nhật";status.className=`simple-status-pill ${statusClass(d.status||d.lifecycle_stage)}`;}
+    if(status){status.textContent=d.status||friendlyStage(d.lifecycle_stage);status.className=`simple-status-pill ${statusClass(d.status||d.lifecycle_stage)}`;}
 
-    set("simpleProfileStage",d.lifecycle_stage||"Khai thác");
+    set("simpleProfileStage",friendlyStage(d.lifecycle_stage));
     set("simpleProfileAge",`${Number(d.age_years||0)} / ${Number(d.planned_life_years||10)} năm`);
     set("simpleProfileRisk",`${d.risk_level||"—"} · ${Number(d.risk_score||0)}/100`);
     set("simpleProfileAvailability",`${Number(d.availability_percent||0).toFixed(1)}%`);
     set("simpleProfileRepairs",`${Number(d.repair_count_12m||0)} lần`);
     set("simpleProfileRepairCost",moneySimple(d.repair_cost_total||0));
-    set("simpleProfileDecision",d.recommendation||"Tiếp tục khai thác");
+    set("simpleProfileDecision",d.recommendation||"Tiếp tục sử dụng");
 
     renderLifecycleProgress(d);
     renderDeadline("simpleDeadlineMaintenance",d.days_to_maintenance,d.next_maintenance);
