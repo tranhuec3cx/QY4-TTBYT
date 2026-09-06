@@ -17,7 +17,10 @@
     dialog.innerHTML=`
       <div class="movement-dialog-shell">
         <div class="movement-dialog-head">
-          <div><h3 id="movementDialogTitle">Ghi nhận biến động</h3><p id="movementDialogSubtitle">Cập nhật cấp phát, thu hồi hoặc điều chuyển thiết bị.</p></div>
+          <div>
+            <h3 id="movementDialogTitle">Ghi nhận biến động</h3>
+            <p id="movementDialogSubtitle">Cập nhật cấp phát, thu hồi hoặc điều chuyển thiết bị.</p>
+          </div>
           <button type="button" class="movement-dialog-close" id="movementDialogClose" aria-label="Đóng">×</button>
         </div>
         <div id="movementDialogBody"></div>
@@ -37,7 +40,6 @@
     panel.dataset.redesigned="1";
 
     form.hidden=true;
-    formCard.classList.add("movement-hidden-form-card");
     formCard.hidden=true;
 
     const dashboard=document.createElement("section");
@@ -46,10 +48,9 @@
       <div class="table-card-header movement-dashboard-head">
         <div>
           <h3>Biến động thiết bị</h3>
-          <span class="lcm-note">Chọn thiết bị, sau đó chọn đúng nghiệp vụ cần thực hiện.</span>
+          <span class="lcm-note">Chọn thiết bị, sau đó chọn nghiệp vụ cần thực hiện.</span>
         </div>
       </div>
-
       <div class="movement-current-card">
         <div class="movement-current-search">
           <label for="movementDeviceSearch">Tìm thiết bị</label>
@@ -64,17 +65,10 @@
           <div><span>Trạng thái</span><b id="movementCurrentStatus">—</b></div>
         </div>
       </div>
-
       <div class="movement-action-grid">
-        <button type="button" class="movement-action issue" data-movement-type="Cấp phát" disabled>
-          <b>Cấp phát</b><span>Từ Khoa Trang bị → khoa sử dụng.</span>
-        </button>
-        <button type="button" class="movement-action recall" data-movement-type="Thu hồi" disabled>
-          <b>Thu hồi</b><span>Từ khoa sử dụng → Khoa Trang bị.</span>
-        </button>
-        <button type="button" class="movement-action transfer" data-movement-type="Điều chuyển" disabled>
-          <b>Điều chuyển</b><span>Từ khoa đang dùng → khoa sử dụng khác.</span>
-        </button>
+        <button type="button" class="movement-action issue" data-movement-type="Cấp phát" disabled><b>Cấp phát</b><span>Từ Khoa Trang bị → khoa sử dụng.</span></button>
+        <button type="button" class="movement-action recall" data-movement-type="Thu hồi" disabled><b>Thu hồi</b><span>Từ khoa sử dụng → Khoa Trang bị.</span></button>
+        <button type="button" class="movement-action transfer" data-movement-type="Điều chuyển" disabled><b>Điều chuyển</b><span>Từ khoa đang dùng → khoa sử dụng khác.</span></button>
       </div>`;
     panel.insertBefore(dashboard,rowsCard);
 
@@ -83,8 +77,75 @@
     const thead=rowsCard.querySelector(".movement-table thead");
     if(thead)thead.innerHTML="<tr><th>Loại</th><th>Ngày</th><th>Thiết bị</th><th>Từ → Đến</th><th>Vị trí mới</th><th>Tình trạng</th><th>Văn bản</th><th>Bàn giao</th><th>Lý do</th></tr>";
 
+    buildCompactMovementForm();
     bindMovementDashboard();
     renderActionAvailability();
+  }
+
+  function buildCompactMovementForm(){
+    const form=document.getElementById("transferForm");
+    if(!form||form.dataset.compact==="1")return;
+    form.dataset.compact="1";
+    form.classList.add("movement-compact-form");
+    form.innerHTML=`
+      <select id="movementType" hidden aria-hidden="true">
+        <option>Điều chuyển</option><option>Cấp phát</option><option>Thu hồi</option>
+      </select>
+      <select id="transferDevice" hidden required aria-hidden="true"></select>
+      <input id="transferApprovedBy" type="hidden" value="" />
+
+      <div class="movement-form-section span-2">Thông tin chính</div>
+      <label class="movement-field">
+        <span>Ngày thực hiện <em>*</em></span>
+        <input id="transferDate" type="date" required />
+      </label>
+      <label class="movement-field" id="movementTargetField">
+        <span id="movementTargetLabel">Khoa nhận <em>*</em></span>
+        <select id="transferToDepartment" required></select>
+      </label>
+      <label class="movement-field" id="movementLocationField">
+        <span>Vị trí mới</span>
+        <input id="transferToLocation" placeholder="Vị trí mới (nếu có)" />
+      </label>
+      <label class="movement-field">
+        <span>Lý do / mục đích</span>
+        <input id="transferReason" placeholder="Nhập lý do hoặc mục đích" />
+      </label>
+      <label class="movement-field span-2">
+        <span>Số văn bản / quyết định</span>
+        <input id="transferDocumentNo" placeholder="Nhập số văn bản / quyết định (nếu có)" />
+      </label>
+
+      <div class="movement-form-section span-2">Bàn giao</div>
+      <label class="movement-field">
+        <span>Tình trạng thiết bị</span>
+        <input id="transferCondition" placeholder="Tình trạng khi bàn giao" />
+      </label>
+      <label class="movement-field">
+        <span>Người giao</span>
+        <input id="transferGiver" placeholder="Người giao" />
+      </label>
+      <label class="movement-field">
+        <span>Người nhận</span>
+        <input id="transferReceiver" placeholder="Người nhận" />
+      </label>
+      <div id="transferCurrent" class="movement-current-line"></div>
+
+      <label class="movement-field span-2">
+        <span>Ghi chú</span>
+        <textarea id="transferNote" rows="2" placeholder="Ghi chú thêm (nếu có)"></textarea>
+      </label>
+      <div class="lcm-form-actions span-2 movement-form-actions">
+        <button class="btn" type="button" id="movementCancelBtn">Hủy</button>
+        <button class="btn btn-primary" type="submit" id="movementSaveBtn">Lưu điều chuyển</button>
+      </div>`;
+    document.getElementById("movementCancelBtn")?.addEventListener("click",()=>document.getElementById("movementDialog")?.close());
+    document.getElementById("transferToDepartment")?.addEventListener("change",()=>{
+      if(document.getElementById("movementType")?.value==="Cấp phát"&&document.getElementById("transferToDepartment")?.value==="C10"){
+        document.getElementById("transferToDepartment").value="";
+        alert("Khoa nhận cấp phát phải là khoa sử dụng, không chọn Khoa Trang bị.");
+      }
+    });
   }
 
   function renderMovementSuggestions(text){
@@ -104,10 +165,7 @@
     const issue=document.querySelector('.movement-action[data-movement-type="Cấp phát"]');
     const recall=document.querySelector('.movement-action[data-movement-type="Thu hồi"]');
     const transfer=document.querySelector('.movement-action[data-movement-type="Điều chuyển"]');
-    if(!d){
-      [issue,recall,transfer].forEach(btn=>{if(btn){btn.disabled=true;btn.title="Chọn thiết bị trước";}});
-      return;
-    }
+    if(!d){[issue,recall,transfer].forEach(btn=>{if(btn){btn.disabled=true;btn.title="Chọn thiết bị trước";}});return;}
     const atEquipment=String(d.department_code||"")==="C10";
     if(issue){issue.disabled=!atEquipment;issue.title=atEquipment?"Cấp phát thiết bị cho khoa sử dụng":"Chỉ cấp phát khi thiết bị đang ở Khoa Trang bị";}
     if(recall){recall.disabled=atEquipment;recall.title=atEquipment?"Thiết bị đã ở Khoa Trang bị":"Thu hồi thiết bị về Khoa Trang bị";}
@@ -139,50 +197,51 @@
     renderActionAvailability();
   }
 
-  function markRequiredFields(){
-    const dateInput=document.getElementById("transferDate");
-    const dateLabel=dateInput?.closest("label");
-    if(dateLabel&&dateLabel.firstChild&&dateLabel.firstChild.nodeType===3)dateLabel.firstChild.textContent="Ngày thực hiện *";
-    if(dateInput)dateInput.setAttribute("aria-required","true");
-
-    const targetLabel=document.getElementById("movementTargetLabel");
-    if(targetLabel){
-      const text=String(targetLabel.textContent||"").replace(/\s*\*\s*$/g,"");
-      targetLabel.textContent=`${text} *`;
-    }
-    document.getElementById("transferToDepartment")?.setAttribute("aria-required","true");
-  }
-
-  function fillMovementFormFromSelection(type){
+  function prepareMovementForm(type){
     const d=movementDevice();
     if(!d){alert("Vui lòng chọn thiết bị trước.");return false;}
+    buildCompactMovementForm();
     const form=document.getElementById("transferForm");
+    if(!form)return false;
+    form.reset();
+
     const typeSelect=document.getElementById("movementType");
     const deviceSelect=document.getElementById("transferDevice");
-    const dateInput=document.getElementById("transferDate");
-    if(!form||!typeSelect||!deviceSelect||!dateInput)return false;
+    const target=document.getElementById("transferToDepartment");
+    const targetField=document.getElementById("movementTargetField");
+    const targetLabel=document.getElementById("movementTargetLabel");
+    const locationInput=document.getElementById("transferToLocation");
+    const current=document.getElementById("transferCurrent");
 
-    form.reset();
     typeSelect.value=type;
     deviceSelect.value=String(d.id);
-    dateInput.value="";
+    document.getElementById("transferDate").value="";
+    document.getElementById("transferApprovedBy").value="";
 
-    const typeLabel=typeSelect.closest("label");
-    if(typeLabel){typeLabel.hidden=true;typeLabel.style.display="none";}
-    deviceSelect.hidden=true;
-    deviceSelect.style.display="none";
+    if(type==="Thu hồi"){
+      target.value="C10";
+      target.disabled=true;
+      target.required=false;
+      targetField.hidden=true;
+      locationInput.placeholder="Vị trí tại Khoa Trang bị (mặc định: Kho)";
+    }else{
+      target.disabled=false;
+      target.required=true;
+      targetField.hidden=false;
+      if(type==="Cấp phát"&&target.value==="C10")target.value="";
+      targetLabel.innerHTML=type==="Cấp phát"?"Khoa nhận cấp phát <em>*</em>":"Khoa nhận điều chuyển <em>*</em>";
+      locationInput.placeholder="Vị trí mới (nếu có)";
+    }
 
-    if(typeof updateTransferCurrent==="function")updateTransferCurrent();
-    markRequiredFields();
-
-    const saveButton=form.querySelector('button[type="submit"]');
-    if(saveButton)saveButton.textContent=type==="Cấp phát"?"Lưu cấp phát":type==="Thu hồi"?"Lưu thu hồi":"Lưu điều chuyển";
+    if(current)current.textContent=`Hiện tại: ${d.department_code||"Chưa rõ khoa"} · ${d.location||"Chưa cập nhật vị trí"} · ${d.status||"Chưa rõ trạng thái"}`;
+    const save=document.getElementById("movementSaveBtn");
+    if(save)save.textContent=type==="Cấp phát"?"Lưu cấp phát":type==="Thu hồi"?"Lưu thu hồi":"Lưu điều chuyển";
     return true;
   }
 
   function openMovementDialog(type){
     ensureDialog();
-    if(!fillMovementFormFromSelection(type))return;
+    if(!prepareMovementForm(type))return;
     const d=movementDevice();
     const dialog=document.getElementById("movementDialog");
     const body=document.getElementById("movementDialogBody");
@@ -193,7 +252,7 @@
     if(title)title.textContent=type;
     if(subtitle){
       const actionText=type==="Cấp phát"?"đến khoa sử dụng":type==="Thu hồi"?"về Khoa Trang bị":"sang khoa sử dụng khác";
-      subtitle.textContent=`${codeOfMovement(d)} - ${d.name||"Thiết bị"} · Ghi nhận ${type.toLowerCase()} ${actionText}.`;
+      subtitle.textContent=`${codeOfMovement(d)} - ${d.name||"Thiết bị"} · ${type} ${actionText}.`;
     }
     body.appendChild(form);
     form.hidden=false;
