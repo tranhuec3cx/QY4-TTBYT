@@ -23,9 +23,9 @@ function renderReplacementSummary(){
   set("rp3y",s.within_3y||0);
   set("rp5y",s.within_5y||0);
   set("rpLater",s.later||0);
-  set("rp1yCost",`${rpMoney(s.reference_cost_1y||0)} nguyên giá tham chiếu`);
-  set("rp3yCost",`${rpMoney(s.reference_cost_3y||0)} nguyên giá tham chiếu`);
-  set("rp5yCost",`${rpMoney(s.reference_cost_5y||0)} nguyên giá tham chiếu`);
+  set("rp1yCost",`${rpMoney(s.reference_cost_1y||0)} nguyên giá tham khảo`);
+  set("rp3yCost",`${rpMoney(s.reference_cost_3y||0)} nguyên giá tham khảo`);
+  set("rp5yCost",`${rpMoney(s.reference_cost_5y||0)} nguyên giá tham khảo`);
 }
 
 function replacementFilteredRows(){
@@ -35,10 +35,13 @@ function replacementFilteredRows(){
   const text=(document.getElementById("replacementSearch")?.value||"").trim().toLowerCase();
   return (LCM_REPLACEMENT.rows||[]).filter(d=>{
     if(dep!=="ALL" && d.department_code!==dep) return false;
-    if(hor!=="ALL" && d.horizon!==hor) return false;
+    if(hor==="1Y" && d.horizon!=="1Y") return false;
+    if(hor==="3Y" && !["1Y","3Y"].includes(d.horizon)) return false;
+    if(hor==="5Y" && !["1Y","3Y","5Y"].includes(d.horizon)) return false;
+    if(hor==="LATER" && d.horizon!=="LATER") return false;
     if(pri!=="ALL" && d.replacement_priority!==pri) return false;
     if(text){
-      const hay=[rpCode(d),d.name,d.model,d.serial,d.department_code,d.manufacturer].join(" ").toLowerCase();
+      const hay=[rpCode(d),d.name,d.model,d.department_code,d.manufacturer].join(" ").toLowerCase();
       if(!hay.includes(text)) return false;
     }
     return true;
@@ -72,12 +75,12 @@ function updateReplacementExport(){
   const hor=document.getElementById("replacementHorizon")?.value||"ALL";
   const pri=document.getElementById("replacementPriority")?.value||"ALL";
   const a=document.getElementById("replacementExportBtn");
-  if(a) a.href=`/api/lcm/replacement-plan.xlsx?department_code=${encodeURIComponent(dep)}&horizon=${encodeURIComponent(hor)}&priority=${encodeURIComponent(pri)}`;
+  if(a) a.href=`/api/lcm/replacement-plan-v2.xlsx?department_code=${encodeURIComponent(dep)}&horizon=${encodeURIComponent(hor)}&priority=${encodeURIComponent(pri)}`;
 }
 
 async function loadReplacementPlan(){
   try{
-    const [plan,meta]=await Promise.all([api("/api/lcm/replacement-plan"),api("/api/meta")]);
+    const [plan,meta]=await Promise.all([api("/api/lcm/replacement-plan-v2"),api("/api/meta")]);
     LCM_REPLACEMENT=plan;
     RP_DEPARTMENTS=meta?.departments||[];
     populateReplacementDepartments();
@@ -87,7 +90,7 @@ async function loadReplacementPlan(){
   }catch(e){
     console.error("Replacement plan:",e);
     const body=document.getElementById("replacementRows");
-    if(body) body.innerHTML=`<tr><td colspan="11" class="lcm-empty">Không tải được kế hoạch thay thế: ${rpEsc(e.message||"Lỗi không xác định")}</td></tr>`;
+    if(body) body.innerHTML=`<tr><td colspan="11" class="lcm-empty">Không tải được kế hoạch thay mới: ${rpEsc(e.message||"Lỗi không xác định")}</td></tr>`;
   }
 }
 
