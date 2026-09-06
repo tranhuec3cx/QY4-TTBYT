@@ -139,20 +139,44 @@
     renderActionAvailability();
   }
 
+  function markRequiredFields(){
+    const dateInput=document.getElementById("transferDate");
+    const dateLabel=dateInput?.closest("label");
+    if(dateLabel&&dateLabel.firstChild&&dateLabel.firstChild.nodeType===3)dateLabel.firstChild.textContent="Ngày thực hiện *";
+    if(dateInput)dateInput.setAttribute("aria-required","true");
+
+    const targetLabel=document.getElementById("movementTargetLabel");
+    if(targetLabel){
+      const text=String(targetLabel.textContent||"").replace(/\s*\*\s*$/g,"");
+      targetLabel.textContent=`${text} *`;
+    }
+    document.getElementById("transferToDepartment")?.setAttribute("aria-required","true");
+  }
+
   function fillMovementFormFromSelection(type){
     const d=movementDevice();
     if(!d){alert("Vui lòng chọn thiết bị trước.");return false;}
     const form=document.getElementById("transferForm");
     const typeSelect=document.getElementById("movementType");
     const deviceSelect=document.getElementById("transferDevice");
-    if(!form||!typeSelect||!deviceSelect)return false;
+    const dateInput=document.getElementById("transferDate");
+    if(!form||!typeSelect||!deviceSelect||!dateInput)return false;
+
     form.reset();
     typeSelect.value=type;
     deviceSelect.value=String(d.id);
-    document.getElementById("transferDate").value=typeof todayISO==="function"?todayISO():new Date().toISOString().slice(0,10);
-    typeSelect.closest("label")?.setAttribute("hidden","");
+    dateInput.value="";
+
+    const typeLabel=typeSelect.closest("label");
+    if(typeLabel){typeLabel.hidden=true;typeLabel.style.display="none";}
     deviceSelect.hidden=true;
+    deviceSelect.style.display="none";
+
     if(typeof updateTransferCurrent==="function")updateTransferCurrent();
+    markRequiredFields();
+
+    const saveButton=form.querySelector('button[type="submit"]');
+    if(saveButton)saveButton.textContent=type==="Cấp phát"?"Lưu cấp phát":type==="Thu hồi"?"Lưu thu hồi":"Lưu điều chuyển";
     return true;
   }
 
