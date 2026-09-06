@@ -2,6 +2,7 @@
   const GROUP_MAP={overview:"profile",receipts:"profile",profile:"profile",transfers:"transfers",movement:"transfers",risk:"assessment",finance:"assessment",replacement:"assessment",disposals:"assessment",assessment:"assessment"};
   const detailsMap={receipts:"receiptDetails",risk:"riskDetails",finance:"financeDetails",replacement:"replacementDetails",disposals:"disposalDetails"};
   let profileTimelineRequest=0;
+  let profileAvailabilityRequest=0;
 
   function simpleSetTab(name){
     const group=GROUP_MAP[name]||"profile";
@@ -20,6 +21,7 @@
   function dateSimple(v){return v?(typeof formatDateVN==="function"?formatDateVN(String(v).slice(0,10)):String(v).slice(0,10)):"—";}
   function deviceSearchText(d){return normalizeSimple([codeOfSimple(d),d?.name,d?.model].filter(Boolean).join(" "));}
   function deviceSearchLabel(d){return [codeOfSimple(d),d?.name,d?.model].filter(Boolean).join(" - ");}
+
   function friendlyStage(stage){
     const s=String(stage||"");
     if(s==="Khai thác")return "Đang sử dụng";
@@ -27,6 +29,38 @@
     if(s==="Ngừng khai thác")return "Ngừng sử dụng";
     if(s==="Thanh lý")return "Chờ thanh lý";
     return s||"Đang sử dụng";
+  }
+
+  function timelineDisplayTitle(item){
+    const type=String(item?.type||"Hoạt động").trim();
+    const title=String(item?.title||"").trim();
+    if(!title)return type;
+    const a=normalizeSimple(type),b=normalizeSimple(title);
+    if(a===b||a.includes(b)||b.includes(a))return title;
+    return `${type} · ${title}`;
+  }
+
+  function friendlyRecommendation(d){
+    let base=String(d?.recommendation||"Tiếp tục sử dụng").trim();
+    base=base
+      .replace("Tiếp tục khai thác","Tiếp tục sử dụng")
+      .replace("Ưu tiên đánh giá thay thế/thanh lý","Ưu tiên xem xét thay mới/thanh lý")
+      .replace("Lập kế hoạch sửa chữa lớn hoặc thay thế","Lập kế hoạch sửa chữa lớn hoặc thay mới");
+
+    const maintenanceOverdue=Number.isFinite(Number(d?.days_to_maintenance))&&Number(d.days_to_maintenance)<0;
+    const inspectionOverdue=Number.isFinite(Number(d?.days_to_inspection))&&Number(d.days_to_inspection)<0;
+    if(!maintenanceOverdue&&!inspectionOverdue)return base;
+
+    let overdueText="";
+    if(maintenanceOverdue&&inspectionOverdue)overdueText="bảo dưỡng và kiểm định/hiệu chuẩn";
+    else if(maintenanceOverdue)overdueText="bảo dưỡng";
+    else overdueText="kiểm định/hiệu chuẩn";
+
+    const normalized=normalizeSimple(base);
+    if(normalized==="tiep tuc su dung"||normalized==="tiep tuc khai thac"){
+      return `Tiếp tục sử dụng; cần thực hiện ${overdueText} đang quá hạn.`;
+    }
+    return `${base.replace(/[.!?]+$/g,"")}. Đồng thời cần thực hiện ${overdueText} đang quá hạn.`;
   }
 
   function installProfileShell(){
@@ -206,7 +240,7 @@
       <div class="simple-timeline-item">
         <div class="simple-timeline-axis"><i></i></div>
         <div class="simple-timeline-body">
-          <div class="simple-timeline-top"><b>${escSimple(x.type||"Hoạt động")}${x.title?` · ${escSimple(x.title)}`:""}</b><time>${escSimple(dateSimple(x.date))}</time></div>
+          <div class="simple-timeline-top"><b>${escSimple(timelineDisplayTitle(x))}</b><time>${escSimple(dateSimple(x.date))}</time></div>
           ${x.detail?`<span>${escSimple(x.detail)}</span>`:""}
           ${x.status?`<small>${escSimple(x.status)}</small>`:""}
         </div>
@@ -233,6 +267,23 @@
     }
   }
 
+  async function loadProfileAvailability(d){
+    const request=++profileAvailabilityRequest;
+    try{
+      const result=await api(`/api/lcm/profile-availability/${d.id}`);
+      if(request!==profileAvailabilityRequest)return;
+      const selected=Number(document.getElementById("simpleProfileDevice")?.value||0);
+      if(selected!==Number(d.id))return;
+      if(Number.isFinite(Number(result?.availability_percent))){
+        d.availability_percent=Number(result.availability_percent);
+        const el=document.getElementById("simpleProfileAvailability");
+        if(el)el.textContent=`${Number(result.availability_percent).toFixed(1)}%`;
+      }
+    }catch(err){
+      console.error("LCM profile availability:",err);
+    }
+  }
+
   function renderSimpleProfile(){
     const hidden=document.getElementById("simpleProfileDevice");
     const id=Number(hidden?.value||0);
@@ -256,7 +307,7 @@
     set("simpleProfileAvailability",`${Number(d.availability_percent||0).toFixed(1)}%`);
     set("simpleProfileRepairs",`${Number(d.repair_count_12m||0)} lần`);
     set("simpleProfileRepairCost",moneySimple(d.repair_cost_total||0));
-    set("simpleProfileDecision",d.recommendation||"Tiếp tục sử dụng");
+    set("simpleProfileDecision",friendlyRecommendation(d));
 
     renderLifecycleProgress(d);
     renderDeadline("simpleDeadlineMaintenance",d.days_to_maintenance,d.next_maintenance);
@@ -265,6 +316,7 @@
 
     if(open){open.href=`/device-detail.html?id=${d.id}&from=lcm`;open.classList.remove("disabled");}
     if(assess){assess.disabled=false;assess.onclick=()=>{simpleSetTab("risk");const s=document.getElementById("riskSearch");if(s){s.value=codeOfSimple(d);if(typeof renderRisk==="function")renderRisk();}document.getElementById("riskDetails")?.scrollIntoView({behavior:"smooth",block:"start"});};}
+    loadProfileAvailability(d);
     loadProfileTimeline(d);
   }
 
