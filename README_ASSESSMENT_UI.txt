@@ -1,1 +1,0 @@
-This branch contains the assessment and planning UI redesign started from commit 60783718f6ea939bfafe3b3f0495a1a495b18921.
