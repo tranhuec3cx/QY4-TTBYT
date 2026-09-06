@@ -148,10 +148,6 @@
     });
   }
 
-  function levelLabel(level){
-    return level==="urgent"?"Xử lý ngay":level==="action"?"Cần xử lý":"Sắp đến hạn";
-  }
-
   function renderActions(){
     const rows=filteredActions();
     setText("assessmentActionCount",`${rows.length} thiết bị`);
@@ -161,10 +157,12 @@
     body.innerHTML=rows.length?rows.map(d=>{
       const issues=d.issues.slice(0,2);
       const extra=d.issues.length-issues.length;
+      const urgentBadge=d.level==="urgent"?'<span class="assessment-level urgent">Xử lý ngay</span>':"";
+      const issueHtml=issues.map(x=>`<li${/quá hạn/i.test(x)?' class="overdue"':""}>${esc(x)}</li>`).join("");
       return `<tr>
         <td><b>${esc(d.name||"")}</b><small>${esc(codeOf(d))}${d.model?` · ${esc(d.model)}`:""}</small></td>
         <td>${esc(d.department_code||"—")}</td>
-        <td><span class="assessment-level ${esc(d.level)}">${esc(levelLabel(d.level))}</span><ul class="assessment-issues">${issues.map(x=>`<li>${esc(x)}</li>`).join("")}${extra>0?`<li class="more">+${extra} nội dung khác</li>`:""}</ul></td>
+        <td>${urgentBadge}<ul class="assessment-issues">${issueHtml}${extra>0?`<li class="more">+${extra} nội dung khác</li>`:""}</ul></td>
         <td>${esc(d.primaryTask)}</td>
         <td><a class="btn btn-sm assessment-profile-btn" href="/device-detail.html?id=${Number(d.id)}&from=lcm">Mở hồ sơ</a></td>
       </tr>`;
