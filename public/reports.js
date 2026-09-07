@@ -29,6 +29,11 @@ function dateVi(v){
   const m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m?`${m[3]}/${m[2]}/${m[1]}`:s;
 }
+function todayVi(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,"0");
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()}`;
+}
 function deviceNameCell(r){
   const title=esc(r.name||"");
   const inner=r.id?`<a class="report-device" href="/device-detail.html?id=${Number(r.id)}">${title}</a>`:`<span class="report-device">${title}</span>`;
@@ -110,37 +115,46 @@ function render(type,rows){
   renderTechnical(type,rows);
 }
 
-function exportExcel(){
-  const type=q("reportType").value;
-  let rows=[];
-
-  if(type==="costByDepartment"){
-    rows=CURRENT.map((r,i)=>({STT:i+1,"Mã khoa":r.department_code,"Khoa/phòng":r.department_name||r.department_code,"Số phiếu sửa chữa":Number(r.repair_count||0),"Tổng chi phí":Number(r.total_cost||0)}));
-  }else if(type==="statusRatio"){
-    const total=CURRENT.reduce((s,r)=>s+Number(r.count||0),0)||1;
-    rows=CURRENT.map((r,i)=>({STT:i+1,"Trạng thái":r.status,"Số lượng":Number(r.count||0),"Tỷ lệ (%)":Math.round(Number(r.count||0)*1000/total)/10}));
-  }else{
-    rows=CURRENT.map((r,i)=>({
-      STT:i+1,
-      "Mã thiết bị":codeOf(r),
-      "Tên thiết bị":r.name||"",
-      "Model":r.model||"",
-      "Khoa/phòng":r.department_name||r.department_code||"",
-      "Nhóm":r.group_name||r.group_code||"",
-      "Tình trạng":r.status||"",
-      "Hạn bảo hành":r.warranty_end||"",
-      "Hạn bảo dưỡng":r.maintenance?.next_date||"",
-      "Hạn kiểm định/hiệu chuẩn":r.inspection?.next_date||"",
-      "Số lần sửa":Number(r.repair?.repair_count||0),
-      "Chi phí sửa chữa":Number(r.repair?.total_cost||0),
-      "Chất lượng":r.quality_level||""
-    }));
+async function exportExcel(){
+  const btn=q("exportBtn");
+  const oldText=btn.textContent;
+  btn.disabled=true;
+  btn.textContent="Đang xuất...";
+  try{
+    const type=q("reportType").value;
+    const response=await fetch("/api/reports/export-xlsx",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        type,
+        rows:CURRENT,
+        form_code:"BM-BV-TB-02",
+        period_label:`(Tính đến ngày ${todayVi()})`
+      })
+    });
+    if(!response.ok){
+      let message="Không xuất được báo cáo Excel.";
+      try{const data=await response.json();if(data?.error)message=data.error;}catch{}
+      throw new Error(message);
+    }
+    const blob=await response.blob();
+    const disposition=response.headers.get("Content-Disposition")||"";
+    const match=disposition.match(/filename="?([^";]+)"?/i);
+    const filename=match?.[1]||`bao_cao_${new Date().toISOString().slice(0,10)}.xlsx`;
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(e){
+    alert(e.message||"Không xuất được báo cáo Excel.");
+  }finally{
+    btn.disabled=false;
+    btn.textContent=oldText;
   }
-
-  const ws=XLSX.utils.json_to_sheet(rows);
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,(REPORT_NAMES[type]||"Bao cao").slice(0,30));
-  XLSX.writeFile(wb,`${type}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 async function load(){
