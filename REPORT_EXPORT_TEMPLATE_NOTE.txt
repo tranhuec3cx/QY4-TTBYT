@@ -1,0 +1,9 @@
+Mau xuat Excel bao cao duoc thiet ke theo file mau nguoi dung cung cap ngay 07/09/2026:
+- Dau don vi: CUC HAU CAN - KY THUAT QUAN KHU 4 / BENH VIEN QUAN Y 4
+- Ma bieu mau mac dinh: BM-BV-TB-02
+- Tieu de bao cao can giua
+- Dong thoi gian/tinh den ngay
+- Bang co vien, tieu de nen xam, Times New Roman
+- Chu ky cuoi trang: NGUOI LAP / KHOA TRANG BI
+
+Ma bieu mau co the doi theo tung loai bao cao khi co danh muc ma chinh thuc.
