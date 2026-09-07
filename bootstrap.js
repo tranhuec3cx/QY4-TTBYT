@@ -16,6 +16,7 @@ express.application.listen = function patchedListen(...args) {
     require(path.join(__dirname, "lcm-movements-routes"))(this);
     require(path.join(__dirname, "lcm-replacement-routes"))(this);
     require(path.join(__dirname, "lcm-assessment-routes"))(this);
+    require(path.join(__dirname, "report-export-routes"))(this);
     extensionsRegistered = true;
   }
   return originalListen.apply(this, args);
