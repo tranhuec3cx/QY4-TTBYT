@@ -23,7 +23,7 @@ function itemRow(x,i){
     <td><select id="d_${x.id}" ${locked?"disabled":""}>${deptOptions(x.actual_department_code||x.expected_department_code)}</select></td>
     <td><input id="l_${x.id}" value="${esc(x.actual_location||x.expected_location||"")}" ${locked?"disabled":""}/></td>
     <td><input id="n_${x.id}" value="${esc(x.note||"")}" ${locked?"disabled":""}/></td>
-    <td><div class="table-actions">${locked?"":`<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button>`}<button class="btn btn-secondary btn-sm" onclick="openInventoryDevice(${Number(x.device_id)})">Mở HS</button></div></td>
+    <td><div class="table-actions">${locked?"":`<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button><button class="btn btn-secondary btn-sm" id="t_${x.id}" onclick="transferFromInventory(${x.id})" style="display:none">Điều chuyển</button>`}<button class="btn btn-secondary btn-sm" onclick="openInventoryDevice(${Number(x.device_id)})">Mở HS</button></div></td>
   </tr>`;
 }
 function onInventoryResultChange(id){
@@ -48,6 +48,8 @@ function onInventoryResultChange(id){
     dept.disabled=false;
     loc.disabled=false;
   }
+  const transferBtn=q(`t_${id}`);
+  if(transferBtn) transferBtn.style.display=(result==="Sai khoa" || result==="Sai vị trí") ? "inline-flex" : "none";
 }
 
 function openInventoryDevice(deviceId){ window.location.href=`/device-detail.html?id=${encodeURIComponent(deviceId)}&from=inventory`; }
@@ -65,10 +67,42 @@ async function openSession(id){
   });
   q("detailCard").scrollIntoView({behavior:"smooth"});
 }
+function inventoryItemPayload(id){
+  return {result:q(`r_${id}`).value,actual_department_code:q(`d_${id}`).value,actual_location:q(`l_${id}`).value.trim(),note:q(`n_${id}`).value.trim(),updated_by:q("inventoryActor").value.trim()};
+}
 async function saveItem(id){
-  const body={result:q(`r_${id}`).value,actual_department_code:q(`d_${id}`).value,actual_location:q(`l_${id}`).value.trim(),note:q(`n_${id}`).value.trim(),updated_by:q("inventoryActor").value.trim()};
+  const body=inventoryItemPayload(id);
   await api(`/api/inventory-items/${id}`,{method:"PUT",body:JSON.stringify(body)});
   await loadSessions(); await openSession(CURRENT.session.id);
+}
+async function transferFromInventory(id){
+  if(!CURRENT || CURRENT.session.status==="Đã hoàn thành") return;
+  const item=(CURRENT.items||[]).find(x=>Number(x.id)===Number(id));
+  if(!item) return alert("Không tìm thấy dòng kiểm kê.");
+  const body=inventoryItemPayload(id);
+  if(!["Sai khoa","Sai vị trí"].includes(body.result)) return alert("Chỉ điều chuyển khi kết quả kiểm kê là Sai khoa hoặc Sai vị trí.");
+  if(!body.actual_department_code) return alert("Vui lòng chọn khoa/phòng thực tế.");
+  if(!body.actual_location) return alert("Vui lòng nhập vị trí thực tế.");
+  const actor=body.updated_by || window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
+  const reason=`Điều chuyển theo kết quả kiểm kê #${CURRENT.session.id}`;
+  const detail=`${item.expected_department_code||""}/${item.expected_location||""} → ${body.actual_department_code}/${body.actual_location}`;
+  if(!confirm(`Xác nhận điều chuyển thiết bị theo kết quả kiểm kê?\n${detail}\n\nKết quả sai lệch vẫn được giữ trong biên bản kiểm kê để truy vết.`)) return;
+  try{
+    await api(`/api/inventory-items/${id}`,{method:"PUT",body:JSON.stringify(body)});
+    await api(`/api/devices/${item.device_id}/transfer`,{method:"POST",body:JSON.stringify({
+      transfer_datetime:fromDateTimeLocalValue(nowDateTimeLocalValue()),
+      to_department_code:body.actual_department_code,
+      to_location:body.actual_location,
+      actor,
+      reason,
+      note:[body.note,`Kiểm kê #${CURRENT.session.id}: ${detail}`].filter(Boolean).join(" | ")
+    })});
+    alert("Đã lưu sai lệch kiểm kê và điều chuyển thiết bị theo vị trí thực tế.");
+    await loadSessions();
+    await openSession(CURRENT.session.id);
+  }catch(e){
+    alert(e.message||"Không điều chuyển được thiết bị.");
+  }
 }
 async function loadSessions(){SESSIONS=await api("/api/inventory-sessions");renderSessions();}
 document.addEventListener("DOMContentLoaded",async()=>{
