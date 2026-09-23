@@ -465,6 +465,11 @@ jobs:
           curl -fsS -b /tmp/engineer-cookie.txt "$BASE/api/system/qr-origins" >/tmp/engineer-qr-origins.json
           node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/engineer-qr-origins.json","utf8")); if(!Array.isArray(x.origins)||!x.origins.length) throw new Error("QR origin access failed")'
           curl -fsS -b /tmp/engineer-cookie.txt -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$(date '+%Y-%m-%d %H:%M')\",\"description\":\"Kiểm thử quyền kỹ sư\",\"severity\":\"Trung bình\",\"reporter\":\"Kỹ sư CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/engineer-incident.json
+          ENGINEER_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/engineer-user.json","utf8")).id')
+          curl -fsS -b /tmp/admin-cookie.txt -X PUT "$BASE/api/users/$ENGINEER_ID" -H 'Content-Type: application/json' --data '{"full_name":"Kỹ sư CI","username":"engineer","role":"Kỹ sư TTBYT","department_code":"C10","status":"Hoạt động","phone":"","password":"Engineer456!"}' >/tmp/engineer-password-reset.json
+          test "$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-old-session.json -w '%{http_code}' "$BASE/api/auth/me")" = "401"
+          test "$(curl -s -o /tmp/engineer-old-password.json -w '%{http_code}' -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"engineer","password":"Engineer123!"}')" = "401"
+          curl -fsS -c /tmp/engineer-cookie2.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"engineer","password":"Engineer456!"}' >/tmp/engineer-login2.json
 
           curl -fsS -c /tmp/dept-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"deptuser","password":"DeptUser123!"}' >/tmp/dept-login.json
           curl -fsS -b /tmp/dept-cookie.txt "$BASE/api/devices" >/tmp/dept-devices.json
