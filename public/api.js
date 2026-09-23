@@ -391,7 +391,12 @@ const QR_DEFAULT_PUBLIC_BASE = (window.location && window.location.origin) ? win
 function normalizeQrBaseUrl(value) {
   let v = String(value || "").trim().replace(/\/$/, "");
   if (!v) return QR_DEFAULT_PUBLIC_BASE;
-  if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+  if (!/^https?:\/\//i.test(v)) {
+    const hostPart = v.split("/")[0];
+    const looksLikeIpv4 = /^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(hostPart);
+    const looksLocal = /^localhost(?::\d+)?$/i.test(hostPart);
+    v = `${looksLikeIpv4 || looksLocal ? "http" : "https"}://${v}`;
+  }
   return v.replace(/\/$/, "");
 }
 function getQrBaseUrl() {
@@ -427,7 +432,20 @@ function printQrLabel() {
     img{width:23mm;height:23mm;object-fit:contain}
   </style></head><body>${el.innerHTML}</body></html>`);
   w.document.close();
-  setTimeout(() => { w.focus(); w.print(); }, 300);
+  let printed = false;
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
+    w.focus();
+    w.print();
+  };
+  const img = w.document.querySelector("img");
+  if (!img || img.complete) setTimeout(doPrint, 120);
+  else {
+    img.addEventListener("load", doPrint, { once:true });
+    img.addEventListener("error", doPrint, { once:true });
+    setTimeout(doPrint, 1500);
+  }
 }
 function closeQrModal() {
   const old = document.getElementById("deviceQrBackdrop");
@@ -472,8 +490,7 @@ async function loadQrOriginSuggestions(device) {
       const publicOptions = [...new Set([recommended, QR_DEFAULT_PUBLIC_BASE, ...origins].filter(Boolean))];
       datalist.innerHTML = publicOptions.map(x => `<option value="${qrModalEsc(x)}"></option>`).join("");
     }
-    const hasSavedBase = !!localStorage.getItem(QR_BASE_STORAGE_KEY);
-    if (!hasSavedBase && recommended && isLoopbackQrBase(input.value) && !isLoopbackQrBase(recommended)) {
+    if (recommended && isLoopbackQrBase(input.value) && !isLoopbackQrBase(recommended)) {
       input.value = normalizeQrBaseUrl(recommended);
       updateQrPreview(device);
     }
