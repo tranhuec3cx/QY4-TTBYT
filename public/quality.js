@@ -9,7 +9,7 @@ async function delRow(id){
   catch(e){ alert(e.message || 'Không thể xóa đánh giá.'); }
 }
 async function load(){DEVICES=await api('/api/devices'); ROWS=await api('/api/quality-ratings'); q('deviceId').innerHTML=DEVICES.map(d=>`<option value="${d.id}">${d.device_code} - ${d.name}</option>`).join(''); applyFilter();}
-function exportExcel(){const rows=FILTERED.map(r=>({'Mã thiết bị':r.device_code,'Tên thiết bị':r.device_name,'Khoa':r.department_code,'Ngày đánh giá':r.rating_date,'Tổng điểm':r.total_score,'Cấp':r.grade,'Khuyến nghị':r.recommendation,'Ghi chú':r.note})); const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'PhanCap'); XLSX.writeFile(wb,'phan_cap_chat_luong.xlsx');}
+async function exportExcel(){const rows=FILTERED.map(r=>({'Mã thiết bị':r.device_code,'Tên thiết bị':r.device_name,'Khoa':r.department_code,'Ngày đánh giá':r.rating_date,'Tổng điểm':r.total_score,'Cấp':r.grade,'Khuyến nghị':r.recommendation,'Ghi chú':r.note})); await exportXlsx('phan_cap_chat_luong.xlsx',[{name:'PhanCap',rows}]);}
 document.addEventListener('DOMContentLoaded',async()=>{
   setLayout('quality','Phân cấp chất lượng','Chấm điểm A/B/C/D theo tuổi thiết bị, hiệu suất, sửa chữa, kiểm định và phụ tùng');
   await load();
