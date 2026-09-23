@@ -28,8 +28,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   ]);
 
   setText("dbTotal", ops.total || 0);
-  setText("dbActive", ops.active || 0);
+  setText("dbOperational", ops.operational || 0);
+  setText("dbLimited", ops.limited || 0);
   setText("dbWaitingRepair", ops.repairing || 0);
+  setText("dbStopped", ops.stopped || 0);
   setText("dbOpenIncidents", ops.openIncidents || 0);
   setText("dbUnacknowledged", ops.unacknowledgedIncidents || 0);
   setText("dbDueInspection", ops.dueInspection || 0);
