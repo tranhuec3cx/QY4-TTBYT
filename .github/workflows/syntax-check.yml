@@ -158,6 +158,11 @@ jobs:
           if (String(after.serial)!=="SERIAL-AFTER") throw new Error("QR did not resolve current device data");
           if (Number(kpi.summary.total_incidents)!==2) throw new Error("KPI total incident count incorrect");
           if (Number(kpi.summary.qr_incidents)!==1 || Number(kpi.summary.direct_incidents)!==1) throw new Error("KPI source counts incorrect");
+          const qrSource=(kpi.by_source||[]).find(x=>x.source==="QR");
+          const directSource=(kpi.by_source||[]).find(x=>x.source==="Nhập trực tiếp");
+          if(!qrSource || !directSource) throw new Error("KPI source comparison missing");
+          if(Number(qrSource.count)!==1 || Number(directSource.count)!==1) throw new Error("KPI source comparison count failed");
+          if(Number(qrSource.responded_incidents)!==0 || Number(directSource.responded_incidents)!==1) throw new Error("KPI source response denominator failed");
           if (Number(kpi.summary.qr_checks)!==1 || Number(kpi.summary.qr_check_unique_devices)!==1) throw new Error("QR check adoption metrics incorrect");
           if (Number(kpi.summary.qr_check_normal_count)!==1 || Number(kpi.summary.qr_check_issue_count)!==0) throw new Error("QR check result metrics incorrect");
           if (!Array.isArray(kpi.by_day) || kpi.by_day.length!==1) throw new Error("Daily KPI trend missing");
