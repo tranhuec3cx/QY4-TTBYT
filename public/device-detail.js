@@ -77,6 +77,15 @@ function renderTransfers() {
     <td class="wrap-text">${esc(x.note||"")}</td>
   </tr>`, 6);
 }
+function technicalRecordHref(x) {
+  const id=Number(x?.record_id || 0);
+  if(!id) return "";
+  const base="from=device-detail&device_id="+encodeURIComponent(DEVICE_ID);
+  if(x.type==="Sự cố") return "/tickets.html?"+base+"&edit_id="+id;
+  if(x.type==="Sửa chữa") return "/maintenance.html?"+base+"&repair_id="+id;
+  if(x.type==="Bảo dưỡng") return "/inspection.html?"+base+"&edit_id="+id;
+  return "/inspections.html?"+base+"&edit_id="+id;
+}
 function renderTechnicalHistory() {
   renderRows("technicalRows", TECH_HISTORY || [], x => `<tr>
     <td>${formatDateTimeVNLines(x.date)}</td>
