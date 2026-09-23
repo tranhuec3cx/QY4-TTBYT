@@ -13,6 +13,8 @@ const PORT = process.env.PORT || 5000;
 const AUTH_REQUIRED = process.env.QY4_AUTH_REQUIRED === "1";
 const SESSION_COOKIE = "qy4_session";
 const SESSION_HOURS = Math.max(1, Number(process.env.QY4_SESSION_HOURS || 12));
+const QR_RATE_LIMIT = Math.max(5, Number(process.env.QY4_QR_RATE_LIMIT || 20));
+const QR_RATE_WINDOW_MS = Math.max(10000, Number(process.env.QY4_QR_RATE_WINDOW_MS || 60000));
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
@@ -103,6 +105,32 @@ function authApiGuard(req, res, next) {
   next();
 }
 app.use(authApiGuard);
+
+const qrWriteRate = new Map();
+function qrPublicWriteLimiter(req, res, next) {
+  if (req.method !== "POST") return next();
+  const now = Date.now();
+  const key = String(req.ip || req.socket?.remoteAddress || "unknown");
+  let item = qrWriteRate.get(key);
+  if (!item || now - item.started_at >= QR_RATE_WINDOW_MS) {
+    item = { started_at: now, count: 0 };
+  }
+  item.count += 1;
+  qrWriteRate.set(key, item);
+
+  if (qrWriteRate.size > 1000) {
+    for (const [k, v] of qrWriteRate.entries()) {
+      if (now - v.started_at >= QR_RATE_WINDOW_MS) qrWriteRate.delete(k);
+    }
+  }
+  if (item.count > QR_RATE_LIMIT) {
+    const retrySeconds = Math.max(1, Math.ceil((QR_RATE_WINDOW_MS - (now - item.started_at)) / 1000));
+    res.setHeader("Retry-After", String(retrySeconds));
+    return res.status(429).json({ error: "Có quá nhiều yêu cầu gửi từ thiết bị này. Vui lòng thử lại sau." });
+  }
+  next();
+}
+app.use("/api/qr", qrPublicWriteLimiter);
 
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -198,7 +226,7 @@ const qrStorage = multer.diskStorage({
 });
 const uploadQrFile = multer({
   storage: qrStorage,
-  limits: { fileSize: 30 * 1024 * 1024 },
+  limits: { fileSize: 30 * 1024 * 1024, files: 6, fields: 20, parts: 26, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allow = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov"];
     const ext = path.extname(file.originalname || "").toLowerCase();
@@ -208,7 +236,7 @@ const uploadQrFile = multer({
 });
 const uploadIncidentMedia = multer({
   storage: qrStorage,
-  limits: { fileSize: 30 * 1024 * 1024, files: 6 },
+  limits: { fileSize: 30 * 1024 * 1024, files: 6, fields: 20, parts: 26, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allow = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov"];
     const ext = path.extname(file.originalname || "").toLowerCase();
