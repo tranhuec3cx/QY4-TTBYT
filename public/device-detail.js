@@ -169,7 +169,7 @@ function renderAll() {
   renderRows("repairRows", DEVICE.repairs, (x, idx) => `<tr><td>${idx+1}</td><td>${formatDateTimeVN(x.received_at || x.repair_date)}</td><td class="wrap-text">${esc(x.issue||"")}</td><td><span class="tag ${statusTagClass(x.processing_status)}">${esc(x.processing_status||"")}</span></td><td>${formatCurrency(x.cost)}</td><td class="wrap-text">${esc(x.result||"")}</td><td><button class="btn btn-sm" onclick="showRepairDetail(${Number(x.id)})">Xem chi tiết</button></td></tr>`, 7);
   renderRows("maintRows", DEVICE.maintenances, x => `<tr><td>${formatDateTimeVN(x.maintenance_date)}</td><td>${esc(x.type||"")}</td><td class="wrap-text">${esc(x.content||"")}</td><td>${esc(x.result||"")}</td><td>${esc(x.performer||"")}</td><td>${esc(x.user_confirm||"")}</td><td>${esc(x.vendor||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(x.file_path, x.original_name || x.stored_name)}</td><td><div class="table-actions"><button class="btn" onclick="editMaint(${x.id})">Cập nhật</button><span class="tag gray">Lịch sử</span></div></td></tr>`, 10);
   if (q("inspectionRows")) renderRows("inspectionRows", DEVICE.inspections || [], x => `<tr><td>${formatDateTimeVN(x.inspection_date)}</td><td>${esc(x.type||"")}</td><td>${esc(x.organization||"")}</td><td>${esc(x.certificate_no||"")}</td><td>${esc(x.result||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(attachedPath(x.file_note), "")}</td><td><div class="table-actions"><button class="btn btn-sm" onclick="editInspection(${Number(x.id)})">Cập nhật</button><span class="tag gray">Lịch sử</span></div></td></tr>`, 8);
-  renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${esc(x.log_datetime||"")}</td><td>${esc(x.user_name||"")}</td><td>${esc(x.department_code||"")}</td><td>${esc(x.usage_count||"")}</td><td>${esc(x.status_before||"")}</td><td>${esc(x.status_after||"")}</td><td>${esc(x.note||"")}</td><td>${rowBtns('editOp','deleteOp',Number(x.id))}</td></tr>`, 8);
+  renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${esc(x.log_datetime||"")}</td><td>${esc(x.user_name||"")}</td><td>${esc(x.department_code||"")}</td><td>${esc(x.usage_count||"")}</td><td>${esc(x.status_before||"")}</td><td>${esc(x.status_after||"")}</td><td>${esc(x.note||"")}</td><td><div class="table-actions"><button class="btn" onclick="editOp(${Number(x.id)})">Cập nhật</button><span class="tag gray">Lịch sử</span></div></td></tr>`, 8);
   renderRows("docRows", DEVICE.documents, x => `<tr><td>${esc(x.name||"")}</td><td>${esc(x.type||"")}</td><td>${esc(formatDateVN(x.doc_date))}</td><td>${esc(x.updated_by||"")}</td><td>${docFileLabel(x)}</td><td>${esc(x.note||"")}</td><td>${docExtraBtns(x)}</td></tr>`, 7);
   if (q("transferDepartment")) {
     q("transferDepartment").innerHTML = META.departments.map(x=>`<option value="${esc(x.code)}">${esc(x.code)} - ${esc(x.name)}</option>`).join("");
@@ -331,11 +331,6 @@ function editOp(id) {
   const x = DEVICE.operation_logs.find(r => r.id === id);
   q("opId").value = x.id; q("opDatetime").value = (x.log_datetime || "").replace(" ","T"); q("opUser").value = x.user_name || ""; q("opDepartmentCode").value = x.department_code || ""; q("opUsageCount").value = x.usage_count || ""; q("opBefore").value = x.status_before || ""; q("opAfter").value = x.status_after || ""; q("opNote").value = x.note || "";
   showForm("opFormWrap", true);
-}
-async function deleteOp(id) {
-  if (!confirm("Xóa nhật ký vận hành này? Thao tác sẽ được ghi vào nhật ký hệ thống.")) return;
-  try{ await api(`/api/operation-logs/${id}`, { method:"DELETE" }); await loadDevice(); }
-  catch(e){ alert(e.message || "Không thể xóa nhật ký vận hành."); }
 }
 async function saveOp(e) {
   e.preventDefault();
