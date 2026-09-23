@@ -3545,10 +3545,9 @@ app.get("/api/reports/data-quality", (req, res) => {
 });
 
 app.get("/api/reports/kpi", (req, res) => {
-  const now = new Date();
-  const pad = n => String(n).padStart(2,"0");
-  const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-  const fromDate = String(req.query.from_date || `${now.getFullYear()}-01-01`).slice(0,10);
+  const today = localDateISO();
+  const currentYear = today.slice(0,4);
+  const fromDate = String(req.query.from_date || `${currentYear}-01-01`).slice(0,10);
   const toDate = String(req.query.to_date || today).slice(0,10);
   const departmentCode = String(req.query.department_code || "ALL").trim();
   const responseTargetMinutes = Math.max(1, Math.min(1440, Number(req.query.response_target_minutes || 30)));
@@ -3623,8 +3622,28 @@ app.get("/api/reports/kpi", (req, res) => {
   const open = records.filter(r=>["Mới ghi nhận","Đã tiếp nhận"].includes(normalizeIncidentStatusForUi(r.status,r.repair_id))).length;
 
   const sourceMap = new Map();
-  for (const r of records) sourceMap.set(r.source_channel,(sourceMap.get(r.source_channel)||0)+1);
-  const bySource = Array.from(sourceMap.entries()).map(([source,count])=>({source,count})).sort((a,b)=>b.count-a.count);
+  for (const r of records) {
+    if (!sourceMap.has(r.source_channel)) sourceMap.set(r.source_channel, []);
+    sourceMap.get(r.source_channel).push(r);
+  }
+  const bySource = Array.from(sourceMap.entries()).map(([source,rows])=>{
+    const response=rows.map(r=>r.response_minutes).filter(v=>Number.isFinite(v));
+    const resolution=rows.map(r=>r.resolution_minutes).filter(v=>Number.isFinite(v));
+    const within=response.filter(v=>v<=responseTargetMinutes).length;
+    return {
+      source,
+      count:rows.length,
+      responded_incidents:response.length,
+      response_data_completeness_percent:rows.length ? Number((response.length*100/rows.length).toFixed(1)) : 0,
+      avg_response_minutes:avg(response)==null ? null : Number(avg(response).toFixed(1)),
+      median_response_minutes:median(response)==null ? null : Number(median(response).toFixed(1)),
+      response_within_target:within,
+      response_within_target_percent:response.length ? Number((within*100/response.length).toFixed(1)) : 0,
+      resolved_incidents:resolution.length,
+      avg_resolution_minutes:avg(resolution)==null ? null : Number(avg(resolution).toFixed(1)),
+      median_resolution_minutes:median(resolution)==null ? null : Number(median(resolution).toFixed(1))
+    };
+  }).sort((a,b)=>b.count-a.count);
 
   const monthMap = new Map();
   const dayMap = new Map();
