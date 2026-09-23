@@ -3054,6 +3054,124 @@ async function ensureDailyBackup() {
   }
 }
 
+app.get("/api/system/readiness", (req, res) => {
+  const backups = listDatabaseBackups();
+  const origins = getLanQrOrigins(req);
+  const recommendedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const totalDevices = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
+  const missingSerial = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))=''").get().c;
+  const missingModel = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(model,''))=''").get().c;
+  const missingLocation = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(location,''))=''").get().c;
+  const missingYear = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND COALESCE(year_in_use,0)<=0").get().c;
+  const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(qr_uid,''))=''").get().c;
+  const duplicateSerialGroups = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT lower(trim(serial)) k
+      FROM devices
+      WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))<>''
+      GROUP BY lower(trim(serial))
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
+  const activeAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND trim(COALESCE(password_hash,''))<>''").get().c;
+  const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
+  const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
+  let uploadWritable = true;
+  try { fs.accessSync(qrUploadsDir, fs.constants.W_OK); } catch { uploadWritable = false; }
+  let dbSize = 0;
+  try { dbSize = fs.statSync(dbPath).size; } catch {}
+
+  const incompleteCore = db.prepare(`
+    SELECT COUNT(*) c FROM devices
+    WHERE COALESCE(is_archived,0)=0 AND (
+      trim(COALESCE(serial,''))='' OR trim(COALESCE(model,''))='' OR trim(COALESCE(manufacturer,''))=''
+      OR trim(COALESCE(location,''))='' OR COALESCE(year_in_use,0)<=0
+    )
+  `).get().c;
+  const completeCore = Math.max(0, Number(totalDevices)-Number(incompleteCore));
+  const completePercent = totalDevices ? Number((completeCore*100/totalDevices).toFixed(1)) : 100;
+
+  const checks = [
+    {
+      key:"demo",
+      level:process.env.QY4_DEMO_SEED === "1" ? "Cần xử lý" : "Đạt",
+      title:"Chế độ dữ liệu mẫu",
+      detail:process.env.QY4_DEMO_SEED === "1" ? "QY4_DEMO_SEED=1. Phải tắt trước khi dùng dữ liệu thật." : "Dữ liệu mẫu đang tắt."
+    },
+    {
+      key:"auth",
+      level:AUTH_REQUIRED && activeAdmins>0 ? "Đạt" : "Cần xử lý",
+      title:"Đăng nhập và quản trị",
+      detail:AUTH_REQUIRED ? (activeAdmins>0 ? `Đã bật xác thực; có ${activeAdmins} Quản trị viên hoạt động.` : "Đã bật xác thực nhưng chưa có Quản trị viên có mật khẩu.") : "QY4_AUTH_REQUIRED đang tắt."
+    },
+    {
+      key:"backup",
+      level:backups.length ? "Đạt" : "Cần xử lý",
+      title:"Sao lưu dữ liệu",
+      detail:backups.length ? `Có ${backups.length} bản sao lưu; mới nhất: ${backups[0]}.` : "Chưa có bản sao lưu SQLite."
+    },
+    {
+      key:"qr_origin",
+      level:recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin) ? "Lưu ý" : "Cần xử lý",
+      title:"Địa chỉ QR trên mạng nội bộ",
+      detail:recommendedOrigin ? `Địa chỉ đề xuất: ${recommendedOrigin}. Cần chốt IP/hostname ổn định trước khi in QR hàng loạt.` : "Chưa xác định được địa chỉ LAN cho QR."
+    },
+    {
+      key:"timezone",
+      level:APP_TIME_ZONE === "Asia/Bangkok" ? "Đạt" : "Lưu ý",
+      title:"Múi giờ ứng dụng",
+      detail:`${APP_TIME_ZONE} · ngày hệ thống: ${localDateISO()} · thời gian: ${nowSql().slice(11,19)}.`
+    },
+    {
+      key:"uploads",
+      level:uploadWritable ? "Đạt" : "Cần xử lý",
+      title:"Lưu ảnh/video QR",
+      detail:uploadWritable ? "Thư mục upload có quyền ghi." : "Thư mục upload không có quyền ghi."
+    },
+    {
+      key:"data_quality",
+      level:completePercent >= 95 ? "Đạt" : "Lưu ý",
+      title:"Độ đầy đủ dữ liệu thiết bị cốt lõi",
+      detail:`${completePercent}% (${completeCore}/${totalDevices}). Thiếu Serial: ${missingSerial}; Model: ${missingModel}; vị trí: ${missingLocation}; năm sử dụng: ${missingYear}.`
+    },
+    {
+      key:"qr_uid",
+      level:missingQr===0 ? "Đạt" : "Cần xử lý",
+      title:"QR UID cố định",
+      detail:missingQr===0 ? `Toàn bộ ${totalDevices} thiết bị đang quản lý đã có QR UID.` : `Còn ${missingQr} thiết bị chưa có QR UID.`
+    },
+    {
+      key:"duplicate_serial",
+      level:duplicateSerialGroups===0 ? "Đạt" : "Lưu ý",
+      title:"Serial trùng",
+      detail:duplicateSerialGroups===0 ? "Không phát hiện nhóm Serial trùng." : `Có ${duplicateSerialGroups} nhóm Serial trùng cần xác minh.`
+    },
+    {
+      key:"incidents",
+      level:unacknowledged===0 ? "Đạt" : "Lưu ý",
+      title:"Sự cố chưa tiếp nhận",
+      detail:unacknowledged===0 ? "Không có sự cố mới đang thiếu mốc tiếp nhận." : `Có ${unacknowledged} sự cố mới chưa có mốc tiếp nhận.`
+    }
+  ];
+  const blocking = checks.filter(x=>x.level==="Cần xử lý").length;
+  const warnings = checks.filter(x=>x.level==="Lưu ý").length;
+  res.json({
+    generated_at:nowSql(),
+    overall:blocking===0 ? (warnings===0 ? "Sẵn sàng" : "Sẵn sàng có lưu ý") : "Chưa sẵn sàng",
+    blocking,
+    warnings,
+    checks,
+    system:{
+      time_zone:APP_TIME_ZONE,
+      database_size_bytes:dbSize,
+      active_users:activeUsers,
+      total_devices:totalDevices,
+      recommended_qr_origin:recommendedOrigin,
+      backups:backups.length
+    }
+  });
+});
+
 app.get("/api/system/backups", (req, res) => {
   res.json(listDatabaseBackups());
 });
