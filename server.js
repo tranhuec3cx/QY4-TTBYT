@@ -2237,20 +2237,12 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
 });
 
 app.delete("/api/maintenances/:id", (req, res) => {
-  try{
-    const id=Number(req.params.id);
-    const old=db.prepare("SELECT * FROM maintenances WHERE id=?").get(id);
-    if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi bảo dưỡng."});
-    if(String(old.file_path||"").trim()){
-      return res.status(400).json({error:"Bản ghi bảo dưỡng đã có file hồ sơ; không được xóa để bảo toàn tài liệu lịch sử."});
-    }
-    db.prepare("DELETE FROM maintenances WHERE id=?").run(id);
-    writeAudit(requestActor(req, old.performer || "Khoa Trang bị"), "Xóa bảo dưỡng chưa có file", "maintenance", id, old.content || old.note || "");
-    res.json({ok:true});
-  }catch(e){
-    console.error("DELETE /api/maintenances/:id error:",e);
-    res.status(500).json({error:e.message});
-  }
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT id FROM maintenances WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi bảo dưỡng."});
+  return res.status(409).json({
+    error:"Bản ghi bảo dưỡng là lịch sử kỹ thuật và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để chỉnh lại nội dung."
+  });
 });
 
 app.post("/api/operation-logs", (req, res) => {
@@ -3419,20 +3411,12 @@ app.put("/api/inspections/:id", (req, res) => {
 });
 
 app.delete("/api/inspections/:id", (req, res) => {
-  try{
-    const id=Number(req.params.id);
-    const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
-    if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
-    if(String(old.file_note||"").trim().startsWith("/uploads/")){
-      return res.status(400).json({error:"Hồ sơ kiểm định/hiệu chuẩn đã có file chứng nhận; không được xóa để bảo toàn hồ sơ."});
-    }
-    db.prepare("DELETE FROM inspections WHERE id=?").run(id);
-    writeAudit(requestActor(req), "Xóa kiểm định/hiệu chuẩn chưa có file", "inspection", id, `${old.type || ""} | ${old.certificate_no || ""}`);
-    res.json({ok:true});
-  }catch(e){
-    console.error("DELETE /api/inspections/:id error:",e);
-    res.status(500).json({error:e.message});
-  }
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT id FROM inspections WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
+  return res.status(409).json({
+    error:"Hồ sơ kiểm định/hiệu chuẩn là lịch sử kỹ thuật và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật."
+  });
 });
 
 app.get("/api/quality-ratings", (req, res) => {
