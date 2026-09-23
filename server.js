@@ -1098,6 +1098,31 @@ app.get("/api/devices", (req, res) => {
   res.json(rows);
 });
 
+app.get("/api/devices/duplicate-check", (req, res) => {
+  const serial = String(req.query.serial || "").trim();
+  const name = String(req.query.name || "").trim();
+  const model = String(req.query.model || "").trim();
+  const excludeId = Number(req.query.exclude_id || 0);
+  const serialMatches = serial ? db.prepare(`
+    SELECT id, device_code, name, model, serial, department_code
+    FROM devices
+    WHERE lower(trim(serial))=lower(trim(?)) AND trim(serial)<>'' AND (?=0 OR id<>?)
+    ORDER BY id
+  `).all(serial, excludeId, excludeId).map(enrichDevice) : [];
+  const similarMatches = (name && model) ? db.prepare(`
+    SELECT id, device_code, name, model, serial, department_code
+    FROM devices
+    WHERE lower(trim(name))=lower(trim(?)) AND lower(trim(model))=lower(trim(?))
+      AND (?=0 OR id<>?)
+    ORDER BY id
+  `).all(name, model, excludeId, excludeId).map(enrichDevice) : [];
+  res.json({
+    serial_duplicate: serialMatches.length > 0,
+    serial_matches: serialMatches,
+    similar_matches: similarMatches
+  });
+});
+
 app.get("/api/devices/:id", (req, res) => {
   const device = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
