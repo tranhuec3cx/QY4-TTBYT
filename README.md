@@ -135,6 +135,9 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 - Reset dữ liệu mẫu chỉ hoạt động khi chủ động bật chế độ demo.
 - File trong `/uploads` yêu cầu phiên đăng nhập khi `QY4_AUTH_REQUIRED=1`; trang QR công khai vẫn có thể gửi ảnh/video nhưng không đọc được file đã lưu.
 - POST công khai qua QR được giới hạn tần suất theo IP để giảm spam/upload lạm dụng.
+- Chỉ request có **QR UID cố định hợp lệ** mới được ghi nhận nguồn `QR`; gửi bằng `device_id` đơn thuần bị từ chối.
+- Request QR hoặc sự cố nhập trực tiếp bị từ chối sẽ dọn file upload tạm, tránh rác ổ đĩa.
+- Múi giờ ứng dụng mặc định `Asia/Bangkok` (+07, cùng múi giờ Việt Nam), có thể đổi bằng `QY4_TIME_ZONE`.
 - Multer được khóa ở phiên bản 2.4.0 và kiểm thử upload multipart trong CI.
 
 ## 3. Cài đặt
@@ -187,6 +190,7 @@ $env:QY4_SESSION_HOURS="12"
 $env:QY4_BACKUP_KEEP="30"
 $env:QY4_QR_RATE_LIMIT="20"
 $env:QY4_QR_RATE_WINDOW_MS="60000"
+$env:QY4_TIME_ZONE="Asia/Bangkok"
 npm start
 ```
 
@@ -205,6 +209,7 @@ QY4_SESSION_HOURS=12 \
 QY4_BACKUP_KEEP=30 \
 QY4_QR_RATE_LIMIT=20 \
 QY4_QR_RATE_WINDOW_MS=60000 \
+QY4_TIME_ZONE=Asia/Bangkok \
 npm start
 ```
 
@@ -274,6 +279,8 @@ Mặc định:
 
 Nếu vượt giới hạn tần suất, API trả HTTP `429` và `Retry-After`.
 
+**Tính toàn vẹn số liệu QR:** endpoint ghi kiểm tra/sự cố QR bắt buộc có `qr_uid` hợp lệ của thiết bị đang quản lý. Hệ thống không chấp nhận `device_id` thay thế để tránh một bản ghi nhập tay bị tính nhầm thành hoạt động QR.
+
 ## 8. Sao lưu dữ liệu
 
 Database chính:
@@ -309,6 +316,9 @@ Server tự bổ sung các trường/bảng còn thiếu, gồm:
 - auth session.
 - hash/salt mật khẩu người dùng.
 - nguồn báo sự cố, người tiếp nhận, snapshot mã khoa tại thời điểm sự cố và các mốc KPI.
+- nguồn kiểm tra QR/nhập trực tiếp và snapshot khoa/vị trí tại thời điểm kiểm tra.
+
+Nếu sửa nhầm thiết bị của một sự cố **trước khi chuyển sửa chữa**, hệ thống cập nhật lại snapshot theo thiết bị đúng. Khi sự cố đã liên kết với phiếu sửa chữa, hệ thống không cho đổi thiết bị để tránh lệch hồ sơ.
 
 **Lưu ý dữ liệu cũ:** phần mềm không tự suy đoán để phục hồi Serial từ mã bảo hiểm. Các dòng Serial trống nhưng mã bảo hiểm có dữ liệu chỉ được đưa vào danh sách cần rà soát để tránh sửa sai dữ liệu thật.
 
@@ -320,7 +330,24 @@ Khuyến nghị:
 4. Chạy lại server.
 5. Kiểm tra một số thiết bị cũ và QR trước khi sử dụng chính thức.
 
-## 10. Kiểm thử tự động
+## 10. Kiểm tra sẵn sàng triển khai
+
+Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** để xem một checklist tự động trước khi chạy thật hoặc demo Hội đồng. Màn hình kiểm tra:
+
+- dữ liệu mẫu đã tắt hay chưa;
+- xác thực và Quản trị viên có sẵn sàng hay không;
+- có bản sao lưu SQLite hay chưa;
+- địa chỉ QR nội bộ đề xuất và cảnh báo trước khi in QR hàng loạt;
+- múi giờ/ngày giờ ứng dụng;
+- quyền ghi thư mục ảnh/video;
+- độ đầy đủ Serial, Model, vị trí và năm sử dụng;
+- QR UID cố định;
+- nhóm Serial trùng;
+- sự cố mới chưa có mốc tiếp nhận.
+
+Các mục **Cần xử lý** nên được giải quyết trước khi chạy dữ liệu thật. Mục **Lưu ý** không nhất thiết chặn chạy thử nhưng cần được ghi nhận.
+
+## 11. Kiểm thử tự động
 
 GitHub Actions hiện kiểm tra:
 
@@ -333,16 +360,23 @@ GitHub Actions hiện kiểm tra:
 - Nguồn sự cố QR và nhập trực tiếp được phân loại đúng.
 - Người tiếp nhận khác người báo sự cố.
 - Snapshot khoa/vị trí không đổi sau điều chuyển.
+- Màn hình Sự cố hiển thị khoa/vị trí lịch sử, đồng thời vẫn giữ ngữ cảnh hiện tại của thiết bị.
+- Sửa nhầm thiết bị trước chuyển sửa chữa cập nhật snapshot; sau khi đã có phiếu sửa chữa thì bị khóa đổi thiết bị.
 - KPI lọc theo khoa tại thời điểm xảy ra sự cố.
 - Serial còn nguyên sau khi server khởi động lại.
 - Upload ảnh multipart qua QR với Multer 2.4.0.
+- Request QR bắt buộc QR UID hợp lệ; `device_id` đơn thuần không được tính là QR.
+- Request QR/sự cố nhập trực tiếp bị từ chối không để lại file upload rác.
+- Dashboard chỉ đếm kiểm tra có nguồn QR, không cộng kiểm tra nhập trực tiếp.
+- Ngày/giờ ứng dụng được kiểm tra theo `Asia/Bangkok`, độc lập timezone máy chạy CI.
 - Rate limit QR công khai trả HTTP 429 khi vượt ngưỡng.
 - File upload bị chặn khi chưa đăng nhập trong chế độ xác thực.
 - Chế độ đăng nhập bắt buộc.
 - Phân quyền Quản trị viên/Kỹ sư/Người dùng khoa.
 - Backup khi bật xác thực.
+- Checklist sẵn sàng triển khai hoạt động ở chế độ thử và chế độ xác thực.
 
-## 11. Nội dung chưa nên tuyên bố là đã hoàn thiện
+## 12. Nội dung chưa nên tuyên bố là đã hoàn thiện
 
 Bản hiện tại tập trung vào **hồ sơ và lịch sử công việc kỹ thuật của thiết bị**, chưa nên mô tả là hệ thống quản lý toàn bộ vòng đời tài sản.
 
@@ -356,10 +390,12 @@ Các nội dung có thể phát triển sau:
 - thông báo tự động đa kênh;
 - phân tích độ tin cậy/dự báo hỏng hóc khi có đủ dữ liệu lịch sử.
 
-## 12. Checklist trước khi đưa vào dùng thật
+## 13. Checklist trước khi đưa vào dùng thật
 
+- [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý**.
 - [ ] Backup database hiện tại.
 - [ ] Tắt demo seed: `QY4_DEMO_SEED=0`.
+- [ ] Đặt `QY4_TIME_ZONE=Asia/Bangkok` hoặc múi giờ +07 phù hợp.
 - [ ] Bật đăng nhập: `QY4_AUTH_REQUIRED=1`.
 - [ ] Đặt mật khẩu quản trị mạnh.
 - [ ] Tạo tài khoản Kỹ sư và tài khoản khoa.
