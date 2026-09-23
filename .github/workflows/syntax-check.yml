@@ -42,6 +42,9 @@ jobs:
           for(const [name,v] of Object.entries(a.vulnerabilities || {})){
             console.log(`AUDIT ${String(v.severity||"unknown").toUpperCase()} ${name} direct=${Boolean(v.isDirect)} via=${JSON.stringify(v.via)} fix=${JSON.stringify(v.fixAvailable)}`);
           }
+          if(Number(meta.high||0)>0 || Number(meta.critical||0)>0){
+            throw new Error("Dependency audit has High/Critical vulnerabilities");
+          }
           NODE
       - name: Start server
         run: |
