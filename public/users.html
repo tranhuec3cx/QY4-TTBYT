@@ -26,7 +26,7 @@
 </section>
 <section class="card">
   <div class="table-card-header"><h3 id="countLabel">0 người dùng</h3><div class="small">Tài khoản quản trị, kỹ sư TTBYT và người dùng khoa</div></div>
-  <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Họ tên</th><th>Tài khoản</th><th>Vai trò</th><th>Khoa/Phòng</th><th>Số điện thoại</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Họ tên</th><th>Tài khoản</th><th>Vai trò</th><th>Khoa/Phòng</th><th>Số điện thoại</th><th>Mật khẩu</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div>
 </section>
 <section class="card">
   <div class="table-card-header"><h3>Thêm / cập nhật người dùng</h3><div class="small">Khai báo vai trò, khoa/phòng và trạng thái sử dụng</div></div>
@@ -38,6 +38,7 @@
       <select id="role"><option>Quản trị viên</option><option>Kỹ sư TTBYT</option><option>Người dùng khoa</option></select>
       <select id="departmentCode"></select>
       <input id="phone" placeholder="Số điện thoại" />
+      <input id="password" type="password" minlength="8" autocomplete="new-password" placeholder="Mật khẩu mới (≥ 8 ký tự; để trống nếu không đổi)" />
       <select id="status"><option>Hoạt động</option><option>Ngừng hoạt động</option></select>
     </div>
     <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu người dùng</button><button class="btn" type="button" onclick="resetForm()">Đặt lại form</button></div>
