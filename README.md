@@ -139,6 +139,7 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 - Reset dữ liệu mẫu chỉ hoạt động khi chủ động bật chế độ demo.
 - File trong `/uploads` yêu cầu phiên đăng nhập khi `QY4_AUTH_REQUIRED=1`; trang QR công khai vẫn có thể gửi ảnh/video nhưng không đọc được file đã lưu.
 - POST công khai qua QR được giới hạn tần suất theo IP để giảm spam/upload lạm dụng.
+- Đăng nhập sai được giới hạn theo **IP + tài khoản**; mặc định 8 lần sai trong 15 phút rồi trả HTTP 429 + Retry-After.
 - Chỉ request có **QR UID cố định hợp lệ** mới được ghi nhận nguồn `QR`; gửi bằng `device_id` đơn thuần bị từ chối.
 - Request QR hoặc sự cố nhập trực tiếp bị từ chối sẽ dọn file upload tạm, tránh rác ổ đĩa.
 - Múi giờ ứng dụng mặc định `Asia/Bangkok` (+07, cùng múi giờ Việt Nam), có thể đổi bằng `QY4_TIME_ZONE`.
@@ -191,6 +192,8 @@ $env:QY4_AUTH_REQUIRED="1"
 $env:QY4_ADMIN_USERNAME="admin"
 $env:QY4_ADMIN_PASSWORD="<MAT_KHAU_QUAN_TRI_BAN_DAU>"
 $env:QY4_SESSION_HOURS="12"
+$env:QY4_AUTH_LOGIN_LIMIT="8"
+$env:QY4_AUTH_LOGIN_WINDOW_MS="900000"
 $env:QY4_BACKUP_KEEP="30"
 $env:QY4_QR_RATE_LIMIT="20"
 $env:QY4_QR_RATE_WINDOW_MS="60000"
@@ -210,6 +213,8 @@ QY4_AUTH_REQUIRED=1 \
 QY4_ADMIN_USERNAME=admin \
 QY4_ADMIN_PASSWORD='<MAT_KHAU_QUAN_TRI_BAN_DAU>' \
 QY4_SESSION_HOURS=12 \
+QY4_AUTH_LOGIN_LIMIT=8 \
+QY4_AUTH_LOGIN_WINDOW_MS=900000 \
 QY4_BACKUP_KEEP=30 \
 QY4_QR_RATE_LIMIT=20 \
 QY4_QR_RATE_WINDOW_MS=60000 \
@@ -383,6 +388,7 @@ GitHub Actions hiện kiểm tra:
 - Rate limit QR công khai trả HTTP 429 khi vượt ngưỡng.
 - File upload bị chặn khi chưa đăng nhập trong chế độ xác thực.
 - Chế độ đăng nhập bắt buộc.
+- Đăng nhập sai bị rate-limit và trả Retry-After khi vượt ngưỡng.
 - Phân quyền Quản trị viên/Kỹ sư/Người dùng khoa.
 - Tài khoản khoa chỉ đọc file đính kèm của thiết bị thuộc chính khoa mình.
 - Backup bundle gồm SQLite đã `PRAGMA quick_check` và snapshot toàn bộ thư mục uploads.
