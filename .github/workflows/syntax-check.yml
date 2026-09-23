@@ -23,6 +23,18 @@ jobs:
           done
       - name: Install dependencies
         run: npm ci
+      - name: Dependency audit summary
+        run: |
+          npm audit --json >/tmp/npm-audit.json || true
+          node - <<'NODE'
+          const fs=require("fs");
+          const a=JSON.parse(fs.readFileSync("/tmp/npm-audit.json","utf8"));
+          const meta=a.metadata?.vulnerabilities || {};
+          console.log("npm audit summary:",meta);
+          for(const [name,v] of Object.entries(a.vulnerabilities || {})){
+            console.log(`AUDIT ${String(v.severity||"unknown").toUpperCase()} ${name} direct=${Boolean(v.isDirect)} via=${JSON.stringify(v.via)} fix=${JSON.stringify(v.fixAvailable)}`);
+          }
+          NODE
       - name: Start server
         run: |
           QY4_DEMO_SEED=0 node server.js > /tmp/qy4-server.log 2>&1 &
