@@ -197,8 +197,27 @@ jobs:
           curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/users" -H 'Content-Type: application/json' --data '{"full_name":"Kỹ sư CI","username":"engineer","role":"Kỹ sư TTBYT","department_code":"C10","status":"Hoạt động","phone":"","password":"Engineer123!"}' >/tmp/engineer-user.json
           curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/users" -H 'Content-Type: application/json' --data '{"full_name":"Người dùng khoa CI","username":"deptuser","role":"Người dùng khoa","department_code":"TST","status":"Hoạt động","phone":"","password":"DeptUser123!"}' >/tmp/dept-user.json
 
-          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị phân quyền","manufacturer":"Test","model":"AUTH-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"AUTH-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Khoa kiểm thử","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/auth-device.json
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị phân quyền","manufacturer":"Test","model":"AUTH-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"AUTH-001","country":"Việt Nam","year_manufactured":2026,"cost":123456,"funding":"Nguồn kiểm thử nội bộ","location":"Khoa kiểm thử","note":"Ghi chú nội bộ","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/auth-device.json
           DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/auth-device.json","utf8")).id')
+          AUTH_QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/auth-device.json","utf8")).qr_uid')
+          test -n "$AUTH_QR_UID"
+
+          CODE=$(curl -s -o /tmp/full-qr-unauth.json -w '%{http_code}' "$BASE/api/qr/device-uid/$AUTH_QR_UID")
+          test "$CODE" = "401"
+          curl -fsS "$BASE/api/public/device-qr/$AUTH_QR_UID" >/tmp/public-qr.json
+          curl -fsS "$BASE/api/public/device-code/TST.TST.0001" >/tmp/public-qr-code.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const p=JSON.parse(fs.readFileSync("/tmp/public-qr.json","utf8"));
+          const pc=JSON.parse(fs.readFileSync("/tmp/public-qr-code.json","utf8"));
+          for(const obj of [p,pc]){
+            if(obj.device_code!=="TST.TST.0001" || obj.name!=="Thiết bị phân quyền") throw new Error("Public QR identification fields missing");
+            for(const key of ["cost","funding","note","latest_maintenance","latest_inspection","open_repair","insurance_code","year_manufactured"]){
+              if(Object.prototype.hasOwnProperty.call(obj,key)) throw new Error("Sensitive/internal field leaked in public QR payload: "+key);
+            }
+          }
+          console.log("Public QR payload minimization passed");
+          NODE
 
           curl -fsS -c /tmp/engineer-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"engineer","password":"Engineer123!"}' >/tmp/engineer-login.json
           CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-users.json -w '%{http_code}' "$BASE/api/users")
