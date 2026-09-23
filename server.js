@@ -16,6 +16,8 @@ const SESSION_COOKIE = "qy4_session";
 const SESSION_HOURS = Math.max(1, Number(process.env.QY4_SESSION_HOURS || 12));
 const QR_RATE_LIMIT = Math.max(5, Number(process.env.QY4_QR_RATE_LIMIT || 20));
 const QR_RATE_WINDOW_MS = Math.max(10000, Number(process.env.QY4_QR_RATE_WINDOW_MS || 60000));
+const AUTH_LOGIN_LIMIT = Math.max(3, Number(process.env.QY4_AUTH_LOGIN_LIMIT || 8));
+const AUTH_LOGIN_WINDOW_MS = Math.max(60000, Number(process.env.QY4_AUTH_LOGIN_WINDOW_MS || 15 * 60 * 1000));
 const APP_TIME_ZONE = String(process.env.QY4_TIME_ZONE || "Asia/Bangkok").trim() || "Asia/Bangkok";
 const ALLOW_LEGACY_PUBLIC_QR = process.env.QY4_ALLOW_LEGACY_QR === "1";
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
@@ -1179,14 +1181,54 @@ app.get("/api/auth/me", (req, res) => {
   });
 });
 
+const authLoginFailures = new Map();
+function authLoginKey(req, username) {
+  return `${String(req.ip || req.socket?.remoteAddress || "unknown")}|${String(username || "").trim().toLowerCase()}`;
+}
+function authLoginRateState(req, username) {
+  const now=Date.now();
+  const key=authLoginKey(req,username);
+  const item=authLoginFailures.get(key);
+  if(!item || now-item.started_at>=AUTH_LOGIN_WINDOW_MS) {
+    if(item) authLoginFailures.delete(key);
+    return {key,blocked:false,retrySeconds:0};
+  }
+  const blocked=item.count>=AUTH_LOGIN_LIMIT;
+  return {
+    key,
+    blocked,
+    retrySeconds:blocked ? Math.max(1,Math.ceil((AUTH_LOGIN_WINDOW_MS-(now-item.started_at))/1000)) : 0
+  };
+}
+function recordAuthLoginFailure(req, username) {
+  const now=Date.now();
+  const key=authLoginKey(req,username);
+  let item=authLoginFailures.get(key);
+  if(!item || now-item.started_at>=AUTH_LOGIN_WINDOW_MS) item={started_at:now,count:0};
+  item.count+=1;
+  authLoginFailures.set(key,item);
+  if(authLoginFailures.size>1000){
+    for(const [k,v] of authLoginFailures.entries()) if(now-v.started_at>=AUTH_LOGIN_WINDOW_MS) authLoginFailures.delete(k);
+  }
+  return authLoginRateState(req,username);
+}
+
 app.post("/api/auth/login", (req, res) => {
   if (!AUTH_REQUIRED) return res.status(400).json({ error: "Chế độ đăng nhập chưa được bật." });
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
+  const rate=authLoginRateState(req,username);
+  if(rate.blocked){
+    res.setHeader("Retry-After",String(rate.retrySeconds));
+    return res.status(429).json({error:"Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau."});
+  }
   const user = db.prepare("SELECT * FROM users WHERE lower(username)=lower(?) LIMIT 1").get(username);
   if (!user || user.status !== "Hoạt động" || !verifyUserPassword(user, password)) {
-    return res.status(401).json({ error: "Tài khoản hoặc mật khẩu không đúng." });
+    const failed=recordAuthLoginFailure(req,username);
+    if(failed.blocked) res.setHeader("Retry-After",String(failed.retrySeconds));
+    return res.status(failed.blocked ? 429 : 401).json({ error: failed.blocked ? "Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau." : "Tài khoản hoặc mật khẩu không đúng." });
   }
+  authLoginFailures.delete(authLoginKey(req,username));
   const token = crypto.randomBytes(32).toString("hex");
   const created = Date.now();
   const expires = created + SESSION_HOURS * 3600 * 1000;
