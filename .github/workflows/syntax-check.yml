@@ -51,6 +51,13 @@ jobs:
           curl -fsS -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Khoa kiểm thử"}' >/tmp/dept.json
           curl -fsS -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"TST2","name":"Khoa kiểm thử 2"}' >/tmp/dept2.json
           curl -fsS -X POST "$BASE/api/device-groups" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Nhóm kiểm thử"}' >/tmp/group.json
+          CODE=$(curl -s -o /tmp/device-invalid.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST"}')
+          test "$CODE" = "400"
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị tối giản CI"}' >/tmp/device-minimal.json
+          MIN_DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-minimal.json","utf8")).id')
+          curl -fsS "$BASE/api/devices/$MIN_DEVICE_ID" >/tmp/device-minimal-read.json
+          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-minimal-read.json","utf8")); if(d.name!=="Thiết bị tối giản CI"||d.model!==""||d.serial!==""||!d.qr_uid) throw new Error("Minimal device defaults failed")'
+          curl -fsS -X DELETE "$BASE/api/devices/$MIN_DEVICE_ID" >/tmp/device-minimal-archive.json
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-BEFORE","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí A","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/device-create.json
           DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
           QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
