@@ -3289,6 +3289,8 @@ app.post("/api/inventory-sessions", (req, res) => {
   if (!departmentCode) return res.status(400).json({ error:"Thiếu khoa/phòng kiểm kê." });
   const dept = db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode);
   if (!dept) return res.status(400).json({ error:"Khoa/phòng không tồn tại." });
+  const openSession = db.prepare("SELECT id FROM inventory_sessions WHERE department_code=? AND status='Đang kiểm kê' ORDER BY id DESC LIMIT 1").get(departmentCode);
+  if (openSession) return res.status(409).json({ error:`Khoa/phòng đang có đợt kiểm kê #${openSession.id} chưa hoàn thành.` });
 
   const tx = db.transaction(() => {
     const info = db.prepare(`
@@ -3335,19 +3337,39 @@ app.get("/api/inventory-sessions/:id", (req, res) => {
 });
 
 app.put("/api/inventory-items/:id", (req, res) => {
-  const old = db.prepare("SELECT * FROM inventory_items WHERE id=?").get(Number(req.params.id));
+  const old = db.prepare(`
+    SELECT i.*,s.status AS session_status
+    FROM inventory_items i JOIN inventory_sessions s ON s.id=i.session_id
+    WHERE i.id=?
+  `).get(Number(req.params.id));
   if (!old) return res.status(404).json({ error:"Không tìm thấy dòng kiểm kê." });
+  if (old.session_status === "Đã hoàn thành") return res.status(400).json({ error:"Đợt kiểm kê đã hoàn thành; không được sửa kết quả." });
+
   const allowed = ["Chưa kiểm kê","Có","Không thấy","Sai vị trí","Sai khoa"];
   const result = allowed.includes(req.body.result) ? req.body.result : "Chưa kiểm kê";
-  const actualDepartment = String(req.body.actual_department_code || old.actual_department_code || old.expected_department_code || "").trim();
-  const actualLocation = String(req.body.actual_location ?? old.actual_location ?? "").trim();
+  let actualDepartment = String(req.body.actual_department_code || old.actual_department_code || old.expected_department_code || "").trim();
+  let actualLocation = String(req.body.actual_location ?? old.actual_location ?? "").trim();
+
+  if (!db.prepare("SELECT code FROM departments WHERE code=?").get(actualDepartment)) {
+    return res.status(400).json({ error:"Khoa/phòng thực tế không tồn tại trong danh mục." });
+  }
+  if (result === "Có") {
+    actualDepartment = String(old.expected_department_code || "");
+    actualLocation = String(old.expected_location || "");
+  }
+  if (result === "Sai khoa" && actualDepartment === String(old.expected_department_code || "")) {
+    return res.status(400).json({ error:"Kết quả “Sai khoa” phải chọn khoa/phòng thực tế khác khoa dự kiến." });
+  }
+  if (result === "Sai vị trí" && (!actualLocation || actualLocation === String(old.expected_location || ""))) {
+    return res.status(400).json({ error:"Kết quả “Sai vị trí” phải nhập vị trí thực tế khác vị trí dự kiến." });
+  }
   const actor = String(req.authUser?.full_name || req.body.updated_by || "").trim();
   db.prepare(`
     UPDATE inventory_items
     SET result=?, actual_department_code=?, actual_location=?, note=?, updated_at=?, updated_by=?
     WHERE id=?
   `).run(result, actualDepartment, actualLocation, req.body.note || "", nowSql(), actor, old.id);
-  writeAudit(actor,"Cập nhật kiểm kê","inventory_item",old.id,`${old.result} → ${result}`);
+  writeAudit(actor,"Cập nhật kiểm kê","inventory_item",old.id,`${old.result} → ${result}; thực tế ${actualDepartment}/${actualLocation}`);
   res.json({ok:true});
 });
 
@@ -3355,6 +3377,7 @@ app.post("/api/inventory-sessions/:id/complete", (req, res) => {
   const id = Number(req.params.id);
   const session = db.prepare("SELECT * FROM inventory_sessions WHERE id=?").get(id);
   if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
+  if (session.status === "Đã hoàn thành") return res.json({ok:true,pending:0,already_completed:true});
   const pending = db.prepare("SELECT COUNT(*) c FROM inventory_items WHERE session_id=? AND result='Chưa kiểm kê'").get(id).c;
   if (pending > 0 && String(req.body.force || "") !== "1") {
     return res.status(400).json({ error:`Còn ${pending} thiết bị chưa kiểm kê.` });
