@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Quản lý TTBYT - Bệnh viện Quân y 4</title>
+  <title>Chức năng cũ - QY4-TTBYT</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -15,33 +15,21 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box">Người dùng: Quản trị viên</div>
+        <div class="user-box"></div>
       </div>
-      
-<section class="grid-2">
-  <div class="card">
-    <h3 class="section-title">Xuất dữ liệu</h3><div class="small" style="margin-top:-6px;margin-bottom:14px">Xuất nhanh dữ liệu hiện có để sao lưu hoặc gửi báo cáo</div>
-    <div class="form-actions">
-      <button class="btn" id="exportDevicesBtn">Xuất toàn bộ thiết bị CSV</button>
-      <button class="btn" id="exportUsersBtn">Xuất người dùng CSV</button>
-    </div>
-    <div class="progress-list" style="margin-top:16px">
-      <div class="progress-item"><b>File cơ sở dữ liệu</b><div class="small">db/qy4_ttbyt.sqlite</div></div>
-      <div class="progress-item"><b>Cách sao lưu nhanh</b><div class="small">Đóng phần mềm và copy file SQLite sang nơi lưu trữ khác.</div></div>
-      <div class="progress-item"><b>Khôi phục dữ liệu mẫu</b><div class="small">Dùng nút bên phải để nạp lại 20 thiết bị mẫu ban đầu.</div></div>
-    </div>
-  </div>
-  <div class="card">
-    <h3 class="section-title">Khôi phục dữ liệu mẫu</h3><div class="small" style="margin-top:-6px;margin-bottom:14px">Dùng khi cần nạp lại bộ dữ liệu minh họa ban đầu</div>
-    <p class="small">Thao tác này sẽ xóa dữ liệu hiện tại trong SQLite và nạp lại bộ dữ liệu mẫu.</p>
-    <div class="form-actions">
-      <button class="btn btn-danger" id="resetBtn">Khôi phục dữ liệu mẫu</button>
-    </div>
-    <hr style="border:none;border-top:1px solid #e5edf6;margin:18px 0" />
-    <p class="small">Bản v4 này đã chuyển sang dùng SQLite thật. Nếu bước tiếp theo anh/chị muốn, có thể làm thêm nhập Excel .xlsx và upload tài liệu đính kèm.</p>
-  </div>
-</section>
-
+      <section class="card">
+        <h2 class="section-title">Trang Nhập / Xuất cũ đã ngừng sử dụng</h2>
+        <p>QY4-TTBYT 5.0.0 đã chuyển các chức năng cần thiết sang các màn hình chính để tránh trùng luồng và thao tác nhầm.</p>
+        <div class="muted-note" style="margin:14px 0">
+          Xuất danh mục thiết bị: vào <b>Thiết bị y tế</b>. Báo cáo/KPI: vào <b>Báo cáo</b>.
+          Sao lưu và reset dữ liệu mẫu có kiểm soát: vào <b>Cài đặt → Hệ thống</b>.
+        </div>
+        <div class="form-actions">
+          <a class="btn btn-primary" href="/index.html">Thiết bị y tế</a>
+          <a class="btn" href="/reports.html">Báo cáo</a>
+          <a class="btn" href="/settings-system.html">Cài đặt hệ thống</a>
+        </div>
+      </section>
     </main>
   </div>
   <script src="/api.js"></script>
