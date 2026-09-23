@@ -1914,7 +1914,12 @@ app.get("/api/incidents", (req, res) => {
     SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial,
            d.name AS department_name, g.name AS group_name,
            lr.id AS linked_repair_id,
-           lr.processing_status AS linked_repair_status
+           lr.processing_status AS linked_repair_status,
+           lr.completed_at AS linked_repair_completed_at,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+             THEN ROUND((julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS response_minutes,
+           CASE WHEN lr.completed_at IS NOT NULL AND lr.completed_at<>''
+             THEN ROUND((julianday(lr.completed_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS resolution_minutes
     FROM incidents i
     JOIN devices dv ON dv.id = i.device_id
     LEFT JOIN departments d ON d.code = dv.department_code
