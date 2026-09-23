@@ -346,6 +346,14 @@ Khuyến nghị:
 4. Chạy lại server.
 5. Kiểm tra một số thiết bị cũ và QR trước khi sử dụng chính thức.
 
+### Kiểm soát dữ liệu bổ sung
+
+- Phân cấp chất lượng dùng thang **25 + 25 + 20 + 15 + 15 = 100**; backend chặn điểm âm hoặc vượt trần.
+- Mỗi thiết bị chỉ có một bản đánh giá chất lượng hiện hành; cập nhật giữ nguyên ID thay vì `INSERT OR REPLACE`.
+- Báo cáo sử dụng chặn thiết bị đã lưu trữ, năm/tháng sai và giá trị âm.
+- Các API phụ trả lỗi 400 có nội dung rõ ràng thay vì để payload thiếu gây lỗi SQLite nội bộ.
+- Source Git không chứa database runtime, WAL/SHM, uploads, backups hoặc file `.env`.
+
 ## 10. Kiểm tra sẵn sàng triển khai
 
 Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** để xem một checklist tự động trước khi chạy thật hoặc demo Hội đồng. Màn hình kiểm tra:
