@@ -67,6 +67,7 @@ Hệ thống lưu:
 - Người thực hiện kỹ thuật.
 - Snapshot mã khoa, tên khoa, vị trí và thiết bị tại thời điểm xảy ra sự cố; dữ liệu này không đổi khi thiết bị điều chuyển sau đó.
 - Nội dung và kết quả xử lý.
+- Trạng thái thiết bị được đồng bộ theo phiếu sửa chữa: đang xử lý/chờ linh kiện → Chờ sửa chữa; không sửa được → Ngừng hoạt động; hoàn thành → Đang hoạt động hoặc **Hoạt động hạn chế** do kỹ sư xác nhận.
 
 ### Hồ sơ thiết bị và công việc kỹ thuật
 
@@ -80,17 +81,19 @@ Các màn nghiệp vụ Sự cố, Sửa chữa, Bảo dưỡng và Kiểm đị
 
 ### Kiểm kê – Điều chuyển
 
-- Tạo đợt kiểm kê theo khoa/phòng.
-- Tự lấy danh sách thiết bị đang thuộc khoa.
-- Kết quả: Có / Không thấy / Sai vị trí / Sai khoa.
-- Điều chuyển cập nhật khoa/vị trí hiện tại nhưng giữ lịch sử cũ.
-- Điều chuyển không làm thay đổi QR.
+- Tạo đợt kiểm kê theo khoa/phòng; mỗi khoa chỉ có **01 đợt đang mở** tại một thời điểm.
+- Tự lấy danh sách thiết bị đang thuộc khoa tại thời điểm tạo đợt.
+- Kết quả: Có / Không thấy / Sai vị trí / Sai khoa; backend kiểm tra logic để tránh kết quả mâu thuẫn.
+- Đợt đã hoàn thành bị khóa sửa.
+- Kiểm kê **không tự thay đổi** khoa/vị trí thiết bị. Khi phát hiện sai khoa/sai vị trí, người dùng mở hồ sơ thiết bị và thực hiện Điều chuyển riêng có lý do + audit.
+- Thiết bị đang nằm trong đợt kiểm kê, còn sự cố hoặc sửa chữa mở thì chưa được lưu trữ.
+- Điều chuyển cập nhật khoa/vị trí hiện tại nhưng giữ lịch sử cũ và không làm thay đổi QR.
 
 ### Dashboard và cảnh báo
 
 Theo dõi nhanh:
 
-- Tổng thiết bị.
+- Tổng thiết bị **đang quản lý**; thiết bị đã lưu trữ không làm sai tổng số/cảnh báo.
 - Thiết bị đang hoạt động.
 - Thiết bị đang sửa chữa.
 - Sự cố chưa xử lý.
@@ -385,6 +388,8 @@ GitHub Actions hiện kiểm tra:
 - Backup bundle gồm SQLite đã `PRAGMA quick_check` và snapshot toàn bộ thư mục uploads.
 - Serial thật trùng bị backend chặn; chỉ ghi khi có xác nhận override rõ ràng.
 - Sự cố đã tiếp nhận, Bảo dưỡng có file và Kiểm định có chứng nhận được bảo vệ khỏi xóa cứng.
+- Kiểm kê khóa sửa sau hoàn thành, chặn hai đợt đang mở cùng khoa và không tự điều chuyển tài sản.
+- Lưu trữ thiết bị bị chặn khi còn sự cố/sửa chữa/kiểm kê mở; báo cáo và mẫu Excel vận hành loại thiết bị đã lưu trữ.
 - QR công khai mặc định chỉ chấp nhận UID ngẫu nhiên; endpoint legacy theo ID/mã trả 410.
 - Checklist sẵn sàng triển khai hoạt động ở chế độ thử và chế độ xác thực.
 
