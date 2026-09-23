@@ -406,7 +406,15 @@ function buildQrCheckUrl(device, baseUrl = getQrBaseUrl()) {
   return `${base}/inspect.html?id=${encodeURIComponent(id)}`;
 }
 function qrImageUrl(data, size = 240) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=12&data=${encodeURIComponent(data)}`;
+  return `/api/qr-image?size=${encodeURIComponent(size)}&data=${encodeURIComponent(data)}`;
+}
+function isLoopbackQrBase(value) {
+  try {
+    const u = new URL(normalizeQrBaseUrl(value));
+    return ["localhost","127.0.0.1","::1"].includes(String(u.hostname || "").toLowerCase());
+  } catch {
+    return false;
+  }
 }
 function printQrLabel() {
   const el = document.getElementById("qrPrintArea");
@@ -442,6 +450,10 @@ function saveQrBaseUrl(device) {
   const input = document.getElementById("qrBaseUrlInput");
   if (!input) return;
   const baseUrl = normalizeQrBaseUrl(input.value);
+  if (isLoopbackQrBase(baseUrl)) {
+    alert("Không nên lưu localhost/127.0.0.1 để in QR. Điện thoại khác sẽ không truy cập được. Hãy chọn IP LAN hoặc hostname nội bộ.");
+    return;
+  }
   localStorage.setItem(QR_BASE_STORAGE_KEY, baseUrl);
   input.value = baseUrl;
   updateQrPreview(device);
@@ -455,13 +467,21 @@ async function loadQrOriginSuggestions(device) {
   try {
     const info = await api("/api/system/qr-origins");
     const origins = Array.isArray(info.origins) ? info.origins : [];
-    if (datalist) datalist.innerHTML = origins.map(x => `<option value="${qrModalEsc(x)}"></option>`).join("");
+    const recommended = String(info.recommended_origin || "").trim();
     if (datalist) {
-      const publicOptions = [QR_DEFAULT_PUBLIC_BASE, ...origins];
+      const publicOptions = [...new Set([recommended, QR_DEFAULT_PUBLIC_BASE, ...origins].filter(Boolean))];
       datalist.innerHTML = publicOptions.map(x => `<option value="${qrModalEsc(x)}"></option>`).join("");
     }
+    const hasSavedBase = !!localStorage.getItem(QR_BASE_STORAGE_KEY);
+    if (!hasSavedBase && recommended && isLoopbackQrBase(input.value) && !isLoopbackQrBase(recommended)) {
+      input.value = normalizeQrBaseUrl(recommended);
+      updateQrPreview(device);
+    }
     if (hint) {
-      hint.innerHTML = `UID trên QR là cố định. Chọn <b>một địa chỉ máy chủ ổn định</b> (tên miền hoặc IP nội bộ cố định) để tem đã in tiếp tục dùng lâu dài.`;
+      const current = normalizeQrBaseUrl(input.value);
+      hint.innerHTML = isLoopbackQrBase(current)
+        ? `<b style="color:#a83232">Không in QR với localhost.</b> Điện thoại sẽ không truy cập được. Hãy chọn IP LAN/tên miền ổn định trong danh sách.`
+        : `QR được sinh <b>ngay trên server nội bộ</b>, không cần Internet. UID trên QR là cố định; địa chỉ đang chọn: <b>${qrModalEsc(current)}</b>.`;
     }
   } catch (e) {
     if (hint) hint.innerHTML = "Nhập tên miền công khai, ví dụ https://qy4.benhvien.vn";
@@ -476,7 +496,6 @@ function showDeviceQrModal(device) {
   const model = qrModalEsc(device.model || "");
   const serial = qrModalEsc(device.serial || "");
   const img = qrImageUrl(url, 280);
-  const isLocalhost = false;
   const backdrop = document.createElement("div");
   backdrop.id = "deviceQrBackdrop";
   backdrop.className = "qr-modal-backdrop";
