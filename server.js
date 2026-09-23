@@ -300,10 +300,10 @@ function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) 
   db.prepare(`
     UPDATE incidents
     SET incident_code = COALESCE(NULLIF(incident_code,''), @incident_code),
-        device_code_snapshot = @device_code_snapshot,
-        device_name_snapshot = @device_name_snapshot,
-        department_snapshot = @department_snapshot,
-        location_snapshot = @location_snapshot,
+        device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
+        device_name_snapshot = COALESCE(NULLIF(device_name_snapshot,''), @device_name_snapshot),
+        department_snapshot = COALESCE(NULLIF(department_snapshot,''), @department_snapshot),
+        location_snapshot = COALESCE(NULLIF(location_snapshot,''), @location_snapshot),
         created_at = COALESCE(NULLIF(created_at,''), @created_at),
         updated_at = @updated_at,
         updated_by = @updated_by
@@ -322,10 +322,10 @@ function touchIncident(id, deviceId, actor = "") {
   const snap = buildIncidentSnapshot(deviceId) || {};
   db.prepare(`
     UPDATE incidents
-    SET device_code_snapshot = COALESCE(@device_code_snapshot, device_code_snapshot),
-        device_name_snapshot = COALESCE(@device_name_snapshot, device_name_snapshot),
-        department_snapshot = COALESCE(@department_snapshot, department_snapshot),
-        location_snapshot = COALESCE(@location_snapshot, location_snapshot),
+    SET device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
+        device_name_snapshot = COALESCE(NULLIF(device_name_snapshot,''), @device_name_snapshot),
+        department_snapshot = COALESCE(NULLIF(department_snapshot,''), @department_snapshot),
+        location_snapshot = COALESCE(NULLIF(location_snapshot,''), @location_snapshot),
         updated_at = @updated_at,
         updated_by = @updated_by
     WHERE id = @id
