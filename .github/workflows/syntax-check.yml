@@ -79,7 +79,13 @@ jobs:
             -F "condition=Bình thường" \
             -F "description=" \
             -F "create_incident=0" >/tmp/qr-check.json
-          NOW=$(date '+%Y-%m-%d %H:%M')
+          curl -fsS -X POST "$BASE/api/checks" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspector\":\"Manual Check CI\",\"content\":\"Kiểm tra nhập trực tiếp\",\"result\":\"Bình thường\",\"note\":\"Không tính QR\"}" >/tmp/manual-check.json
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard-ops.json
+          TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          EXPECTED_TODAY=$(node -p 'new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok"}).format(new Date())')
+          test "$TODAY" = "$EXPECTED_TODAY"
+          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")); if(d.timeZone!=="Asia/Bangkok"||Number(d.qrChecksToday)!==1||Number(d.qrIssuesToday)!==0) throw new Error("Dashboard QR/time-zone metrics failed")'
+          NOW="$TODAY 12:00"
           curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Sự cố kiểm thử CI\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/incident-create.json
           INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/incident-create.json","utf8")).id')
           curl -fsS -X POST "$BASE/api/incidents/$INCIDENT_ID/acknowledge" -H 'Content-Type: application/json' --data '{"actor":"Khoa Trang bị - CI"}' >/tmp/ack.json
@@ -97,7 +103,6 @@ jobs:
             -F "severity=Trung bình" \
             -F "media=@/tmp/ci-upload.jpg;type=image/jpeg" >/tmp/qr-incident.json
           QR_INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/qr-incident.json","utf8")).incident_id')
-          TODAY=$(date '+%Y-%m-%d')
           curl -fsS "$BASE/api/incidents" >/tmp/incidents-after.json
           curl -fsS "$BASE/api/reports/kpi?from_date=$TODAY&to_date=$TODAY&department_code=ALL&response_target_minutes=30" >/tmp/kpi.json
           curl -fsS "$BASE/api/reports/kpi?from_date=$TODAY&to_date=$TODAY&department_code=TST&response_target_minutes=30" >/tmp/kpi-tst.json
