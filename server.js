@@ -208,7 +208,10 @@ app.get("/api/system/qr-origins", (req, res) => {
 
 
 const db = new Database(dbPath);
+db.pragma("foreign_keys = ON");
 db.pragma("journal_mode = WAL");
+db.pragma("synchronous = NORMAL");
+db.pragma("busy_timeout = 5000");
 try { db.prepare('ALTER TABLE repairs ADD COLUMN processing_status TEXT DEFAULT "Đang xử lý"').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN incident_id INTEGER').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE activity_history ADD COLUMN cost REAL DEFAULT 0').run(); } catch (e) {}
@@ -3614,6 +3617,8 @@ app.get("/api/system/readiness", (req, res) => {
     const row=db.prepare("PRAGMA quick_check").get();
     liveDbIntegrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "Đạt" : "Lỗi";
   } catch { liveDbIntegrity="Lỗi"; }
+  let foreignKeyViolations = [];
+  try { foreignKeyViolations = db.pragma("foreign_key_check"); } catch { foreignKeyViolations = [{error:"foreign_key_check failed"}]; }
 
   const incompleteCore = db.prepare(`
     SELECT COUNT(*) c FROM devices
@@ -3631,6 +3636,14 @@ app.get("/api/system/readiness", (req, res) => {
       level:liveDbIntegrity === "Đạt" ? "Đạt" : "Cần xử lý",
       title:"Toàn vẹn database SQLite",
       detail:liveDbIntegrity === "Đạt" ? "PRAGMA quick_check = ok." : "SQLite quick_check không đạt; không nên tiếp tục nhập dữ liệu trước khi kiểm tra/khôi phục backup."
+    },
+    {
+      key:"foreign_keys",
+      level:foreignKeyViolations.length===0 ? "Đạt" : "Cần xử lý",
+      title:"Toàn vẹn quan hệ dữ liệu",
+      detail:foreignKeyViolations.length===0
+        ? "SQLite foreign_keys đang bật và không phát hiện bản ghi mồ côi."
+        : `Phát hiện ${foreignKeyViolations.length} vi phạm khóa ngoại; cần xử lý trước khi chạy thật.`
     },
     {
       key:"demo",
@@ -3723,6 +3736,8 @@ app.get("/api/system/readiness", (req, res) => {
       time_zone:APP_TIME_ZONE,
       database_size_bytes:dbSize,
       database_integrity:liveDbIntegrity,
+      foreign_keys_enabled:Number(db.pragma("foreign_keys",{simple:true}) || 0)===1,
+      foreign_key_violations:foreignKeyViolations.length,
       active_users:activeUsers,
       total_devices:totalDevices,
       recommended_qr_origin:recommendedOrigin,
