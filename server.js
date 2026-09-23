@@ -391,6 +391,22 @@ function touchIncident(id, deviceId, actor = "") {
   `).run({ id, updated_at: nowSql(), updated_by: actor || "", ...snap });
 }
 
+function replaceIncidentSnapshot(id, deviceId, actor = "") {
+  const snap = buildIncidentSnapshot(deviceId);
+  if (!snap) throw new Error("Thiết bị không tồn tại.");
+  db.prepare(`
+    UPDATE incidents
+    SET device_code_snapshot=@device_code_snapshot,
+        device_name_snapshot=@device_name_snapshot,
+        department_snapshot=@department_snapshot,
+        department_code_snapshot=@department_code_snapshot,
+        location_snapshot=@location_snapshot,
+        updated_at=@updated_at,
+        updated_by=@updated_by
+    WHERE id=@id
+  `).run({ id:Number(id), updated_at:nowSql(), updated_by:actor || "", ...snap });
+}
+
 function writeHistory(module, recordId, actor, actionType, oldStatus = "", newStatus = "", note = "", cost = 0, entryType = "Cập nhật", actionTime = "") {
   const at = normalizeDateTime(actionTime || nowSql()) || nowSql();
   db.prepare(`
@@ -2382,6 +2398,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
     if (!old) return res.status(404).json({ error: "Không tìm thấy sự cố." });
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
     if (missing.length) return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    const linkedRepair = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
     const payload = {
       id: Number(req.params.id),
       device_id: Number(p.device_id),
@@ -2390,16 +2407,27 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       severity: p.severity || "Trung bình",
       reporter: String(p.reporter || "").trim(),
       reporter_phone: String(p.reporter_phone || old.reporter_phone || "").trim(),
-      status: normalizeIncidentPayloadStatus(p.status || old.status || "Mới ghi nhận", old.status || "Mới ghi nhận", db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id))?.id),
+      status: normalizeIncidentPayloadStatus(p.status || old.status || "Mới ghi nhận", old.status || "Mới ghi nhận", linkedRepair?.id),
       note: p.note || "",
       local_resolution_note: p.local_resolution_note || old.local_resolution_note || ""
     };
+    const deviceExists = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
+    if (!deviceExists) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error:"Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
+    const deviceChanged = Number(old.device_id) !== Number(payload.device_id);
+    if (deviceChanged && linkedRepair) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error:"Không thể đổi thiết bị sau khi sự cố đã chuyển sang sửa chữa." });
+    }
     db.prepare(`
       UPDATE incidents
       SET device_id=@device_id, incident_datetime=@incident_datetime, description=@description, severity=@severity, reporter=@reporter, reporter_phone=@reporter_phone, status=@status, note=@note, local_resolution_note=@local_resolution_note
       WHERE id=@id
     `).run(payload);
-    touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
+    if (deviceChanged) replaceIncidentSnapshot(Number(req.params.id), payload.device_id, payload.reporter);
+    else touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
     const receivingActor = String(req.authUser?.full_name || p.acknowledged_by || "Khoa Trang bị").trim();
     if (payload.status === "Đã tiếp nhận" && !old.acknowledged_at) {
       db.prepare("UPDATE incidents SET acknowledged_at=?, acknowledged_by=? WHERE id=?").run(nowSql(), receivingActor, Number(req.params.id));
