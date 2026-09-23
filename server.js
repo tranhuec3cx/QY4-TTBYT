@@ -3833,8 +3833,8 @@ app.post("/api/inventory-sessions/:id/complete", (req, res) => {
   if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
   if (session.status === "Đã hoàn thành") return res.json({ok:true,pending:0,already_completed:true});
   const pending = db.prepare("SELECT COUNT(*) c FROM inventory_items WHERE session_id=? AND result='Chưa kiểm kê'").get(id).c;
-  if (pending > 0 && String(req.body.force || "") !== "1") {
-    return res.status(400).json({ error:`Còn ${pending} thiết bị chưa kiểm kê.` });
+  if (pending > 0) {
+    return res.status(409).json({ error:`Còn ${pending} thiết bị chưa kiểm kê. Phải có kết quả cho 100% thiết bị trước khi hoàn thành đợt kiểm kê.` });
   }
   db.prepare("UPDATE inventory_sessions SET status='Đã hoàn thành', completed_at=? WHERE id=?").run(nowSql(),id);
   writeAudit(req.authUser?.full_name || req.body.actor || session.actor || "","Hoàn thành kiểm kê","inventory",id,`Còn chưa kiểm kê: ${pending}`);
