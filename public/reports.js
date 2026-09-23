@@ -69,10 +69,10 @@ function render(type, rows){
   q('thead').innerHTML = deviceColumns();
   q('rows').innerHTML = rows.length ? rows.map((r,i)=>deviceRow(r,i,type)).join('') : `<tr><td colspan="9" class="center-empty">Chưa có dữ liệu.</td></tr>`;
 }
-function exportExcel(){
+async function exportExcel(){
   const type=q('reportType').value;
   const rows = CURRENT.map((r,i)=> type==='costByDepartment' ? {STT:i+1,'Mã khoa':r.department_code,'Khoa/phòng':r.department_name||r.department_code,'Số phiếu':r.repair_count||0,'Tổng chi phí':r.total_cost||0} : type==='statusRatio' ? {STT:i+1,'Trạng thái':r.status,'Số lượng':r.count} : {STT:i+1,'Mã thiết bị':r.device_code,'Tên thiết bị':r.name,'Khoa/phòng':r.department_name||r.department_code,'Nhóm':r.group_name||r.group_code,'Model':r.model,'Tình trạng':r.status,'Hạn bảo hành':r.warranty_end,'Hạn bảo dưỡng':r.maintenance?.next_date,'Hạn kiểm định':r.inspection?.next_date,'Số lần sửa':r.repair?.repair_count||0,'Chi phí sửa':r.repair?.total_cost||0});
-  const ws=XLSX.utils.json_to_sheet(rows), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,REPORT_NAMES[type].slice(0,30)); XLSX.writeFile(wb,`${type}_${todayISO()}.xlsx`);
+  await exportXlsx(`${type}_${todayISO()}.xlsx`,[{name:REPORT_NAMES[type].slice(0,30),rows}]);
 }
 function dataQualityReasons(r){
   const reasons=[];
@@ -107,7 +107,7 @@ function renderDataQuality(){
   const rows=Array.from(map.values());
   q("dataQualityRows").innerHTML=rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td class="device-code">${esc(r.device_code||"")}</td><td><b>${esc(r.name||"")}</b></td><td>${esc(r.department_code||"")}</td><td>${esc(r.serial||"")}</td><td>${esc(r.insurance_code||"")}</td><td class="wrap-text">${esc((r.reasons||[]).join("; "))}</td></tr>`).join(""):'<tr><td colspan="7" class="center-empty">Không có thiết bị thiếu dữ liệu cốt lõi.</td></tr>';
 }
-function exportDataQualityExcel(){
+async function exportDataQualityExcel(){
   if(!DATA_QUALITY) return;
   const rows=(DATA_QUALITY.incomplete_devices||[]).map((r,i)=>({
     "STT":i+1,"Mã thiết bị":r.device_code||"","Tên thiết bị":r.name||"","Khoa":r.department_code||"",
@@ -115,10 +115,10 @@ function exportDataQualityExcel(){
     "Năm sử dụng":r.year_in_use||"","Vị trí":r.location||"","Nội dung cần rà soát":dataQualityReasons(r).join("; ")
   }));
   const dup=(DATA_QUALITY.duplicate_serial_groups||[]).map((r,i)=>({"STT":i+1,"Serial":r.serial||"","Số bản ghi":r.count||0}));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"CanRaSoat");
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dup),"SerialTrung");
-  XLSX.writeFile(wb,`chat_luong_du_lieu_${localTodayISO()}.xlsx`);
+  await exportXlsx(`chat_luong_du_lieu_${localTodayISO()}.xlsx`,[
+    {name:"CanRaSoat",rows},
+    {name:"SerialTrung",rows:dup}
+  ]);
 }
 
 async function loadKpi(){
@@ -179,7 +179,7 @@ function renderKpi(){
     ? `Lưu ý chất lượng dữ liệu: có ${unknown} sự cố lịch sử chưa xác định được nguồn báo. Không nên quy các bản ghi này là QR hay nhập trực tiếp khi phân tích.`
     : `Dữ liệu nguồn báo trong kỳ đã được phân loại. Tỷ lệ đáp ứng mục tiêu phản hồi chỉ tính trên ${s.responded_incidents||0} sự cố có mốc tiếp nhận.`;
 }
-function exportKpiExcel(){
+async function exportKpiExcel(){
   if(!KPI) return;
   const s=KPI.summary||{}, p=KPI.period||{};
   const summary=[
@@ -237,13 +237,13 @@ function exportKpiExcel(){
     "Phản hồi (phút)":r.response_minutes??"","Hoàn thành":r.repair_completed_at||r.completed_at||"",
     "Xử lý (phút)":r.resolution_minutes??"","Trạng thái":r.status||"","Mô tả":r.description||""
   }));
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(summary),"TongHopKPI");
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(source),"NguonBao");
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(daily),"TheoNgay");
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qrChecks),"KiemTraQR");
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(details),"ChiTietSuCo");
-  XLSX.writeFile(wb,`KPI_su_co_QR_${p.from_date||""}_${p.to_date||""}.xlsx`);
+  await exportXlsx(`KPI_su_co_QR_${p.from_date||""}_${p.to_date||""}.xlsx`,[
+    {name:"TongHopKPI",mode:"aoa",rows:summary},
+    {name:"NguonBao",rows:source},
+    {name:"TheoNgay",rows:daily},
+    {name:"KiemTraQR",rows:qrChecks},
+    {name:"ChiTietSuCo",rows:details}
+  ]);
 }
 
 async function load(){
