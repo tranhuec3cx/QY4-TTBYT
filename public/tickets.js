@@ -5,13 +5,14 @@ function norm(value){ return String(value || "").toLowerCase().normalize("NFD").
 function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
 function getDevice(id){ return DEVICES.find(d => Number(d.id) === Number(id)) || null; }
 function deviceLabel(d){ return d ? `${d.device_code || d.serial || "TB-"+d.id} - ${d.name || ""}` : ""; }
-function statusClass(v){ if(v==="Đã chuyển sửa chữa") return "green"; if(v==="Đã xử lý tại chỗ") return "blue"; if(v==="Mới ghi nhận") return "yellow"; return "gray"; }
+function statusClass(v){ if(v==="Đã chuyển sửa chữa") return "green"; if(v==="Đã xử lý tại chỗ") return "blue"; if(v==="Đã tiếp nhận") return "orange"; if(v==="Mới ghi nhận") return "yellow"; return "gray"; }
 
 function normalizeIncidentStatus(status, linkedRepairId){
   const raw = String(status || "").trim();
   if(raw === "Đã chuyển sửa chữa" || raw === "Chuyển sửa chữa" || raw === "Chờ linh kiện") return "Đã chuyển sửa chữa";
   if(raw === "Đã xử lý tại chỗ" || raw === "Đã xử lý" || raw === "Đóng" || raw === "Không cần sửa chữa") return "Đã xử lý tại chỗ";
-  if(raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Đang xử lý" || raw === "Theo dõi") return "Mới ghi nhận";
+  if(raw === "Đã tiếp nhận" || raw === "Tiếp nhận") return "Đã tiếp nhận";
+  if(raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Theo dõi") return "Mới ghi nhận";
   const repairStatuses = ["Đang xử lý","Chờ linh kiện","Đã hoàn thành","Không sửa được","Mới tiếp nhận","Đang sửa chữa","Đang kiểm tra","Đã sửa xong","Bàn giao sử dụng","Hủy"];
   if(repairStatuses.includes(raw)) return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
@@ -41,6 +42,8 @@ function incidentActions(r){
   const deviceId = Number(r.device_id);
   const actions = [`<button class="btn btn-secondary" onclick="openDeviceProfile(${deviceId})">Xem HS</button>`];
   if (r.status === "Mới ghi nhận") {
+    actions.push(`<button class="btn btn-primary" onclick="acknowledgeIncident(${id})">Tiếp nhận</button>`);
+  } else if (r.status === "Đã tiếp nhận") {
     actions.push(`<button class="btn btn-primary" onclick="transferToRepair(${id})">Chuyển sửa chữa</button>`);
     actions.push(`<button class="btn" onclick="markOnsite(${id})">Xử lý tại chỗ</button>`);
   } else if (r.status === "Đã chuyển sửa chữa") {
@@ -54,6 +57,7 @@ function renderIncidentStats(rows){
   const stat = st => rows.filter(r => r.status === st).length;
   if(q("stTotalIncidents")) q("stTotalIncidents").textContent = rows.length;
   if(q("stNewIncidents")) q("stNewIncidents").textContent = stat("Mới ghi nhận");
+  if(q("stAcceptedIncidents")) q("stAcceptedIncidents").textContent = stat("Đã tiếp nhận");
   if(q("stTransferIncidents")) q("stTransferIncidents").textContent = stat("Đã chuyển sửa chữa");
   if(q("stOnsiteIncidents")) q("stOnsiteIncidents").textContent = stat("Đã xử lý tại chỗ");
 }
@@ -138,6 +142,14 @@ function clearFilters(){ q("searchInput").value=""; q("deviceFilter").value="ALL
 function openDeviceProfile(id){ if(id) window.location.href = `/device-detail.html?id=${id}&from=tickets`; }
 function editIncident(id){ const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id)); if(!r) return; q("incidentId").value=r.id; setDevicePickerSelection("deviceSearch","deviceId",DEVICES,r.device_id,()=>fillDeviceMeta()); q("incidentTime").value=String(r.incident_datetime||"").replace(" ","T").slice(0,16); q("description").value=r.description||""; q("reporter").value=r.reporter||""; q("status").value=r.status||"Mới ghi nhận"; q("localResolutionNote").value=r.local_resolution_note||""; if(q("reporterPhone")) q("reporterPhone").value=r.reporter_phone||""; q("note").value=r.note||""; q("incidentFormTitle").textContent="Cập nhật sự cố"; q("saveIncidentBtn").textContent="Cập nhật sự cố"; q("incidentForm").scrollIntoView({behavior:"smooth"}); }
 async function deleteIncident(id){ if(!confirm("Xóa sự cố này?")) return; await api(`/api/incidents/${id}`, {method:"DELETE"}); await loadData(); }
+async function acknowledgeIncident(id){
+  const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
+  if(!r) return;
+  try{
+    await api(`/api/incidents/${id}/acknowledge`,{method:"POST",body:JSON.stringify({actor:r.reporter||"Khoa Trang bị"})});
+    await fetchIncidentRows(); applyFilter();
+  }catch(e){alert(e.message||"Không tiếp nhận được sự cố.");}
+}
 async function transferToRepair(id){
   const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
   if(!r) return;
@@ -186,7 +198,7 @@ async function saveIncident(e){
     severity:"Trung bình",
     reporter:(q("reporter").value.trim() || "Quản trị viên"),
     reporter_phone:(q("reporterPhone")?.value.trim() || ""),
-    status:(q("status").value === "Đã xử lý tại chỗ" ? "Đã xử lý tại chỗ" : "Mới ghi nhận"),
+    status:(q("status").value === "Đã xử lý tại chỗ" ? "Đã xử lý tại chỗ" : (q("status").value === "Đã tiếp nhận" ? "Đã tiếp nhận" : "Mới ghi nhận")),
     note:q("note").value.trim(),
     local_resolution_note:q("localResolutionNote").value.trim()
   };
