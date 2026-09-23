@@ -150,7 +150,19 @@ jobs:
           CODE=$(curl -s -o /tmp/unauth.json -w '%{http_code}' "$BASE/api/devices")
           test "$CODE" = "401"
 
+          UPLOAD_FILE=$(find uploads/qr -maxdepth 1 -type f | head -1 || true)
+          if [ -n "$UPLOAD_FILE" ]; then
+            UPLOAD_URL="/uploads/qr/$(basename "$UPLOAD_FILE")"
+            CODE=$(curl -s -o /tmp/upload-unauth.bin -w '%{http_code}' "$BASE$UPLOAD_URL")
+            test "$CODE" = "401"
+          fi
+
           curl -fsS -c /tmp/admin-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"admin","password":"AdminPass123!"}' >/tmp/admin-login.json
+          if [ -n "$UPLOAD_FILE" ]; then
+            CODE=$(curl -s -b /tmp/admin-cookie.txt -o /tmp/upload-auth.bin -w '%{http_code}' "$BASE$UPLOAD_URL")
+            test "$CODE" = "200"
+            test -s /tmp/upload-auth.bin
+          fi
           curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"C10","name":"Khoa Trang bị"}' >/tmp/c10.json
           curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Khoa kiểm thử"}' >/tmp/tstdept.json
           curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/device-groups" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Nhóm kiểm thử"}' >/tmp/tstgroup.json
