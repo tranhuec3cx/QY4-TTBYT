@@ -23,7 +23,7 @@ function resetDocForm(){ q("docForm").reset(); q("docId").value=""; if (q("docCu
 function docFileLabel(x) {
   if (!x.file_path) return "—";
   const name = x.original_name || x.stored_name || "Tệp đính kèm";
-  return `<a href="${x.file_path}" target="_blank" rel="noopener">${name}</a>`;
+  return `<a href="${esc(x.file_path)}" target="_blank" rel="noopener">${esc(name)}</a>`;
 }
 function docExtraBtns(x) {
   const html = `<button class="btn btn-sm" onclick="editDoc(${x.id})">Cập nhật</button><button class="btn btn-danger btn-sm" onclick="deleteDoc(${x.id})">Xóa</button>`;
@@ -37,8 +37,8 @@ function fileDownloadCell(path, name){
 }
 
 function fillGeneralForm() {
-  q("generalDepartment").innerHTML = META.departments.map(x=>`<option value="${x.code}">${x.name}</option>`).join("");
-  q("generalGroup").innerHTML = META.groups.map(x=>`<option value="${x.code}">${x.name}</option>`).join("");
+  q("generalDepartment").innerHTML = META.departments.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("");
+  q("generalGroup").innerHTML = META.groups.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("");
   q("generalDepartment").value = DEVICE.department_code;
   q("generalGroup").value = DEVICE.group_code;
   q("generalDeviceCode").value = DEVICE.device_code || "";
@@ -60,10 +60,10 @@ function fillGeneralForm() {
 }
 function renderGeneralInfo() {
   q("infoGeneral").innerHTML = `
-    <div class="info-section"><h3>Định danh thiết bị</h3>${infoItem("Mã thiết bị", DEVICE.device_code)}${infoItem("Mã bảo hiểm", DEVICE.insurance_code)}${infoItem("Tên thiết bị", DEVICE.name)}${infoItem("Serial hãng", DEVICE.serial)}</div>
-    <div class="info-section"><h3>Thông tin kỹ thuật</h3>${infoItem("Nhóm thiết bị", DEVICE.group_name)}${infoItem("Hãng sản xuất", DEVICE.manufacturer)}${infoItem("Model", DEVICE.model)}${infoItem("Nước sản xuất", DEVICE.country)}${infoItem("Năm sản xuất", DEVICE.year_manufactured)}</div>
-    <div class="info-section"><h3>Quản lý sử dụng</h3>${infoItem("Khoa/Phòng", DEVICE.department_name)}${infoItem("Vị trí đặt máy", DEVICE.location)}${infoItem("Năm sử dụng", DEVICE.year_in_use)}${infoItem("Hạn bảo hành", formatDateVN(DEVICE.warranty_end))}</div>
-    <div class="info-section"><h3>Tài chính / tình trạng</h3>${infoItem("Nguyên giá", formatCurrency(DEVICE.cost))}${infoItem("Nguồn kinh phí", DEVICE.funding)}${infoItem("Tình trạng", DEVICE.status)}${infoItem("Cấp chất lượng", DEVICE.quality_level ? `Cấp ${DEVICE.quality_level}` : "—")}${infoItem("Ghi chú", DEVICE.note || "—")}</div>
+    <div class="info-section"><h3>Định danh thiết bị</h3>${infoItem("Mã thiết bị", esc(DEVICE.device_code))}${infoItem("Mã bảo hiểm", esc(DEVICE.insurance_code))}${infoItem("Tên thiết bị", esc(DEVICE.name))}${infoItem("Serial hãng", esc(DEVICE.serial))}</div>
+    <div class="info-section"><h3>Thông tin kỹ thuật</h3>${infoItem("Nhóm thiết bị", esc(DEVICE.group_name))}${infoItem("Hãng sản xuất", esc(DEVICE.manufacturer))}${infoItem("Model", esc(DEVICE.model))}${infoItem("Nước sản xuất", esc(DEVICE.country))}${infoItem("Năm sản xuất", esc(DEVICE.year_manufactured))}</div>
+    <div class="info-section"><h3>Quản lý sử dụng</h3>${infoItem("Khoa/Phòng", esc(DEVICE.department_name))}${infoItem("Vị trí đặt máy", esc(DEVICE.location))}${infoItem("Năm sử dụng", esc(DEVICE.year_in_use))}${infoItem("Hạn bảo hành", esc(formatDateVN(DEVICE.warranty_end)))}</div>
+    <div class="info-section"><h3>Tài chính / tình trạng</h3>${infoItem("Nguyên giá", esc(formatCurrency(DEVICE.cost)))}${infoItem("Nguồn kinh phí", esc(DEVICE.funding))}${infoItem("Tình trạng", esc(DEVICE.status))}${infoItem("Cấp chất lượng", DEVICE.quality_level ? `Cấp ${Number(DEVICE.quality_level)}` : "—")}${infoItem("Ghi chú", esc(DEVICE.note || "—"))}</div>
   `;
 }
 function renderTransfers() {
@@ -126,7 +126,7 @@ async function saveTransfer(e) {
 function renderAll() {
   q("detailName").textContent = DEVICE.name;
   q("detailMeta").innerHTML = `<b>Mã:</b> ${esc(DEVICE.device_code)} &nbsp; | &nbsp; <b>Khoa:</b> ${esc(DEVICE.department_name)} &nbsp; | &nbsp; <b>Nhóm:</b> ${esc(DEVICE.group_name)} &nbsp; | &nbsp; <b>Model:</b> ${esc(DEVICE.model || "—")}`;
-  q("detailStatus").innerHTML = `<span class="tag ${statusTagClass(DEVICE.status)}">${DEVICE.status}</span>`;
+  q("detailStatus").innerHTML = `<span class="tag ${statusTagClass(DEVICE.status)}">${esc(DEVICE.status||"—")}</span>`;
   if (q("detailQrBtn")) q("detailQrBtn").onclick = () => showDeviceQrModal(DEVICE);
   const latestMaint = (DEVICE.maintenances || []).slice().sort((a,b)=>String(b.maintenance_date||"").localeCompare(String(a.maintenance_date||"")))[0];
   const latestInspection = (DEVICE.inspections || []).slice().sort((a,b)=>String(b.inspection_date||"").localeCompare(String(a.inspection_date||"")))[0];
@@ -144,14 +144,14 @@ function renderAll() {
   if (q("quickInspection")) q("quickInspection").textContent = (DEVICE.inspections || []).length;
   q("quickDocs").textContent = DEVICE.documents.length;
   renderGeneralInfo();
-  renderRows("accessoryRows", DEVICE.accessories, x => `<tr><td>${x.name||""}</td><td>${x.code||""}</td><td>${x.maker_country||""}</td><td>${x.serial||""}</td><td>${x.note||""}</td><td>${rowBtns('editAccessory','deleteAccessory',x.id)}</td></tr>`, 6);
+  renderRows("accessoryRows", DEVICE.accessories, x => `<tr><td>${esc(x.name||"")}</td><td>${esc(x.code||"")}</td><td>${esc(x.maker_country||"")}</td><td>${esc(x.serial||"")}</td><td>${esc(x.note||"")}</td><td>${rowBtns('editAccessory','deleteAccessory',Number(x.id))}</td></tr>`, 6);
   if (q("addIncidentFromDeviceBtn")) q("addIncidentFromDeviceBtn").href = `/tickets.html?from=device-detail&device_id=${encodeURIComponent(DEVICE_ID)}`;
   renderRows("incidentRows", DEVICE.incidents || [], x => `<tr><td>${formatDateTimeVN(x.incident_datetime)}</td><td class="wrap-text">${esc(x.description||"")}</td><td>${esc(x.reporter||"")}</td><td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"")}</span></td><td class="wrap-text">${esc(x.local_resolution_note||"")}</td><td>${x.linked_repair_id ? `<button class="btn btn-sm" onclick="showRepairDetail(${Number(x.linked_repair_id)})">Xem sửa chữa</button>` : "—"}</td></tr>`, 6);
   renderRows("repairRows", DEVICE.repairs, (x, idx) => `<tr><td>${idx+1}</td><td>${formatDateTimeVN(x.received_at || x.repair_date)}</td><td class="wrap-text">${esc(x.issue||"")}</td><td><span class="tag ${statusTagClass(x.processing_status)}">${esc(x.processing_status||"")}</span></td><td>${formatCurrency(x.cost)}</td><td class="wrap-text">${esc(x.result||"")}</td><td><button class="btn btn-sm" onclick="showRepairDetail(${Number(x.id)})">Xem chi tiết</button></td></tr>`, 7);
   renderRows("maintRows", DEVICE.maintenances, x => `<tr><td>${formatDateTimeVN(x.maintenance_date)}</td><td>${esc(x.type||"")}</td><td class="wrap-text">${esc(x.content||"")}</td><td>${esc(x.result||"")}</td><td>${esc(x.performer||"")}</td><td>${esc(x.user_confirm||"")}</td><td>${esc(x.vendor||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(x.file_path, x.original_name || x.stored_name)}</td><td><div class="table-actions"><button class="btn" onclick="editMaint(${x.id})">Cập nhật</button>${x.file_path ? '<span class="tag gray">Đã có hồ sơ</span>' : `<button class="btn btn-danger" onclick="deleteMaint(${x.id})">Xóa</button>`}</div></td></tr>`, 10);
   if (q("inspectionRows")) renderRows("inspectionRows", DEVICE.inspections || [], x => `<tr><td>${formatDateTimeVN(x.inspection_date)}</td><td>${esc(x.type||"")}</td><td>${esc(x.organization||"")}</td><td>${esc(x.certificate_no||"")}</td><td>${esc(x.result||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(attachedPath(x.file_note), "")}</td><td><div class="table-actions"><button class="btn btn-sm" onclick="editInspection(${Number(x.id)})">Cập nhật</button>${attachedPath(x.file_note) ? '<span class="tag gray">Đã có chứng nhận</span>' : `<button class="btn btn-danger btn-sm" onclick="deleteInspection(${Number(x.id)})">Xóa</button>`}</div></td></tr>`, 8);
-  renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${x.log_datetime||""}</td><td>${x.user_name||""}</td><td>${x.department_code||""}</td><td>${x.usage_count||""}</td><td>${x.status_before||""}</td><td>${x.status_after||""}</td><td>${x.note||""}</td><td>${rowBtns('editOp','deleteOp',x.id)}</td></tr>`, 8);
-  renderRows("docRows", DEVICE.documents, x => `<tr><td>${x.name||""}</td><td>${x.type||""}</td><td>${formatDateVN(x.doc_date)}</td><td>${x.updated_by||""}</td><td>${docFileLabel(x)}</td><td>${x.note||""}</td><td>${docExtraBtns(x)}</td></tr>`, 7);
+  renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${esc(x.log_datetime||"")}</td><td>${esc(x.user_name||"")}</td><td>${esc(x.department_code||"")}</td><td>${esc(x.usage_count||"")}</td><td>${esc(x.status_before||"")}</td><td>${esc(x.status_after||"")}</td><td>${esc(x.note||"")}</td><td>${rowBtns('editOp','deleteOp',Number(x.id))}</td></tr>`, 8);
+  renderRows("docRows", DEVICE.documents, x => `<tr><td>${esc(x.name||"")}</td><td>${esc(x.type||"")}</td><td>${esc(formatDateVN(x.doc_date))}</td><td>${esc(x.updated_by||"")}</td><td>${docFileLabel(x)}</td><td>${esc(x.note||"")}</td><td>${docExtraBtns(x)}</td></tr>`, 7);
   if (q("transferDepartment")) {
     q("transferDepartment").innerHTML = META.departments.map(x=>`<option value="${esc(x.code)}">${esc(x.code)} - ${esc(x.name)}</option>`).join("");
     q("transferDepartment").value = DEVICE.department_code || "";
