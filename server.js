@@ -3435,7 +3435,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
 
 app.get("/api/inspections", (req, res) => {
   const rows = db.prepare(`
-    SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, d.name AS department_name, g.name AS group_name
+    SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial, d.name AS department_name, g.name AS group_name
     FROM inspections i
     JOIN devices dv ON dv.id = i.device_id
     LEFT JOIN departments d ON d.code = dv.department_code
