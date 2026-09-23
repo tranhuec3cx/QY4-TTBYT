@@ -99,6 +99,7 @@ function resetTransferForm() {
   q("transferDate").value = nowDateTimeLocalValue();
   q("transferDepartment").value = DEVICE.department_code || "";
   q("transferLocation").value = DEVICE.location || "";
+  if(q("transferActor")) q("transferActor").value = window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
   showForm("transferFormWrap", false);
 }
 async function saveTransfer(e) {
@@ -112,9 +113,14 @@ async function saveTransfer(e) {
     note: q("transferNote").value.trim()
   };
   if (!payload.to_department_code) return alert("Vui lòng chọn khoa/phòng nhận.");
-  await api(`/api/devices/${DEVICE_ID}/transfer`, {method:"POST", body:JSON.stringify(payload)});
-  showForm("transferFormWrap", false);
-  await loadDevice();
+  if (!payload.reason) return alert("Vui lòng nhập lý do điều chuyển.");
+  try{
+    await api(`/api/devices/${DEVICE_ID}/transfer`, {method:"POST", body:JSON.stringify(payload)});
+    showForm("transferFormWrap", false);
+    await loadDevice();
+  }catch(err){
+    alert(err.message || "Không điều chuyển được thiết bị.");
+  }
 }
 
 function renderAll() {
