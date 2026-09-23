@@ -3476,7 +3476,10 @@ app.get("/api/dashboard/operations", (req, res) => {
   const plus30 = localDatePlusDays(30);
   const total = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
   const active = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Đang hoạt động'").get().c;
+  const limited = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Hoạt động hạn chế'").get().c;
+  const operational = active + limited;
   const repairing = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Chờ sửa chữa'").get().c;
+  const stopped = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Ngừng hoạt động'").get().c;
   const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')").get().c;
   const unacknowledgedIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND (acknowledged_at IS NULL OR acknowledged_at='')").get().c;
   const avgResponseMinutes = Number(db.prepare(`
@@ -3504,7 +3507,7 @@ app.get("/api/dashboard/operations", (req, res) => {
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
   `).all(monthStart);
-  res.json({ today, timeZone:APP_TIME_ZONE, total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
+  res.json({ today, timeZone:APP_TIME_ZONE, total, active, limited, operational, repairing, stopped, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
 });
 
 app.get("/api/audit-logs", (req, res) => {
@@ -3766,7 +3769,10 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const total = devices.length;
   const totalCost = devices.reduce((s,d)=>s+Number(d.cost||0),0);
   const active = devices.filter(d=>d.status === "Đang hoạt động").length;
+  const limited = devices.filter(d=>d.status === "Hoạt động hạn chế").length;
+  const operational = active + limited;
   const repair = devices.filter(d=>d.status === "Chờ sửa chữa").length;
+  const stopped = devices.filter(d=>d.status === "Ngừng hoạt động").length;
   const currentYear = Number(localDateISO().slice(0,4));
   const old10 = devices.filter(d=>Number(d.year_in_use||0) && (currentYear - Number(d.year_in_use)) > 10).length;
   const today = localDateISO();
@@ -3777,7 +3783,7 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const overdueMaint = db.prepare("SELECT COUNT(*) c FROM maintenances m JOIN devices dv ON dv.id=m.device_id WHERE COALESCE(dv.is_archived,0)=0 AND m.next_date < ?").get(today).c;
   const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY quality_level ORDER BY quality_level").all();
   const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code AND COALESCE(dv.is_archived,0)=0 GROUP BY d.code,d.name ORDER BY count DESC`).all();
-  res.json({ total, totalCost, active, repair, old10, dueInspections, overdueInspections, dueMaint, overdueMaint, quality, byDept });
+  res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, dueMaint, overdueMaint, quality, byDept });
 });
 
 app.get("/api/reports/summary", (req, res) => {
