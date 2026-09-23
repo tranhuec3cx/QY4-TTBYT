@@ -113,7 +113,7 @@ function renderMenu(active) {
       </div>
       <nav class="menu">${links}</nav>
       <div class="sidebar-footer">
-        <div><b>KHOA TRANG BỊ</b><span>© 2026 BVQY4 · Version 5.0.0</span></div>
+        <div><b>©2026 Khoa Trang bị. BVQY4</b><span>Version 5.0.0</span></div>
       </div>
     </aside>
   `;
