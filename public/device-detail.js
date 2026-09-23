@@ -203,7 +203,11 @@ function editAccessory(id) {
   q("accessoryId").value = x.id; q("accessoryName").value = x.name || ""; q("accessoryCode").value = x.code || ""; q("accessoryMakerCountry").value = x.maker_country || ""; q("accessorySerial").value = x.serial || ""; q("accessoryNote").value = x.note || "";
   showForm("accessoryFormWrap", true);
 }
-async function deleteAccessory(id) { if (!confirm("Xóa phụ kiện này?")) return; await api(`/api/accessories/${id}`, { method:"DELETE" }); await loadDevice(); }
+async function deleteAccessory(id) {
+  if (!confirm("Xóa phụ kiện này? Thao tác sẽ được ghi vào nhật ký hệ thống.")) return;
+  try{ await api(`/api/accessories/${id}`, { method:"DELETE" }); await loadDevice(); }
+  catch(e){ alert(e.message || "Không thể xóa phụ kiện."); }
+}
 async function saveAccessory(e) {
   e.preventDefault();
   const payload = { device_id: Number(DEVICE_ID), name: q("accessoryName").value.trim(), code: q("accessoryCode").value.trim(), maker_country: q("accessoryMakerCountry").value.trim(), serial: q("accessorySerial").value.trim(), note: q("accessoryNote").value.trim() };
@@ -319,7 +323,11 @@ function editOp(id) {
   q("opId").value = x.id; q("opDatetime").value = (x.log_datetime || "").replace(" ","T"); q("opUser").value = x.user_name || ""; q("opDepartmentCode").value = x.department_code || ""; q("opUsageCount").value = x.usage_count || ""; q("opBefore").value = x.status_before || ""; q("opAfter").value = x.status_after || ""; q("opNote").value = x.note || "";
   showForm("opFormWrap", true);
 }
-async function deleteOp(id) { if (!confirm("Xóa nhật ký vận hành này?")) return; await api(`/api/operation-logs/${id}`, { method:"DELETE" }); await loadDevice(); }
+async function deleteOp(id) {
+  if (!confirm("Xóa nhật ký vận hành này? Thao tác sẽ được ghi vào nhật ký hệ thống.")) return;
+  try{ await api(`/api/operation-logs/${id}`, { method:"DELETE" }); await loadDevice(); }
+  catch(e){ alert(e.message || "Không thể xóa nhật ký vận hành."); }
+}
 async function saveOp(e) {
   e.preventDefault();
   const payload = { device_id: Number(DEVICE_ID), log_datetime: q("opDatetime").value.replace("T"," "), user_name: q("opUser").value.trim(), department_code: q("opDepartmentCode").value.trim(), usage_count: q("opUsageCount").value.trim(), status_before: q("opBefore").value.trim(), status_after: q("opAfter").value.trim(), note: q("opNote").value.trim() };
@@ -333,7 +341,11 @@ function editDoc(id) {
   q("docId").value = x.id; q("docName").value = x.name || ""; q("docType").value = x.type || ""; q("docDate").value = x.doc_date || ""; q("docBy").value = x.updated_by || ""; q("docNote").value = x.note || ""; if (q("docCurrentFile")) q("docCurrentFile").innerHTML = x.file_path ? `File hiện tại: <a href="${x.file_path}" target="_blank" rel="noopener">${x.original_name || x.stored_name || "Tệp đính kèm"}</a>` : "Chưa có file đính kèm.";
   showForm("docFormWrap", true);
 }
-async function deleteDoc(id) { if (!confirm("Xóa tài liệu này?")) return; await api(`/api/documents/${id}`, { method:"DELETE" }); await loadDevice(); }
+async function deleteDoc(id) {
+  if (!confirm("Xóa tài liệu này? Nếu tài liệu đang được hồ sơ kỹ thuật tham chiếu, hệ thống sẽ chặn để bảo toàn lịch sử.")) return;
+  try{ await api(`/api/documents/${id}`, { method:"DELETE" }); await loadDevice(); }
+  catch(e){ alert(e.message || "Không thể xóa tài liệu."); }
+}
 async function saveDoc(e) {
   e.preventDefault();
   const fd = new FormData();
