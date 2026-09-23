@@ -368,18 +368,16 @@ jobs:
           CODE=$(curl -s -o /tmp/full-qr-unauth.json -w '%{http_code}' "$BASE/api/qr/device-uid/$AUTH_QR_UID")
           test "$CODE" = "401"
           curl -fsS "$BASE/api/public/device-qr/$AUTH_QR_UID" >/tmp/public-qr.json
-          curl -fsS "$BASE/api/public/device-code/TST.TST.0001" >/tmp/public-qr-code.json
+          test "$(curl -s -o /tmp/public-legacy-id.json -w '%{http_code}' "$BASE/api/public/device/$DEVICE_ID")" = "410"
+          test "$(curl -s -o /tmp/public-legacy-code.json -w '%{http_code}' "$BASE/api/public/device-code/TST.TST.0001")" = "410"
           node - <<'NODE'
           const fs=require("fs");
           const p=JSON.parse(fs.readFileSync("/tmp/public-qr.json","utf8"));
-          const pc=JSON.parse(fs.readFileSync("/tmp/public-qr-code.json","utf8"));
-          for(const obj of [p,pc]){
-            if(obj.device_code!=="TST.TST.0001" || obj.name!=="Thiết bị phân quyền") throw new Error("Public QR identification fields missing");
-            for(const key of ["cost","funding","note","latest_maintenance","latest_inspection","open_repair","insurance_code","year_manufactured"]){
-              if(Object.prototype.hasOwnProperty.call(obj,key)) throw new Error("Sensitive/internal field leaked in public QR payload: "+key);
-            }
+          if(p.device_code!=="TST.TST.0001" || p.name!=="Thiết bị phân quyền") throw new Error("Public QR identification fields missing");
+          for(const key of ["cost","funding","note","latest_maintenance","latest_inspection","open_repair","insurance_code","year_manufactured"]){
+            if(Object.prototype.hasOwnProperty.call(p,key)) throw new Error("Sensitive/internal field leaked in public QR payload: "+key);
           }
-          console.log("Public QR payload minimization passed");
+          console.log("UID-only public QR and payload minimization passed");
           NODE
 
           curl -fsS -c /tmp/engineer-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"engineer","password":"Engineer123!"}' >/tmp/engineer-login.json
