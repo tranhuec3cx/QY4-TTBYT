@@ -145,6 +145,31 @@ function setLayout(active, title, subtitle, settingsTab = null) {
   }
   if (q("settingsTabsHost")) q("settingsTabsHost").innerHTML = settingsTab ? renderSettingsTabs(settingsTab) : "";
 }
+async function confirmDeviceDuplicate(payload, excludeId = 0) {
+  const params = new URLSearchParams({
+    serial: payload.serial || "",
+    name: payload.name || "",
+    model: payload.model || "",
+    exclude_id: String(excludeId || 0)
+  });
+  const result = await api(`/api/devices/duplicate-check?${params.toString()}`);
+  const serialRows = result.serial_matches || [];
+  const similarRows = result.similar_matches || [];
+  if (!serialRows.length && !similarRows.length) return true;
+  const lines = [];
+  if (serialRows.length) {
+    lines.push("CẢNH BÁO SERIAL ĐÃ TỒN TẠI:");
+    serialRows.slice(0,5).forEach(x => lines.push(`- ${x.device_code || ""} - ${x.name || ""} (${x.department_code || ""})`));
+  }
+  const extraSimilar = similarRows.filter(x => !serialRows.some(y => Number(y.id) === Number(x.id)));
+  if (extraSimilar.length) {
+    lines.push("", "Thiết bị cùng tên + model đã có:");
+    extraSimilar.slice(0,5).forEach(x => lines.push(`- ${x.device_code || ""} - Serial: ${x.serial || "—"} (${x.department_code || ""})`));
+  }
+  lines.push("", "Nếu đã kiểm tra và đây đúng là thiết bị khác, có thể tiếp tục lưu.");
+  return confirm(lines.join("\n"));
+}
+
 function exportCsv(filename, rows) {
   const csv = "\ufeff" + rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
