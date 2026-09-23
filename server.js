@@ -88,7 +88,7 @@ function authApiGuard(req, res, next) {
   if (!req.path.startsWith("/api/")) return next();
   if (req.path.startsWith("/api/auth/")
       || req.path.startsWith("/api/public/")
-      || req.path.startsWith("/api/qr/")
+      || (req.method === "POST" && ["/api/qr/checks","/api/qr/incidents"].includes(req.path))
       || req.path === "/api/system/qr-origins") return next();
   if (!AUTH_REQUIRED) return next();
 
@@ -2025,6 +2025,13 @@ app.get("/api/public/device-qr/:qr_uid", (req, res) => {
 app.get("/api/public/device/:id", (req, res) => {
   const data = getPublicDevicePayload(req.params.id);
   if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  res.json(data);
+});
+
+app.get("/api/public/device-code/:code", (req, res) => {
+  const row = db.prepare("SELECT id FROM devices WHERE device_code=?").get(String(req.params.code || "").trim());
+  if (!row) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  const data = getPublicDevicePayload(row.id);
   res.json(data);
 });
 
