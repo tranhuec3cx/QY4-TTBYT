@@ -329,6 +329,15 @@ function safeUnlink(filePath) {
 function cleanupSingleUpload(req) {
   if (req?.file?.path) safeUnlink(req.file.path);
 }
+function technicalFileReference(filePath) {
+  const value=String(filePath || "").trim();
+  if(!value) return null;
+  const maintenance=db.prepare("SELECT id FROM maintenances WHERE file_path=? LIMIT 1").get(value);
+  if(maintenance) return {type:"Bảo dưỡng",id:maintenance.id};
+  const inspection=db.prepare("SELECT id FROM inspections WHERE file_note=? LIMIT 1").get(value);
+  if(inspection) return {type:"Kiểm định/Hiệu chuẩn",id:inspection.id};
+  return null;
+}
 
 function zonedDateParts(date = new Date(), includeTime = false) {
   const options = {
@@ -2083,9 +2092,11 @@ app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
         original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
       WHERE id=@id
     `).run(payload);
-    // Chỉ xóa file vật lý cũ sau khi DB đã cập nhật thành công.
+    // Chỉ xóa file vật lý cũ sau khi DB đã cập nhật thành công và
+    // không còn hồ sơ kỹ thuật nào tham chiếu tới file đó.
     if (file && old.file_path && old.file_path !== payload.file_path) {
-      safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
+      const technicalRef=technicalFileReference(old.file_path);
+      if (!technicalRef) safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
     }
     writeAudit(requestActor(req, payload.updated_by || "Khoa Trang bị"), "Cập nhật tài liệu", "document", id, payload.name);
     res.json({ ok: true, file_path: payload.file_path });
@@ -2108,6 +2119,10 @@ app.delete("/api/documents/:id", (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
   if (!row) return res.status(404).json({ error: "Không tìm thấy tài liệu." });
+  const technicalRef=technicalFileReference(row.file_path);
+  if(technicalRef){
+    return res.status(400).json({error:`File đang được ${technicalRef.type} #${technicalRef.id} sử dụng; không được xóa Tài liệu để tránh mất hồ sơ kỹ thuật.`});
+  }
   db.prepare("DELETE FROM documents WHERE id=?").run(id);
   if (row.file_path) safeUnlink(path.join(__dirname, row.file_path.replace(/^\//, "")));
   writeAudit(requestActor(req), "Xóa tài liệu", "document", id, row.name || "");
