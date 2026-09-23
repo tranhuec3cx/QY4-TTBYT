@@ -3822,10 +3822,12 @@ function removeBackupBundle(filename) {
   try { fs.unlinkSync(path.join(backupDir, filename)); } catch {}
   try { fs.rmSync(backupFilesDirFor(filename), { recursive:true, force:true }); } catch {}
 }
-function verifySqliteBackup(target) {
+function finalizeSqliteBackup(target) {
   let checkDb=null;
   try {
-    checkDb=new Database(target,{readonly:true,fileMustExist:true});
+    checkDb=new Database(target,{fileMustExist:true});
+    const hasSessions=checkDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get();
+    if(hasSessions) checkDb.prepare("DELETE FROM auth_sessions").run();
     const row=checkDb.prepare("PRAGMA quick_check").get();
     const value=row ? String(Object.values(row)[0] || "") : "";
     if (value.toLowerCase() !== "ok") throw new Error(`SQLite quick_check: ${value || "không có kết quả"}`);
@@ -3847,7 +3849,7 @@ async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu d
   const filesTarget = backupFilesDirFor(filename);
   try {
     await db.backup(target);
-    verifySqliteBackup(target);
+    finalizeSqliteBackup(target);
     fs.rmSync(filesTarget,{recursive:true,force:true});
     snapshotDirectoryWithHardlinks(path.join(__dirname,"uploads"), filesTarget);
     pruneDatabaseBackups();
