@@ -285,6 +285,7 @@ function buildIncidentSnapshot(deviceId) {
     device_code_snapshot: getDeviceCode(deviceId),
     device_name_snapshot: dv.name || "",
     department_snapshot: dv.department_name || dv.department_code || "",
+    department_code_snapshot: dv.department_code || "",
     location_snapshot: dv.location || ""
   };
 }
@@ -294,6 +295,7 @@ function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) 
     device_code_snapshot: "",
     device_name_snapshot: "",
     department_snapshot: "",
+    department_code_snapshot: "",
     location_snapshot: ""
   };
   const t = nowSql();
@@ -303,6 +305,7 @@ function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) 
         device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
         device_name_snapshot = COALESCE(NULLIF(device_name_snapshot,''), @device_name_snapshot),
         department_snapshot = COALESCE(NULLIF(department_snapshot,''), @department_snapshot),
+        department_code_snapshot = COALESCE(NULLIF(department_code_snapshot,''), @department_code_snapshot),
         location_snapshot = COALESCE(NULLIF(location_snapshot,''), @location_snapshot),
         created_at = COALESCE(NULLIF(created_at,''), @created_at),
         updated_at = @updated_at,
@@ -325,6 +328,7 @@ function touchIncident(id, deviceId, actor = "") {
     SET device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
         device_name_snapshot = COALESCE(NULLIF(device_name_snapshot,''), @device_name_snapshot),
         department_snapshot = COALESCE(NULLIF(department_snapshot,''), @department_snapshot),
+        department_code_snapshot = COALESCE(NULLIF(department_code_snapshot,''), @department_code_snapshot),
         location_snapshot = COALESCE(NULLIF(location_snapshot,''), @location_snapshot),
         updated_at = @updated_at,
         updated_by = @updated_by
@@ -532,7 +536,12 @@ function initDb() {
       device_code_snapshot TEXT,
       device_name_snapshot TEXT,
       department_snapshot TEXT,
+      department_code_snapshot TEXT,
       location_snapshot TEXT,
+      source_channel TEXT,
+      acknowledged_at TEXT,
+      acknowledged_by TEXT,
+      completed_at TEXT,
       created_at TEXT,
       updated_at TEXT,
       updated_by TEXT,
@@ -877,7 +886,18 @@ function ensureCoreManagementSchema() {
   if (!incidentCols.includes("acknowledged_by")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_by TEXT").run();
   if (!incidentCols.includes("completed_at")) db.prepare("ALTER TABLE incidents ADD COLUMN completed_at TEXT").run();
   if (!incidentCols.includes("source_channel")) db.prepare("ALTER TABLE incidents ADD COLUMN source_channel TEXT").run();
+  if (!incidentCols.includes("department_code_snapshot")) db.prepare("ALTER TABLE incidents ADD COLUMN department_code_snapshot TEXT").run();
   db.prepare("UPDATE incidents SET source_channel='Không xác định' WHERE source_channel IS NULL OR trim(source_channel)=''").run();
+  db.prepare(`
+    UPDATE incidents
+    SET department_code_snapshot = COALESCE(
+      (SELECT d.code FROM departments d WHERE d.name=incidents.department_snapshot LIMIT 1),
+      (SELECT d.code FROM departments d WHERE d.code=incidents.department_snapshot LIMIT 1),
+      (SELECT dv.department_code FROM devices dv WHERE dv.id=incidents.device_id LIMIT 1),
+      ''
+    )
+    WHERE department_code_snapshot IS NULL OR trim(department_code_snapshot)=''
+  `).run();
 
   const rows = db.prepare("SELECT id, qr_uid FROM devices ORDER BY id").all();
   for (const r of rows) {
@@ -2954,7 +2974,7 @@ app.get("/api/reports/kpi", (req, res) => {
            COALESCE(NULLIF(i.department_snapshot,''), d.name, dv.department_code) AS department_name,
            COALESCE(NULLIF(i.device_code_snapshot,''), dv.device_code) AS device_code,
            COALESCE(NULLIF(i.device_name_snapshot,''), dv.name) AS device_name,
-           dv.department_code,
+           COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code) AS department_code,
            r.id AS repair_id,r.processing_status AS repair_status,r.completed_at AS repair_completed_at,
            CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
              THEN MAX(0,(julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60) ELSE NULL END AS response_minutes,
@@ -2971,7 +2991,7 @@ app.get("/api/reports/kpi", (req, res) => {
   `;
   const params = [fromDate,toDate];
   if (departmentCode && departmentCode !== "ALL") {
-    sql += " AND dv.department_code=?";
+    sql += " AND COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code)=?";
     params.push(departmentCode);
   }
   sql += " ORDER BY i.incident_datetime DESC,i.id DESC";
