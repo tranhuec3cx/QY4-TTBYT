@@ -82,8 +82,12 @@ function editDevice(id) {
 }
 async function deleteDevice(id) {
   if (!confirm("Lưu trữ thiết bị này? Thiết bị sẽ ngừng hiển thị trong danh sách đang quản lý nhưng QR và toàn bộ lịch sử vẫn được giữ.")) return;
-  await api(`/api/devices/${id}`, { method: "DELETE" });
-  await loadData();
+  try{
+    await api(`/api/devices/${id}`, { method: "DELETE" });
+    await loadData();
+  }catch(e){
+    alert(e.message || "Chưa thể lưu trữ thiết bị.");
+  }
 }
 function resetForm() {
   q("deviceForm").reset();
