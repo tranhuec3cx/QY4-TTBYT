@@ -2911,6 +2911,7 @@ app.get("/api/dashboard/operations", (req, res) => {
   const active = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Đang hoạt động'").get().c;
   const repairing = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Chờ sửa chữa'").get().c;
   const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')").get().c;
+  const unacknowledgedIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND (acknowledged_at IS NULL OR acknowledged_at='')").get().c;
   const avgResponseMinutes = Number(db.prepare(`
     SELECT AVG((julianday(acknowledged_at)-julianday(incident_datetime))*24*60) v
     FROM incidents
@@ -2931,7 +2932,7 @@ app.get("/api/dashboard/operations", (req, res) => {
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
   `).all();
-  res.json({ total, active, repairing, openIncidents, dueInspection, overdueInspection, waitingParts, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
+  res.json({ total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
 });
 
 app.get("/api/audit-logs", (req, res) => {
