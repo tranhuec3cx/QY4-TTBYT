@@ -372,6 +372,7 @@ jobs:
           const d=JSON.parse(fs.readFileSync("/tmp/device-restarted.json","utf8"));
           const q=JSON.parse(fs.readFileSync("/tmp/data-quality.json","utf8"));
           if(d.serial!=="SERIAL-AFTER") throw new Error("Serial changed/lost after server restart: "+d.serial);
+          if(d.status!=="Hoạt động hạn chế") throw new Error("Limited-operation status changed after restart: "+d.status);
           if(String(d.insurance_code||"")!=="") throw new Error("Serial was incorrectly moved into insurance_code");
           if(Number(q.summary.missing_serial)!==0) throw new Error("Data-quality audit unexpectedly reports missing serial");
           console.log("Serial persistence after restart passed");
