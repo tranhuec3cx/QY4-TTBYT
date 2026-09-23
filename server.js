@@ -298,6 +298,9 @@ function safeUnlink(filePath) {
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch {}
 }
+function cleanupSingleUpload(req) {
+  if (req?.file?.path) safeUnlink(req.file.path);
+}
 
 function zonedDateParts(date = new Date(), includeTime = false) {
   const options = {
@@ -1814,20 +1817,19 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
     const id = Number(req.params.id);
     const old = db.prepare("SELECT * FROM maintenances WHERE id=?").get(id);
     if (!old) {
-      if (req.file) safeUnlink(req.file.path);
+      cleanupSingleUpload(req);
       return res.status(404).json({ error: "Không tìm thấy bản ghi bảo dưỡng." });
     }
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
     const file = req.file || null;
-    if (file && old.file_path) safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
-    db.prepare(`
-      UPDATE maintenances SET
-        device_id=@device_id, maintenance_date=@maintenance_date, type=@type, content=@content, result=@result,
-        performer=@performer, user_confirm=@user_confirm, vendor=@vendor, next_date=@next_date, note=@note,
-        original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
-      WHERE id=@id
-    `).run({
+    const payload = {
       id,
-      device_id: Number(p.device_id),
+      device_id: deviceId,
       maintenance_date: normalizeDateTime(p.maintenance_date || ""),
       type: p.type || "",
       content: p.content || "",
@@ -1842,28 +1844,45 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
       file_mime: file ? file.mimetype : old.file_mime,
       file_size: file ? file.size : (old.file_size || 0)
-    });
-    if (file) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-      `).run({
-        device_id: Number(p.device_id),
-        name: `Tài liệu bảo dưỡng - ${p.maintenance_date || nowSql().slice(0,10)}`,
-        type: "Bảo dưỡng",
-        doc_date: p.maintenance_date || nowSql().slice(0,10),
-        updated_by: p.performer || "",
-        note: p.note || "Tệp đính kèm từ phiếu bảo dưỡng",
-        original_name: file.originalname,
-        stored_name: file.filename,
-        file_path: `/uploads/documents/${file.filename}`,
-        file_mime: file.mimetype,
-        file_size: file.size
-      });
+    };
+    if (!payload.maintenance_date || !payload.content) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiếu thời gian hoặc nội dung bảo dưỡng." });
     }
-    writeHistory("maintenance", id, p.performer, "Cập nhật", old.result || "", p.result || "", p.content || p.note || "");
-    res.json({ ok: true, file_path: file ? `/uploads/documents/${file.filename}` : old.file_path });
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE maintenances SET
+          device_id=@device_id, maintenance_date=@maintenance_date, type=@type, content=@content, result=@result,
+          performer=@performer, user_confirm=@user_confirm, vendor=@vendor, next_date=@next_date, note=@note,
+          original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
+        WHERE id=@id
+      `).run(payload);
+      if (file) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
+          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+        `).run({
+          device_id: deviceId,
+          name: `Tài liệu bảo dưỡng - ${payload.maintenance_date.slice(0,10)}`,
+          type: "Bảo dưỡng",
+          doc_date: payload.maintenance_date.slice(0,10),
+          updated_by: payload.performer,
+          note: payload.note || "Tệp đính kèm từ phiếu bảo dưỡng",
+          original_name: file.originalname,
+          stored_name: file.filename,
+          file_path: payload.file_path,
+          file_mime: file.mimetype,
+          file_size: file.size
+        });
+      }
+      writeHistory("maintenance", id, payload.performer, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
+      writeAudit(requestActor(req, payload.performer || "Khoa Trang bị"), "Cập nhật bảo dưỡng", "maintenance", id, payload.content || payload.note || "");
+    });
+    tx();
+    // Không xóa file cũ: file đã được ghi vào bảng documents là một phần của lịch sử hồ sơ.
+    res.json({ ok: true, file_path: payload.file_path });
   } catch (e) {
+    cleanupSingleUpload(req);
     console.error("PUT /api/maintenances/:id error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -2036,13 +2055,15 @@ app.get("/api/maintenances", (req, res) => {
 app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
   try {
     const p = req.body || {};
-    if (!p.device_id) return res.status(400).json({ error: "device_id is required" });
     const file = req.file || null;
-    const info = db.prepare(`
-      INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size)
-      VALUES (@device_id,@maintenance_date,@type,@content,@result,@performer,@user_confirm,@vendor,@next_date,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-    `).run({
-      device_id: Number(p.device_id),
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
+    const payload = {
+      device_id: deviceId,
       maintenance_date: normalizeDateTime(p.maintenance_date || ""),
       type: p.type || "",
       content: p.content || "",
@@ -2057,29 +2078,42 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       file_path: file ? `/uploads/documents/${file.filename}` : null,
       file_mime: file ? file.mimetype : null,
       file_size: file ? file.size : 0
-    });
-    if (file) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-      `).run({
-        device_id: Number(p.device_id),
-        name: `Tài liệu bảo dưỡng - ${p.maintenance_date || nowSql().slice(0,10)}`,
-        type: "Bảo dưỡng",
-        doc_date: p.maintenance_date || nowSql().slice(0,10),
-        updated_by: p.performer || "",
-        note: p.note || "Tệp đính kèm từ phiếu bảo dưỡng",
-        original_name: file.originalname,
-        stored_name: file.filename,
-        file_path: `/uploads/documents/${file.filename}`,
-        file_mime: file.mimetype,
-        file_size: file.size
-      });
+    };
+    if (!payload.maintenance_date || !payload.content) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiếu thời gian hoặc nội dung bảo dưỡng." });
     }
-    writeHistory("maintenance", info.lastInsertRowid, p.performer, "Tạo mới", "", p.result || "", p.content || p.note || "");
-    writeAudit(p.performer || "Khoa Trang bị", "Tạo bảo dưỡng", "maintenance", info.lastInsertRowid, p.content || p.note || "");
-    res.json({ id: info.lastInsertRowid, file_path: file ? `/uploads/documents/${file.filename}` : null });
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size)
+        VALUES (@device_id,@maintenance_date,@type,@content,@result,@performer,@user_confirm,@vendor,@next_date,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+      `).run(payload);
+      if (file) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
+          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+        `).run({
+          device_id: deviceId,
+          name: `Tài liệu bảo dưỡng - ${payload.maintenance_date.slice(0,10)}`,
+          type: "Bảo dưỡng",
+          doc_date: payload.maintenance_date.slice(0,10),
+          updated_by: payload.performer,
+          note: payload.note || "Tệp đính kèm từ phiếu bảo dưỡng",
+          original_name: file.originalname,
+          stored_name: file.filename,
+          file_path: payload.file_path,
+          file_mime: file.mimetype,
+          file_size: file.size
+        });
+      }
+      writeHistory("maintenance", info.lastInsertRowid, payload.performer, "Tạo mới", "", payload.result || "", payload.content || payload.note || "");
+      writeAudit(requestActor(req, payload.performer || "Khoa Trang bị"), "Tạo bảo dưỡng", "maintenance", info.lastInsertRowid, payload.content || payload.note || "");
+      return info.lastInsertRowid;
+    });
+    const id = tx();
+    res.json({ id, file_path: payload.file_path });
   } catch (e) {
+    cleanupSingleUpload(req);
     console.error("POST /api/maintenances error:", e);
     res.status(500).json({ error: e.message });
   }
