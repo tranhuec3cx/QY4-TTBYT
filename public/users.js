@@ -5,7 +5,7 @@ function render() {
   const qText = q("searchInput").value.trim().toLowerCase();
   const data = USERS.filter(u => !qText || [u.full_name, u.username, u.role, u.department_name || "", u.phone || ""].join(" ").toLowerCase().includes(qText));
   q("countLabel").textContent = `${data.length} người dùng`;
-  q("rows").innerHTML = data.map((u,i) => `<tr><td>${i+1}</td><td>${u.full_name}</td><td>${u.username}</td><td>${u.role}</td><td>${u.department_name || ""}</td><td>${u.phone || ""}</td><td><span class="tag ${u.status === 'Hoạt động' ? 'green' : 'red'}">${u.status}</span></td><td><div class="actions"><button class="icon-btn" onclick="editUser(${u.id})">✏️</button><button class="icon-btn" onclick="deleteUser(${u.id})">🗑️</button></div></td></tr>`).join("");
+  q("rows").innerHTML = data.map((u,i) => `<tr><td>${i+1}</td><td>${u.full_name}</td><td>${u.username}</td><td>${u.role}</td><td>${u.department_name || ""}</td><td>${u.phone || ""}</td><td><span class="tag ${u.has_password ? 'green' : 'yellow'}">${u.has_password ? 'Đã đặt' : 'Chưa đặt'}</span></td><td><span class="tag ${u.status === 'Hoạt động' ? 'green' : 'red'}">${u.status}</span></td><td><div class="actions"><button class="icon-btn" onclick="editUser(${u.id})">✏️</button><button class="icon-btn" onclick="deleteUser(${u.id})">🗑️</button></div></td></tr>`).join("");
 }
 function editUser(id) {
   const u = USERS.find(x => x.id === id);
@@ -15,6 +15,7 @@ function editUser(id) {
   q("role").value = u.role;
   q("departmentCode").value = u.department_code || "";
   q("phone").value = u.phone || "";
+  q("password").value = "";
   q("status").value = u.status || "Hoạt động";
 }
 function resetForm() {
@@ -45,6 +46,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       role: q("role").value,
       department_code: q("departmentCode").value,
       phone: q("phone").value.trim(),
+      password: q("password").value,
       status: q("status").value
     };
     const id = q("userId").value;
