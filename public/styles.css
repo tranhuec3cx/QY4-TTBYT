@@ -1385,5 +1385,5 @@ dialog#repairDetailDialog{
 .timeline-head .tag{min-height:28px;padding:6px 10px;font-size:12px;font-weight:900;text-transform:uppercase}
 .timeline-actor{font-weight:700}
 
-/* Legacy hard-coded identity is intentionally hidden until real authentication is enabled. */
-.user-box{display:none!important}
+/* Legacy hard-coded identity is hidden by default; JS only reveals the authenticated identity. */
+.user-box{display:none}
