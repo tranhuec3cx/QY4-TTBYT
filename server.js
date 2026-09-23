@@ -73,6 +73,7 @@ function readAuthenticatedUser(req) {
   return row;
 }
 function isAdminOnlyApiPath(p) {
+  if (p === "/api/system/qr-origins") return false;
   return p.startsWith("/api/users")
     || p.startsWith("/api/departments")
     || p.startsWith("/api/device-groups")
@@ -90,8 +91,7 @@ function authApiGuard(req, res, next) {
   if (!req.path.startsWith("/api/")) return next();
   if (req.path.startsWith("/api/auth/")
       || req.path.startsWith("/api/public/")
-      || (req.method === "POST" && ["/api/qr/checks","/api/qr/incidents"].includes(req.path))
-      || req.path === "/api/system/qr-origins") return next();
+      || (req.method === "POST" && ["/api/qr/checks","/api/qr/incidents"].includes(req.path))) return next();
   if (!AUTH_REQUIRED) return next();
 
   const user = readAuthenticatedUser(req);
