@@ -297,10 +297,25 @@ function safeUnlink(filePath) {
   } catch {}
 }
 
+function localDateISO(date = new Date()) {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function localDatePlusDays(days, base = new Date()) {
+  const d = new Date(base);
+  d.setHours(12,0,0,0);
+  d.setDate(d.getDate() + Number(days || 0));
+  return localDateISO(d);
+}
+function parseLocalDate(value) {
+  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 12, 0, 0, 0) : null;
+}
 function nowSql() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${localDateISO(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function makeIncidentCode(id, incidentDate = nowSql()) {
@@ -786,22 +801,18 @@ function seedData() {
 
 
 function dateRangeFromPreset(preset, date, fromDate, toDate) {
-  if (fromDate && toDate) return { start: fromDate, end: toDate };
-  const selected = date ? new Date(date) : new Date();
-  const mk = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
-  const fmt = (d) => d.toISOString().slice(0,10);
-  let start = mk(selected), end = mk(selected);
+  if (fromDate && toDate) return { start: String(fromDate).slice(0,10), end: String(toDate).slice(0,10) };
+  const selected = parseLocalDate(date) || new Date();
+  selected.setHours(12,0,0,0);
+  let start = new Date(selected), end = new Date(selected);
   if (preset === "yesterday") {
     start.setDate(start.getDate() - 1);
-    end = mk(start);
+    end = new Date(start);
   } else if (preset === "last7") {
     start.setDate(start.getDate() - 6);
-    end = mk(selected);
-  } else if (preset === "custom" && date) {
-    start = mk(selected);
-    end = mk(selected);
+    end = new Date(selected);
   }
-  return { start: fmt(start), end: fmt(end) };
+  return { start: localDateISO(start), end: localDateISO(end) };
 }
 
 function normalizeDeviceCode(value, departmentCode = "XX", groupCode = "K") {
@@ -2933,8 +2944,8 @@ app.post("/api/inventory-sessions/:id/complete", (req, res) => {
 });
 
 app.get("/api/dashboard/operations", (req, res) => {
-  const today = new Date().toISOString().slice(0,10);
-  const plus30 = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  const today = localDateISO();
+  const plus30 = localDatePlusDays(30);
   const total = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
   const active = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Đang hoạt động'").get().c;
   const repairing = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Chờ sửa chữa'").get().c;
@@ -2953,14 +2964,20 @@ app.get("/api/dashboard/operations", (req, res) => {
   const dueInspection = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date>=? AND next_date<=?").get(today,plus30).c;
   const overdueInspection = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date<?").get(today).c;
   const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs WHERE processing_status='Chờ linh kiện'").get().c;
+  const qrChecksToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=?").get(today).c;
+  const qrIssuesToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=? AND result='Có vấn đề'").get(today).c;
+  const monthStart = new Date();
+  monthStart.setHours(12,0,0,0);
+  monthStart.setDate(1);
+  monthStart.setMonth(monthStart.getMonth()-5);
   const monthlyIncidents = db.prepare(`
     SELECT substr(incident_datetime,1,7) month, COUNT(*) count
     FROM incidents
-    WHERE incident_datetime >= date('now','start of month','-5 months')
+    WHERE substr(incident_datetime,1,10)>=?
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
-  `).all();
-  res.json({ total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
+  `).all(localDateISO(monthStart));
+  res.json({ total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
 });
 
 app.get("/api/audit-logs", (req, res) => {
@@ -3020,8 +3037,8 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const active = devices.filter(d=>d.status === "Đang hoạt động").length;
   const repair = devices.filter(d=>d.status === "Chờ sửa chữa").length;
   const old10 = devices.filter(d=>Number(d.year_in_use||0) && (new Date().getFullYear() - Number(d.year_in_use)) > 10).length;
-  const today = new Date().toISOString().slice(0,10);
-  const plus30 = new Date(Date.now()+30*24*3600*1000).toISOString().slice(0,10);
+  const today = localDateISO();
+  const plus30 = localDatePlusDays(30);
   const dueInspections = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date >= ? AND next_date <= ?").get(today, plus30).c;
   const overdueInspections = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date < ?").get(today).c;
   const dueMaint = db.prepare("SELECT COUNT(*) c FROM maintenances WHERE next_date >= ? AND next_date <= ?").get(today, plus30).c;
@@ -3033,9 +3050,9 @@ app.get("/api/leadership-dashboard", (req, res) => {
 
 app.get("/api/reports/summary", (req, res) => {
   const now = new Date();
-  const today = now.toISOString().slice(0,10);
+  const today = localDateISO(now);
   const days = Number(req.query.days || 60);
-  const future = new Date(now.getTime() + days * 86400000).toISOString().slice(0,10);
+  const future = localDatePlusDays(days, now);
   const devices = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
     FROM devices dv
