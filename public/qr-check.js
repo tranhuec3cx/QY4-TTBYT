@@ -15,14 +15,11 @@ function renderDevice(){
       <div><h2>${qrEsc(d.name)}</h2><p>${qrEsc(d.device_code)}</p></div>
     </div>
     <div class="qr-info-list">
-      <div><span>Khoa sử dụng</span><b>${qrEsc(d.department_name || d.department_code || "—")}</b></div>
+      <div><span>Khoa sử dụng</span><b>${qrEsc(d.department_name || "—")}</b></div>
       <div><span>Vị trí</span><b>${qrEsc(d.location || "—")}</b></div>
-      <div><span>Hãng / Model</span><b>${qrEsc([d.manufacturer, d.model].filter(Boolean).join(" - ") || "—")}</b></div>
-      <div><span>Serial</span><b>${qrEsc(d.serial || "—")}</b></div>
+      <div><span>Model</span><b>${qrEsc(d.model || "—")}</b></div>
+      <div><span>Serial Number</span><b>${qrEsc(d.serial || "—")}</b></div>
       <div><span>Tình trạng</span><b><span class="tag ${statusTagClass(d.status)}">${qrEsc(d.status || "—")}</span></b></div>
-      <div><span>Bảo dưỡng gần nhất</span><b>${latestLabel(d.latest_maintenance, "maintenance_date", "Chưa có dữ liệu")}</b></div>
-      <div><span>Kiểm định gần nhất</span><b>${latestLabel(d.latest_inspection, "inspection_date", "Chưa có dữ liệu")}</b></div>
-      <div><span>Phiếu sửa chữa mở</span><b>${d.open_repair ? `#${d.open_repair.id} - ${qrEsc(d.open_repair.processing_status)}` : "Không có"}</b></div>
     </div>
   `;
 }
@@ -31,7 +28,7 @@ async function loadQrDevice(){
   const id = getParam("device_id");
   const code = getParam("code");
   if(!uid && !id && !code){ q("deviceCard").innerHTML = '<div class="center-empty">Thiếu mã thiết bị trên đường dẫn QR.</div>'; return; }
-  QR_DEVICE = await api(uid ? `/api/qr/device-uid/${encodeURIComponent(uid)}` : (id ? `/api/qr/device/${encodeURIComponent(id)}` : `/api/qr/device-code/${encodeURIComponent(code)}`));
+  QR_DEVICE = await api(uid ? `/api/public/device-qr/${encodeURIComponent(uid)}` : (id ? `/api/public/device/${encodeURIComponent(id)}` : `/api/public/device-code/${encodeURIComponent(code)}`));
   renderDevice();
 }
 function conditionValue(){ return document.querySelector('input[name="condition"]:checked')?.value || "Bình thường"; }
@@ -72,7 +69,6 @@ async function submitCheck(e){
   if(!validateQrFiles()) return;
   const result = await sendMultipart("/api/qr/checks", {
     qr_uid: QR_DEVICE.qr_uid,
-    device_id: QR_DEVICE.id,
     inspector: q("inspectorInput").value.trim(),
     reporter_phone: q("phoneInput")?.value.trim() || "",
     condition,
