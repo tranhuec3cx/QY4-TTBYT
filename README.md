@@ -32,6 +32,8 @@ Nguyên tắc quản lý: **Một thiết bị – một QR cố định – m�
 - Danh mục thiết bị theo khoa/phòng.
 - Tìm theo mã, tên, model, Serial.
 - Cảnh báo Serial trùng và thiết bị nghi trùng.
+- Serial Number và mã bảo hiểm/mã quản lý là hai trường độc lập; server không tự chuyển hoặc xóa Serial.
+- Báo cáo chất lượng dữ liệu: thiếu Serial/Model/hãng/vị trí/năm sử dụng, nhóm Serial trùng và các dòng cần rà soát.
 - Lưu trữ hồ sơ thay cho xóa cứng.
 - QR UID cố định cho từng thiết bị.
 
@@ -52,11 +54,15 @@ Quét QR
 Hệ thống lưu:
 
 - Thời điểm báo sự cố.
+- Nguồn báo: QR / Nhập trực tiếp / Không xác định đối với dữ liệu lịch sử.
+- Người báo sự cố.
 - Thời điểm tiếp nhận.
+- Người Khoa Trang bị tiếp nhận.
 - Thời điểm hoàn thành.
 - Thời gian phản hồi.
 - Tổng thời gian xử lý.
-- Người báo/người xử lý.
+- Người thực hiện kỹ thuật.
+- Snapshot mã khoa, tên khoa, vị trí và thiết bị tại thời điểm xảy ra sự cố; dữ liệu này không đổi khi thiết bị điều chuyển sau đó.
 - Nội dung và kết quả xử lý.
 
 ### Công việc kỹ thuật
@@ -92,6 +98,24 @@ Theo dõi nhanh:
 - Thời gian phản hồi sự cố trung bình.
 - Thời gian xử lý sự cố trung bình.
 - Số sự cố theo tháng.
+- Tỷ lệ sự cố báo qua QR trong tháng.
+
+### Báo cáo KPI phục vụ đánh giá đề tài
+
+Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR**:
+
+- Chọn khoảng thời gian và khoa/phòng.
+- Tổng số sự cố.
+- Số và tỷ lệ sự cố báo qua QR.
+- Số sự cố có đủ mốc tiếp nhận và tỷ lệ đầy đủ dữ liệu.
+- Thời gian phản hồi trung bình và trung vị.
+- Tỷ lệ đáp ứng mục tiêu phản hồi nội bộ.
+- Số sự cố đã có kết quả xử lý.
+- Thời gian xử lý trung bình và trung vị.
+- Tổng hợp nguồn báo và xu hướng theo tháng.
+- Xuất Excel gồm tổng hợp KPI, nguồn báo và chi tiết từng sự cố.
+
+`response_target_minutes` là **mục tiêu quản trị nội bộ do đơn vị tự đặt**, mặc định 30 phút để thuận tiện chạy thử; không được trình bày như một ngưỡng pháp lý bắt buộc nếu chưa có quy định nội bộ tương ứng.
 
 ### Quản trị
 
@@ -103,6 +127,9 @@ Theo dõi nhanh:
 - Phân quyền Quản trị viên / Kỹ sư TTBYT / Người dùng khoa.
 - Không cho xóa hoặc vô hiệu hóa Quản trị viên cuối cùng khi bật xác thực.
 - Reset dữ liệu mẫu chỉ hoạt động khi chủ động bật chế độ demo.
+- File trong `/uploads` yêu cầu phiên đăng nhập khi `QY4_AUTH_REQUIRED=1`; trang QR công khai vẫn có thể gửi ảnh/video nhưng không đọc được file đã lưu.
+- POST công khai qua QR được giới hạn tần suất theo IP để giảm spam/upload lạm dụng.
+- Multer được khóa ở phiên bản 2.4.0 và kiểm thử upload multipart trong CI.
 
 ## 3. Cài đặt
 
@@ -152,6 +179,8 @@ $env:QY4_ADMIN_USERNAME="admin"
 $env:QY4_ADMIN_PASSWORD="<MAT_KHAU_QUAN_TRI_BAN_DAU>"
 $env:QY4_SESSION_HOURS="12"
 $env:QY4_BACKUP_KEEP="30"
+$env:QY4_QR_RATE_LIMIT="20"
+$env:QY4_QR_RATE_WINDOW_MS="60000"
 npm start
 ```
 
@@ -168,6 +197,8 @@ QY4_ADMIN_USERNAME=admin \
 QY4_ADMIN_PASSWORD='<MAT_KHAU_QUAN_TRI_BAN_DAU>' \
 QY4_SESSION_HOURS=12 \
 QY4_BACKUP_KEEP=30 \
+QY4_QR_RATE_LIMIT=20 \
+QY4_QR_RATE_WINDOW_MS=60000 \
 npm start
 ```
 
@@ -225,6 +256,18 @@ Nên dùng một trong hai:
 
 `qr_uid` của máy không thay đổi. Nếu chỉ đổi địa chỉ máy chủ thì dữ liệu định danh vẫn giữ nguyên, nhưng tem QR đã in chứa URL cũ sẽ không tự biết địa chỉ server mới. Vì vậy cần chốt địa chỉ truy cập ổn định **trước khi in QR hàng loạt**.
 
+### Giới hạn gửi QR công khai
+
+Mặc định:
+
+- `QY4_QR_RATE_LIMIT=20`: tối đa 20 POST QR/IP trong mỗi cửa sổ.
+- `QY4_QR_RATE_WINDOW_MS=60000`: cửa sổ 60 giây.
+- Ảnh: tối đa 5 ảnh theo kiểm tra giao diện; backend giới hạn tổng số file multipart.
+- Video: tối đa 1 video theo giao diện.
+- Backend giới hạn kích thước file, số file, số field, số part và kích thước field multipart.
+
+Nếu vượt giới hạn tần suất, API trả HTTP `429` và `Retry-After`.
+
 ## 8. Sao lưu dữ liệu
 
 Database chính:
@@ -259,6 +302,9 @@ Server tự bổ sung các trường/bảng còn thiếu, gồm:
 - audit log.
 - auth session.
 - hash/salt mật khẩu người dùng.
+- nguồn báo sự cố, người tiếp nhận, snapshot mã khoa tại thời điểm sự cố và các mốc KPI.
+
+**Lưu ý dữ liệu cũ:** phần mềm không tự suy đoán để phục hồi Serial từ mã bảo hiểm. Các dòng Serial trống nhưng mã bảo hiểm có dữ liệu chỉ được đưa vào danh sách cần rà soát để tránh sửa sai dữ liệu thật.
 
 Khuyến nghị:
 
@@ -278,6 +324,14 @@ GitHub Actions hiện kiểm tra:
 - Dashboard, kiểm kê, backup và kiểm tra trùng.
 - Luồng QR → sự cố → tiếp nhận → sửa chữa → hoàn thành.
 - QR UID không đổi sau khi sửa Serial/vị trí.
+- Nguồn sự cố QR và nhập trực tiếp được phân loại đúng.
+- Người tiếp nhận khác người báo sự cố.
+- Snapshot khoa/vị trí không đổi sau điều chuyển.
+- KPI lọc theo khoa tại thời điểm xảy ra sự cố.
+- Serial còn nguyên sau khi server khởi động lại.
+- Upload ảnh multipart qua QR với Multer 2.4.0.
+- Rate limit QR công khai trả HTTP 429 khi vượt ngưỡng.
+- File upload bị chặn khi chưa đăng nhập trong chế độ xác thực.
 - Chế độ đăng nhập bắt buộc.
 - Phân quyền Quản trị viên/Kỹ sư/Người dùng khoa.
 - Backup khi bật xác thực.
@@ -305,7 +359,10 @@ Các nội dung có thể phát triển sau:
 - [ ] Tạo tài khoản Kỹ sư và tài khoản khoa.
 - [ ] Chốt IP/hostname máy chủ.
 - [ ] Test QR bằng điện thoại trong cùng mạng.
-- [ ] Test một luồng sự cố hoàn chỉnh.
-- [ ] Test điều chuyển và kiểm kê.
+- [ ] Test một luồng sự cố hoàn chỉnh: QR → báo sự cố → tiếp nhận → sửa chữa → hoàn thành.
+- [ ] Xác nhận người báo, người tiếp nhận và nguồn báo được ghi đúng.
+- [ ] Test điều chuyển và kiểm tra sự cố cũ vẫn giữ khoa/vị trí lịch sử.
+- [ ] Mở Báo cáo → Chất lượng dữ liệu và rà các dòng thiếu Serial/Model/vị trí.
+- [ ] Mở Báo cáo → KPI sự cố & QR, chọn đúng khoảng thời gian thu thập số liệu.
 - [ ] Kiểm tra backup được tạo.
 - [ ] Chỉ sau đó mới in QR hàng loạt.
