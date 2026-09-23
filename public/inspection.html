@@ -31,7 +31,7 @@
         <form id="form" enctype="multipart/form-data">
           <input type="hidden" id="maintId" />
           <div class="form-grid maintenance-form-grid">
-            <label class="field span-3"><span class="field-label">Thiết bị</span><select id="deviceId" required></select></label>
+            <label class="field span-3"><span class="field-label">Thiết bị</span><input id="deviceSearch" list="maintenanceDeviceOptions" placeholder="Gõ mã thiết bị / tên / model / Serial" autocomplete="off" required /><input type="hidden" id="deviceId" /><datalist id="maintenanceDeviceOptions"></datalist></label>
             <label class="field"><span class="field-label">Khoa</span><input id="maintDept" readonly /></label>
             <label class="field"><span class="field-label">Vị trí</span><input id="maintLocation" readonly /></label>
             <label class="field"><span class="field-label">Thời gian bảo dưỡng</span><input id="date" type="datetime-local" required /></label>
