@@ -79,6 +79,50 @@ jobs:
           if (String(after.serial)!=="SERIAL-AFTER") throw new Error("QR did not resolve current device data");
           console.log("QR -> incident -> acknowledge -> repair -> complete lifecycle passed");
           NODE
+      - name: Smoke test authentication and roles
+        run: |
+          if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
+          rm -f db/qy4_ttbyt.sqlite db/qy4_ttbyt.sqlite-shm db/qy4_ttbyt.sqlite-wal
+          QY4_DEMO_SEED=0 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' PORT=5001 node server.js > /tmp/qy4-auth-server.log 2>&1 &
+          echo $! > /tmp/qy4-auth-server.pid
+          BASE=http://127.0.0.1:5001
+          for i in {1..20}; do
+            if curl -fsS "$BASE/api/auth/status" >/tmp/auth-status.json; then break; fi
+            sleep 1
+          done
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/auth-status.json","utf8")); if(!x.auth_required||!x.ready) throw new Error("Auth mode not ready")'
+
+          CODE=$(curl -s -o /tmp/unauth.json -w '%{http_code}' "$BASE/api/devices")
+          test "$CODE" = "401"
+
+          curl -fsS -c /tmp/admin-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"admin","password":"AdminPass123!"}' >/tmp/admin-login.json
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"C10","name":"Khoa Trang bị"}' >/tmp/c10.json
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Khoa kiểm thử"}' >/tmp/tstdept.json
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/device-groups" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Nhóm kiểm thử"}' >/tmp/tstgroup.json
+
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/users" -H 'Content-Type: application/json' --data '{"full_name":"Kỹ sư CI","username":"engineer","role":"Kỹ sư TTBYT","department_code":"C10","status":"Hoạt động","phone":"","password":"Engineer123!"}' >/tmp/engineer-user.json
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/users" -H 'Content-Type: application/json' --data '{"full_name":"Người dùng khoa CI","username":"deptuser","role":"Người dùng khoa","department_code":"TST","status":"Hoạt động","phone":"","password":"DeptUser123!"}' >/tmp/dept-user.json
+
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị phân quyền","manufacturer":"Test","model":"AUTH-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"AUTH-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Khoa kiểm thử","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/auth-device.json
+          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/auth-device.json","utf8")).id')
+
+          curl -fsS -c /tmp/engineer-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"engineer","password":"Engineer123!"}' >/tmp/engineer-login.json
+          CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-users.json -w '%{http_code}' "$BASE/api/users")
+          test "$CODE" = "403"
+          curl -fsS -b /tmp/engineer-cookie.txt -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$(date '+%Y-%m-%d %H:%M')\",\"description\":\"Kiểm thử quyền kỹ sư\",\"severity\":\"Trung bình\",\"reporter\":\"Kỹ sư CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/engineer-incident.json
+
+          curl -fsS -c /tmp/dept-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"deptuser","password":"DeptUser123!"}' >/tmp/dept-login.json
+          curl -fsS -b /tmp/dept-cookie.txt "$BASE/api/devices" >/tmp/dept-devices.json
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/dept-devices.json","utf8")); if(x.length!==1||x[0].department_code!=="TST") throw new Error("Department scope failed")'
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-write.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{}')
+          test "$CODE" = "403"
+
+          curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/system/backup" -H 'Content-Type: application/json' --data '{"actor":"CI Admin"}' >/tmp/auth-backup.json
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/auth-backup.json","utf8")); if(!x.filename) throw new Error("Backup failed under auth")'
+          echo "Authentication and role smoke test passed"
+
       - name: Show server log on failure
         if: failure()
-        run: cat /tmp/qy4-server.log || true
+        run: |
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
