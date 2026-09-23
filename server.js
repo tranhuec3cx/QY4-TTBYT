@@ -284,12 +284,16 @@ function normalizeRepairStatus(status) {
   if (["Hủy","Không sửa được","Không thể sửa"].includes(raw)) return "Không sửa được";
   return "Đang xử lý";
 }
-function statusAfterFromRepairStatus(processingStatus, fallback = "Đang hoạt động") {
+function statusAfterFromRepairStatus(processingStatus, requested = "Đang hoạt động") {
   const st = normalizeRepairStatus(processingStatus);
-  if (st === "Đã hoàn thành") return "Đang hoạt động";
   if (st === "Không sửa được") return "Ngừng hoạt động";
   if (st === "Đang xử lý" || st === "Chờ linh kiện") return "Chờ sửa chữa";
-  return fallback || "Đang hoạt động";
+  if (st === "Đã hoàn thành") {
+    return ["Đang hoạt động","Hoạt động hạn chế"].includes(String(requested || "").trim())
+      ? String(requested).trim()
+      : "Đang hoạt động";
+  }
+  return "Chờ sửa chữa";
 }
 function normalizeDateTime(value) {
   if (!value) return "";
