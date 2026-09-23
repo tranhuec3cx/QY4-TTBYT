@@ -4081,25 +4081,52 @@ app.post("/api/reset-seed", (req, res) => {
   if (process.env.QY4_DEMO_SEED !== "1") {
     return res.status(403).json({ error: "Reset dữ liệu chỉ được phép khi chạy chế độ demo (QY4_DEMO_SEED=1)." });
   }
-  db.exec(`
-    DELETE FROM accessories;
-    DELETE FROM repairs;
-    DELETE FROM maintenances;
-    DELETE FROM operation_logs;
-    DELETE FROM documents;
-    DELETE FROM daily_checks;
-    DELETE FROM incidents;
-    DELETE FROM inspections;
-    DELETE FROM quality_ratings;
-    DELETE FROM usage_reports;
-    DELETE FROM devices;
-    DELETE FROM users;
-    DELETE FROM departments;
-    DELETE FROM device_groups;
-  `);
-  seedData();
-  initExtendedModules();
-  res.json({ ok: true });
+  if (AUTH_REQUIRED && !String(process.env.QY4_ADMIN_PASSWORD || "").trim()) {
+    return res.status(400).json({ error: "Khi bật xác thực, cần QY4_ADMIN_PASSWORD trước khi reset demo để tránh mất quyền đăng nhập." });
+  }
+  try {
+    const actor=requestActor(req,"Quản trị viên");
+    const tx=db.transaction(()=>{
+      db.exec(`
+        DELETE FROM auth_sessions;
+        DELETE FROM inventory_items;
+        DELETE FROM inventory_sessions;
+        DELETE FROM device_transfers;
+        DELETE FROM incident_files;
+        DELETE FROM activity_history;
+        DELETE FROM repairs;
+        DELETE FROM maintenances;
+        DELETE FROM operation_logs;
+        DELETE FROM documents;
+        DELETE FROM daily_checks;
+        DELETE FROM incidents;
+        DELETE FROM inspections;
+        DELETE FROM quality_ratings;
+        DELETE FROM usage_reports;
+        DELETE FROM accessories;
+        DELETE FROM devices;
+        DELETE FROM users;
+        DELETE FROM departments;
+        DELETE FROM device_groups;
+        DELETE FROM audit_logs;
+      `);
+      seedData();
+      initExtendedModules();
+    });
+    tx();
+
+    fs.rmSync(uploadsDir,{recursive:true,force:true});
+    fs.rmSync(qrUploadsDir,{recursive:true,force:true});
+    fs.mkdirSync(uploadsDir,{recursive:true});
+    fs.mkdirSync(qrUploadsDir,{recursive:true});
+
+    if (AUTH_REQUIRED) ensureAuthSchema();
+    writeAudit(actor,"Reset dữ liệu mẫu","system","demo-seed","Đã xóa dữ liệu demo cũ và tạo lại dữ liệu mẫu.");
+    res.json({ ok: true });
+  } catch(e) {
+    console.error("POST /api/reset-seed error:",e);
+    res.status(500).json({error:e.message || "Không thể reset dữ liệu mẫu."});
+  }
 });
 
 if (process.env.QY4_DEMO_SEED === "1") refreshDemoTodayData();
