@@ -50,7 +50,7 @@ function setSelectedDevice(device) {
   q("selectedDeviceId").value = device ? device.id : "";
   q("repairDeviceName").value = device ? (device.name || "") : "";
   q("repairDeviceCode").value = device ? (device.device_code || "") : "";
-  q("repairDept").value = device ? (device.department_name || device.department_code || "") : "";
+  q("repairDept").value = device ? (device.department_code || device.department_name || "") : "";
   q("repairLocation").value = device ? (device.location || "") : "";
   q("repairModel").value = device ? (device.model || "") : "";
   q("repairSerial").value = device ? (device.serial || "") : "";
