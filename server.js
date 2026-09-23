@@ -1727,6 +1727,7 @@ app.get("/api/repairs", (req, res) => {
 app.post("/api/repairs", (req, res) => {
   try {
     const p = req.body || {};
+    if (p.incident_id) return res.status(400).json({ error: "Phiếu liên kết sự cố phải được tạo từ chức năng Chuyển sửa chữa của sự cố." });
     if (!p.device_id) return res.status(400).json({ error: "Vui lòng chọn thiết bị." });
     const device = db.prepare("SELECT id,status FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(p.device_id));
     if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
