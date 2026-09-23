@@ -2356,7 +2356,10 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
     const p = req.body || {};
     validateIncidentFiles(req.files);
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
-    if (missing.length) return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    if (missing.length) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    }
     const payload = {
       device_id: Number(p.device_id),
       incident_datetime: normalizeDateTime(p.incident_datetime),
@@ -2370,7 +2373,10 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
       source_channel: "Nhập trực tiếp"
     };
     const deviceExists = db.prepare("SELECT id FROM devices WHERE id=?").get(payload.device_id);
-    if (!deviceExists) return res.status(400).json({ error: "Thiết bị không tồn tại." });
+    if (!deviceExists) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: "Thiết bị không tồn tại." });
+    }
     const info = db.prepare(`
       INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
       VALUES (@device_id,@incident_datetime,@description,@severity,@reporter,@reporter_phone,@status,@note,@local_resolution_note,@source_channel)
@@ -2404,7 +2410,10 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
     const p = req.body || {};
     validateIncidentFiles(req.files);
     const old = db.prepare("SELECT * FROM incidents WHERE id=?").get(req.params.id);
-    if (!old) return res.status(404).json({ error: "Không tìm thấy sự cố." });
+    if (!old) {
+      cleanupUploadedFiles(req.files);
+      return res.status(404).json({ error: "Không tìm thấy sự cố." });
+    }
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
     if (missing.length) return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
     const linkedRepair = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
