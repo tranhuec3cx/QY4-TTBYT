@@ -110,6 +110,8 @@ jobs:
           QY4_DEMO_SEED=0 node server.js > /tmp/qy4-restart.log 2>&1 &
           echo $! > /tmp/qy4-server.pid
           BASE=http://127.0.0.1:5000
+          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
+          test -n "$DEVICE_ID"
           for i in {1..20}; do
             if curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-restarted.json; then break; fi
             sleep 1
