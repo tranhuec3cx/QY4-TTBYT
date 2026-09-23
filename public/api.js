@@ -22,6 +22,39 @@ async function api(url, options = {}) {
   const text = await res.text();
   try { return text ? JSON.parse(text) : {}; } catch { return text; }
 }
+
+async function exportXlsx(filename, sheets) {
+  const res = await fetch("/api/export/xlsx", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, sheets })
+  });
+  if (res.status === 401) {
+    const next = location.pathname + location.search;
+    location.href = `/login.html?next=${encodeURIComponent(next)}`;
+    throw new Error("Cần đăng nhập.");
+  }
+  if (!res.ok) {
+    const raw = await res.text();
+    try {
+      const obj = JSON.parse(raw);
+      throw new Error(obj.error || raw);
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new Error(raw || `HTTP ${res.status}`);
+      throw e;
+    }
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = String(filename || "bao_cao.xlsx").toLowerCase().endsWith(".xlsx") ? filename : `${filename}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function q(id) { return document.getElementById(id); }
 
 function devicePickerNorm(value) {
