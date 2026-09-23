@@ -1827,21 +1827,58 @@ app.post("/api/repairs", (req, res) => {
 
 
 app.post("/api/accessories", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`
-    INSERT INTO accessories (device_id,name,code,maker_country,serial,note)
-    VALUES (@device_id,@name,@code,@maker_country,@serial,@note)
-  `).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    if(!db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId)) {
+      return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+    }
+    const payload={
+      device_id:deviceId,
+      name:String(p.name || "").trim(),
+      code:String(p.code || "").trim(),
+      maker_country:String(p.maker_country || "").trim(),
+      serial:String(p.serial || "").trim(),
+      note:String(p.note || "")
+    };
+    if(!payload.name) return res.status(400).json({error:"Vui lòng nhập tên bộ phận/phụ kiện."});
+    const info=db.prepare(`
+      INSERT INTO accessories (device_id,name,code,maker_country,serial,note)
+      VALUES (@device_id,@name,@code,@maker_country,@serial,@note)
+    `).run(payload);
+    writeAudit(requestActor(req),"Tạo phụ kiện","accessory",info.lastInsertRowid,`${payload.name} | ${payload.serial || payload.code || ""}`);
+    res.json({id:info.lastInsertRowid});
+  } catch(e) {
+    console.error("POST /api/accessories error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo phụ kiện."});
+  }
 });
 
 app.put("/api/accessories/:id", (req, res) => {
-  const p = req.body;
-  db.prepare(`
-    UPDATE accessories SET name=@name, code=@code, maker_country=@maker_country, serial=@serial, note=@note
-    WHERE id=@id
-  `).run({ ...p, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM accessories WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy phụ kiện."});
+    const p=req.body || {};
+    const payload={
+      id,
+      name:String(p.name ?? old.name ?? "").trim(),
+      code:String(p.code ?? old.code ?? "").trim(),
+      maker_country:String(p.maker_country ?? old.maker_country ?? "").trim(),
+      serial:String(p.serial ?? old.serial ?? "").trim(),
+      note:String(p.note ?? old.note ?? "")
+    };
+    if(!payload.name) return res.status(400).json({error:"Vui lòng nhập tên bộ phận/phụ kiện."});
+    db.prepare(`
+      UPDATE accessories SET name=@name, code=@code, maker_country=@maker_country, serial=@serial, note=@note
+      WHERE id=@id
+    `).run(payload);
+    writeAudit(requestActor(req),"Cập nhật phụ kiện","accessory",id,`${old.name || ""} → ${payload.name}`);
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/accessories/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật phụ kiện."});
+  }
 });
 
 app.delete("/api/accessories/:id", (req, res) => {
@@ -2077,21 +2114,61 @@ app.delete("/api/maintenances/:id", (req, res) => {
 });
 
 app.post("/api/operation-logs", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`
-    INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,usage_count,status_before,status_after,note)
-    VALUES (@device_id,@log_datetime,@user_name,@department_code,@usage_count,@status_before,@status_after,@note)
-  `).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    const device=db.prepare("SELECT department_code FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+    const payload={
+      device_id:deviceId,
+      log_datetime:normalizeDateTime(p.log_datetime || nowSql()),
+      user_name:String(p.user_name || "").trim(),
+      department_code:String(p.department_code || device.department_code || "").trim(),
+      usage_count:String(p.usage_count || "").trim(),
+      status_before:String(p.status_before || "").trim(),
+      status_after:String(p.status_after || "").trim(),
+      note:String(p.note || "")
+    };
+    if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
+    const info=db.prepare(`
+      INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,usage_count,status_before,status_after,note)
+      VALUES (@device_id,@log_datetime,@user_name,@department_code,@usage_count,@status_before,@status_after,@note)
+    `).run(payload);
+    writeAudit(requestActor(req,payload.user_name),"Tạo nhật ký vận hành","operation_log",info.lastInsertRowid,`${payload.log_datetime} | ${payload.note || payload.status_after || ""}`);
+    res.json({id:info.lastInsertRowid});
+  } catch(e) {
+    console.error("POST /api/operation-logs error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo nhật ký vận hành."});
+  }
 });
 
 app.put("/api/operation-logs/:id", (req, res) => {
-  const p = req.body;
-  db.prepare(`
-    UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code, usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
-    WHERE id=@id
-  `).run({ ...p, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM operation_logs WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy nhật ký vận hành."});
+    const p=req.body || {};
+    const payload={
+      id,
+      log_datetime:normalizeDateTime(p.log_datetime || old.log_datetime || nowSql()),
+      user_name:String(p.user_name ?? old.user_name ?? "").trim(),
+      department_code:String(p.department_code ?? old.department_code ?? "").trim(),
+      usage_count:String(p.usage_count ?? old.usage_count ?? "").trim(),
+      status_before:String(p.status_before ?? old.status_before ?? "").trim(),
+      status_after:String(p.status_after ?? old.status_after ?? "").trim(),
+      note:String(p.note ?? old.note ?? "")
+    };
+    if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
+    db.prepare(`
+      UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code, usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
+      WHERE id=@id
+    `).run(payload);
+    writeAudit(requestActor(req,payload.user_name),"Cập nhật nhật ký vận hành","operation_log",id,`${old.log_datetime || ""} → ${payload.log_datetime}`);
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/operation-logs/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật nhật ký vận hành."});
+  }
 });
 
 app.delete("/api/operation-logs/:id", (req, res) => {
