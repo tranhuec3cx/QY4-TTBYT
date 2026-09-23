@@ -2869,6 +2869,7 @@ function getScopedDevices(scopeDepartment = "ALL", scopeGroup = "ALL") {
   let rows = db.prepare(`
     SELECT dv.id, dv.name, dv.department_code, dv.group_code
     FROM devices dv
+    WHERE COALESCE(dv.is_archived,0)=0
     ORDER BY dv.id
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.id) }));
   if (scopeDepartment && scopeDepartment !== "ALL") rows = rows.filter(x => x.department_code === scopeDepartment);
