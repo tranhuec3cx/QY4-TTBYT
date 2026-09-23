@@ -379,7 +379,7 @@ async function saveDoc(e) {
 }
 document.addEventListener("DOMContentLoaded", async () => {
   DEVICE_ID = new URL(window.location.href).searchParams.get("id");
-  setLayout("devices","Thiết bị y tế","Quản lý thông tin chung, phụ kiện, sửa chữa, bảo dưỡng, kiểm định và hồ sơ tài liệu của thiết bị");
+  setLayout("devices","Thiết bị y tế","Thông tin thiết bị, công việc kỹ thuật và lịch sử điều chuyển");
   applyFieldLabels("generalForm", {
     generalDepartment:"Khoa sử dụng", generalGroup:"Nhóm thiết bị", generalName:"Tên thiết bị",
     generalDeviceCode:"Mã thiết bị", generalInsuranceCode:"Mã bảo hiểm", generalManufacturer:"Hãng sản xuất", generalModel:"Model", generalSerial:"Serial hãng",
