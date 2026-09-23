@@ -130,7 +130,7 @@ function renderAll() {
   if (q("detailQrBtn")) q("detailQrBtn").onclick = () => showDeviceQrModal(DEVICE);
   const latestMaint = (DEVICE.maintenances || []).slice().sort((a,b)=>String(b.maintenance_date||"").localeCompare(String(a.maintenance_date||"")))[0];
   const latestInspection = (DEVICE.inspections || []).slice().sort((a,b)=>String(b.inspection_date||"").localeCompare(String(a.inspection_date||"")))[0];
-  const openIncidents = (DEVICE.incidents || []).filter(x => x.status === "Mới ghi nhận").length;
+  const openIncidents = (DEVICE.incidents || []).filter(x => ["Mới ghi nhận","Đã tiếp nhận"].includes(String(x.status||""))).length;
   const openRepairs = (DEVICE.repairs || []).filter(x => ["Đang xử lý","Chờ linh kiện","Mới tiếp nhận","Đang sửa chữa"].includes(String(x.processing_status||""))).length;
   if(q("deviceCurrentState")) q("deviceCurrentState").innerHTML = `
     <div><span>Tình trạng</span><b><span class="tag ${statusTagClass(DEVICE.status)}">${esc(DEVICE.status||"—")}</span></b></div>
