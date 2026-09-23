@@ -4,7 +4,21 @@ async function api(url, options = {}) {
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (res.status === 401 && !location.pathname.endsWith("/login.html")) {
+    const next = location.pathname + location.search;
+    location.href = `/login.html?next=${encodeURIComponent(next)}`;
+    throw new Error("Cần đăng nhập.");
+  }
+  if (!res.ok) {
+    const raw = await res.text();
+    try {
+      const obj = JSON.parse(raw);
+      throw new Error(obj.error || raw);
+    } catch (e) {
+      if (e instanceof SyntaxError) throw new Error(raw || `HTTP ${res.status}`);
+      throw e;
+    }
+  }
   const text = await res.text();
   try { return text ? JSON.parse(text) : {}; } catch { return text; }
 }
@@ -125,8 +139,45 @@ function goBackSmart(defaultUrl = smartBackDefault()) {
   if (window.history.length > 1) window.history.back();
   else window.location.href = defaultUrl;
 }
+async function refreshAuthUi() {
+  try {
+    const res = await fetch("/api/auth/me", { headers: { "Accept": "application/json" } });
+    if (res.status === 401) {
+      const next = location.pathname + location.search;
+      location.href = `/login.html?next=${encodeURIComponent(next)}`;
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    const box = document.querySelector(".user-box");
+    if (!data.auth_required) {
+      if (box) box.style.display = "none";
+      return;
+    }
+    window.QY4_AUTH_USER = data.user || null;
+    if (box && data.user) {
+      box.style.display = "";
+      box.innerHTML = `<span><b>${String(data.user.full_name || data.user.username || "")}</b><br><small>${String(data.user.role || "")}</small></span><button type="button" class="icon-btn" id="logoutBtn" title="Đăng xuất">↪</button>`;
+      const logout = document.getElementById("logoutBtn");
+      if (logout) logout.onclick = async () => {
+        await fetch("/api/auth/logout", { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" });
+        location.href = "/login.html";
+      };
+    }
+    const role = data.user?.role || "";
+    document.querySelectorAll(".menu a").forEach(a => {
+      const href = a.getAttribute("href") || "";
+      if (role === "Người dùng khoa" && !["/index.html"].includes(href)) a.remove();
+      if (role === "Kỹ sư TTBYT" && href === "/settings.html") a.remove();
+    });
+  } catch (e) {
+    console.warn("Không đọc được trạng thái đăng nhập", e);
+  }
+}
+
 function setLayout(active, title, subtitle, settingsTab = null) {
   q("menuHost").innerHTML = renderMenu(active);
+  refreshAuthUi();
   q("pageTitle").textContent = title;
   q("pageSubtitle").textContent = subtitle;
   const titleEl = q("pageTitle");
