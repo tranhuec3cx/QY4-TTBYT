@@ -148,8 +148,8 @@ function renderAll() {
   if (q("addIncidentFromDeviceBtn")) q("addIncidentFromDeviceBtn").href = `/tickets.html?from=device-detail&device_id=${encodeURIComponent(DEVICE_ID)}`;
   renderRows("incidentRows", DEVICE.incidents || [], x => `<tr><td>${formatDateTimeVN(x.incident_datetime)}</td><td class="wrap-text">${esc(x.description||"")}</td><td>${esc(x.reporter||"")}</td><td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"")}</span></td><td class="wrap-text">${esc(x.local_resolution_note||"")}</td><td>${x.linked_repair_id ? `<button class="btn btn-sm" onclick="showRepairDetail(${Number(x.linked_repair_id)})">Xem sửa chữa</button>` : "—"}</td></tr>`, 6);
   renderRows("repairRows", DEVICE.repairs, (x, idx) => `<tr><td>${idx+1}</td><td>${formatDateTimeVN(x.received_at || x.repair_date)}</td><td class="wrap-text">${esc(x.issue||"")}</td><td><span class="tag ${statusTagClass(x.processing_status)}">${esc(x.processing_status||"")}</span></td><td>${formatCurrency(x.cost)}</td><td class="wrap-text">${esc(x.result||"")}</td><td><button class="btn btn-sm" onclick="showRepairDetail(${Number(x.id)})">Xem chi tiết</button></td></tr>`, 7);
-  renderRows("maintRows", DEVICE.maintenances, x => `<tr><td>${formatDateTimeVN(x.maintenance_date)}</td><td>${esc(x.type||"")}</td><td class="wrap-text">${esc(x.content||"")}</td><td>${esc(x.result||"")}</td><td>${esc(x.performer||"")}</td><td>${esc(x.user_confirm||"")}</td><td>${esc(x.vendor||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(x.file_path, x.original_name || x.stored_name)}</td><td>${rowBtns('editMaint','deleteMaint',x.id)}</td></tr>`, 10);
-  if (q("inspectionRows")) renderRows("inspectionRows", DEVICE.inspections || [], x => `<tr><td>${formatDateTimeVN(x.inspection_date)}</td><td>${esc(x.type||"")}</td><td>${esc(x.organization||"")}</td><td>${esc(x.certificate_no||"")}</td><td>${esc(x.result||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(attachedPath(x.file_note), "")}</td><td><div class="table-actions"><button class="btn btn-sm" onclick="editInspection(${Number(x.id)})">Cập nhật</button><button class="btn btn-danger btn-sm" onclick="deleteInspection(${Number(x.id)})">Xóa</button></div></td></tr>`, 8);
+  renderRows("maintRows", DEVICE.maintenances, x => `<tr><td>${formatDateTimeVN(x.maintenance_date)}</td><td>${esc(x.type||"")}</td><td class="wrap-text">${esc(x.content||"")}</td><td>${esc(x.result||"")}</td><td>${esc(x.performer||"")}</td><td>${esc(x.user_confirm||"")}</td><td>${esc(x.vendor||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(x.file_path, x.original_name || x.stored_name)}</td><td><div class="table-actions"><button class="btn" onclick="editMaint(${x.id})">Cập nhật</button>${x.file_path ? '<span class="tag gray">Đã có hồ sơ</span>' : `<button class="btn btn-danger" onclick="deleteMaint(${x.id})">Xóa</button>`}</div></td></tr>`, 10);
+  if (q("inspectionRows")) renderRows("inspectionRows", DEVICE.inspections || [], x => `<tr><td>${formatDateTimeVN(x.inspection_date)}</td><td>${esc(x.type||"")}</td><td>${esc(x.organization||"")}</td><td>${esc(x.certificate_no||"")}</td><td>${esc(x.result||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(attachedPath(x.file_note), "")}</td><td><div class="table-actions"><button class="btn btn-sm" onclick="editInspection(${Number(x.id)})">Cập nhật</button>${attachedPath(x.file_note) ? '<span class="tag gray">Đã có chứng nhận</span>' : `<button class="btn btn-danger btn-sm" onclick="deleteInspection(${Number(x.id)})">Xóa</button>`}</div></td></tr>`, 8);
   renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${x.log_datetime||""}</td><td>${x.user_name||""}</td><td>${x.department_code||""}</td><td>${x.usage_count||""}</td><td>${x.status_before||""}</td><td>${x.status_after||""}</td><td>${x.note||""}</td><td>${rowBtns('editOp','deleteOp',x.id)}</td></tr>`, 8);
   renderRows("docRows", DEVICE.documents, x => `<tr><td>${x.name||""}</td><td>${x.type||""}</td><td>${formatDateVN(x.doc_date)}</td><td>${x.updated_by||""}</td><td>${docFileLabel(x)}</td><td>${x.note||""}</td><td>${docExtraBtns(x)}</td></tr>`, 7);
   if (q("transferDepartment")) {
@@ -262,9 +262,9 @@ function editInspection(id) {
   window.location.href = `/inspections.html?edit_id=${encodeURIComponent(id)}&from=device-detail&device_id=${encodeURIComponent(DEVICE_ID)}`;
 }
 async function deleteInspection(id) {
-  if (!confirm("Xóa hồ sơ kiểm định/hiệu chuẩn này?")) return;
-  await api(`/api/inspections/${id}`, { method:"DELETE" });
-  await loadDevice();
+  if (!confirm("Xóa hồ sơ kiểm định/hiệu chuẩn chưa có file này?")) return;
+  try{ await api(`/api/inspections/${id}`, { method:"DELETE" }); await loadDevice(); }
+  catch(e){ alert(e.message || "Không xóa được hồ sơ kiểm định/hiệu chuẩn."); }
 }
 
 function editRepair(id) {
@@ -272,7 +272,11 @@ function editRepair(id) {
   q("repairId").value = x.id; q("repairDate").value = toDateTimeLocalValue(x.repair_date || ""); q("repairMethod").value = x.method || "Nội bộ"; q("repairPerson").value = x.person || ""; q("repairIssue").value = x.issue || ""; q("repairWork").value = x.work || ""; q("repairCost").value = x.cost || 0; q("repairResult").value = x.result || ""; q("repairStatusAfter").value = x.status_after || "Đang hoạt động";
   showForm("repairFormWrap", true);
 }
-async function deleteRepair(id) { if (!confirm("Xóa bản ghi sửa chữa này?")) return; await api(`/api/repairs/${id}`, { method:"DELETE" }); await loadDevice(); }
+async function deleteRepair(id) {
+  if (!confirm("Xóa phiếu sửa chữa độc lập này?")) return;
+  try{ await api(`/api/repairs/${id}`, { method:"DELETE" }); await loadDevice(); }
+  catch(e){ alert(e.message || "Không xóa được phiếu sửa chữa."); }
+}
 async function saveRepair(e) {
   e.preventDefault();
   const payload = { device_id: Number(DEVICE_ID), repair_date: fromDateTimeLocalValue(q("repairDate").value), issue: q("repairIssue").value.trim(), work: q("repairWork").value.trim(), person: q("repairPerson").value.trim(), method: q("repairMethod").value, cost: Number(q("repairCost").value||0), result: q("repairResult").value.trim(), status_after: q("repairStatusAfter").value, processing_status: "Đang xử lý" };
@@ -286,7 +290,11 @@ function editMaint(id) {
   q("maintId").value = x.id; q("maintDate").value = toDateTimeLocalValue(x.maintenance_date || ""); q("maintType").value = x.type || "Bảo dưỡng định kỳ"; q("maintResult").value = x.result || "Đạt"; q("maintContent").value = x.content || ""; q("maintPerformer").value = x.performer || ""; q("maintUserConfirm").value = x.user_confirm || ""; q("maintVendor").value = x.vendor || ""; q("maintNextDate").value = x.next_date || ""; q("maintNote").value = x.note || "";
   showForm("maintFormWrap", true);
 }
-async function deleteMaint(id) { if (!confirm("Xóa bản ghi bảo dưỡng này?")) return; await api(`/api/maintenances/${id}`, { method:"DELETE" }); await loadDevice(); }
+async function deleteMaint(id) {
+  if (!confirm("Xóa bản ghi bảo dưỡng chưa có file này?")) return;
+  try{ await api(`/api/maintenances/${id}`, { method:"DELETE" }); await loadDevice(); }
+  catch(e){ alert(e.message || "Không xóa được bản ghi bảo dưỡng."); }
+}
 async function saveMaint(e) {
   e.preventDefault();
   const fd = new FormData();
