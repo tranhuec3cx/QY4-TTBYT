@@ -179,6 +179,7 @@ async function saveGeneral() {
     location: q("generalLocation").value.trim(),
     note: q("generalNote").value.trim()
   };
+  if (!(await confirmDeviceDuplicate(payload, Number(DEVICE_ID || 0)))) return;
   await api(`/api/devices/${DEVICE_ID}`, { method: "PUT", body: JSON.stringify(payload) });
   toggleGeneral(false);
   await loadDevice();
