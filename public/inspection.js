@@ -41,7 +41,7 @@ function exportMaintExcel(){
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Bao duong");
-  XLSX.writeFile(wb, `bao_duong_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `bao_duong_${todayISO()}.xlsx`);
 }
 
 async function loadData(){ DEVICES=await api("/api/devices"); ROWS=await api("/api/maintenances"); q("deviceFilter").innerHTML=`<option value="ALL">Tất cả thiết bị</option>`+DEVICES.map(d=>`<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join(""); bindDevicePicker("deviceSearch","deviceId","maintenanceDeviceOptions",DEVICES,()=>fillMaintDeviceInfo()); const vendors=[...new Set(ROWS.map(r=>r.vendor).filter(Boolean))].sort(); q("vendorFilter").innerHTML=`<option value="ALL">Tất cả đơn vị</option>`+vendors.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); fillMaintDeviceInfo(); applyFilter(); }
