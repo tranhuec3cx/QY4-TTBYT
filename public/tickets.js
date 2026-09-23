@@ -157,7 +157,13 @@ function applyFilter(){
 function clearFilters(){ q("searchInput").value=""; q("deviceFilter").value="ALL"; q("statusFilter").value="ALL"; q("sourceFilter").value="ALL"; setDefaultDateRange(); applyFilter(); }
 function openDeviceProfile(id){ if(id) window.location.href = `/device-detail.html?id=${id}&from=tickets`; }
 function editIncident(id){ const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id)); if(!r) return; q("incidentId").value=r.id; setDevicePickerSelection("deviceSearch","deviceId",DEVICES,r.device_id,()=>fillDeviceMeta()); q("incidentTime").value=String(r.incident_datetime||"").replace(" ","T").slice(0,16); q("description").value=r.description||""; q("reporter").value=r.reporter||""; q("status").value=r.status||"Mới ghi nhận"; q("localResolutionNote").value=r.local_resolution_note||""; if(q("reporterPhone")) q("reporterPhone").value=r.reporter_phone||""; q("note").value=r.note||""; q("incidentFormTitle").textContent="Cập nhật sự cố"; q("saveIncidentBtn").textContent="Cập nhật sự cố"; q("incidentForm").scrollIntoView({behavior:"smooth"}); }
-async function deleteIncident(id){ if(!confirm("Xóa sự cố này?")) return; await api(`/api/incidents/${id}`, {method:"DELETE"}); await loadData(); }
+async function deleteIncident(id){
+  if(!confirm("Chỉ xóa sự cố ghi nhầm khi chưa tiếp nhận/chưa chuyển sửa chữa. Tiếp tục?")) return;
+  try{
+    await api(`/api/incidents/${id}`, {method:"DELETE"});
+    await loadData();
+  }catch(e){ alert(e.message || "Không thể xóa sự cố này."); }
+}
 async function acknowledgeIncident(id){
   const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
   if(!r) return;
