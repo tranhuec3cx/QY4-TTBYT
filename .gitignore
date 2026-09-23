@@ -1,25 +1,32 @@
 # Node modules
 node_modules/
 
-# Uploads
+# Runtime uploads / attachments
 uploads/
 
-# Environment
+# Runtime backups (database + attachment snapshots)
+backups/
+
+# Environment / secrets
 .env
+.env.*
+!.env.example
 
 # Logs
 *.log
 
-# MacOS
-.DS_Store
-
-# Database
+# Database runtime files
 db/*.sqlite
+db/*.sqlite-*
 db/*.db
+db/*.db-*
+db/*-wal
+db/*-shm
 
-# VSCode
-.vscode/
-
-# Windows
+# Temporary / OS files
+.DS_Store
 Thumbs.db
 Desktop.ini
+
+# IDE
+.vscode/
