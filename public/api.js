@@ -131,6 +131,7 @@ function goBackSmart(defaultUrl = smartBackDefault()) {
     reports: "/reports.html",
     inspections: "/inspections.html",
     inspection: "/inspection.html",
+    inventory: "/inventory.html",
     devices: "/index.html",
     dashboard: "/dashboard.html"
   };
