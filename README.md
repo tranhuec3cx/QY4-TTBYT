@@ -185,6 +185,25 @@ http://localhost:5000
 
 ## 5. Chạy chính thức có đăng nhập
 
+## 5.1. Chạy nhanh trên Windows
+
+Repo có script:
+
+```text
+start-qy4-production.ps1
+```
+
+Mở PowerShell tại thư mục phần mềm và chạy:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\start-qy4-production.ps1
+```
+
+Script tự đặt cấu hình an toàn cho bản chính thức: tắt demo seed, bật xác thực, timezone +07, backup retention và QR rate limit. Mật khẩu Quản trị viên không được ghi sẵn trong file; lần đầu có thể nhập bằng prompt PowerShell. Sau khi server chạy, vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý** trước khi dùng dữ liệu thật hoặc in QR hàng loạt.
+
+
+
 ### Windows PowerShell — lần đầu
 
 ```powershell
