@@ -55,14 +55,14 @@
       <select id="departmentInput" required></select>
       <select id="groupInput" required></select>
       <input id="nameInput" placeholder="Tên thiết bị" required />
-      <input id="manufacturerInput" placeholder="Hãng sản xuất" required />
-      <input id="modelInput" placeholder="Model" required />
+      <input id="manufacturerInput" placeholder="Hãng sản xuất" />
+      <input id="modelInput" placeholder="Model" />
       <input id="insuranceInput" placeholder="Mã bảo hiểm / mã quản lý cũ" />
       <input id="serialInput" placeholder="Serial Number của hãng (có thể để trống)" />
-      <input id="countryInput" placeholder="Nước sản xuất" required />
-      <input id="yearManufacturedInput" type="number" placeholder="Năm sản xuất" required />
-      <input id="yearUseInput" type="number" placeholder="Năm sử dụng" required />
-      <input id="warrantyInput" type="date" required />
+      <input id="countryInput" placeholder="Nước sản xuất" />
+      <input id="yearManufacturedInput" type="number" placeholder="Năm sản xuất" />
+      <input id="yearUseInput" type="number" placeholder="Năm sử dụng" />
+      <input id="warrantyInput" type="date" />
       <select id="statusInput" required><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
       <select id="qualityInput" required><option value="1">Cấp 1 - Rất tốt</option><option value="2">Cấp 2 - Tốt</option><option value="3">Cấp 3 - Trung bình</option><option value="4">Cấp 4 - Kém</option><option value="5">Cấp 5 - Rất kém</option></select>
       <input id="costInput" type="number" placeholder="Nguyên giá" />
@@ -70,6 +70,7 @@
       <input id="locationInput" placeholder="Vị trí đặt máy" />
       <textarea id="noteInput" class="span-3" placeholder="Ghi chú"></textarea>
     </div>
+    <div class="muted-note" style="margin-top:10px">Bắt buộc: Khoa sử dụng, Nhóm thiết bị, Tên thiết bị. Các trường chưa đủ có thể bổ sung sau và sẽ được thống kê tại Báo cáo → Chất lượng dữ liệu.</div>
     <div class="form-actions">
       <button class="btn btn-primary" type="submit">Lưu thiết bị</button>
       <button class="btn" type="button" onclick="resetForm()">Đặt lại form</button>
