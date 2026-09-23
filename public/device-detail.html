@@ -24,7 +24,7 @@
           <div class="table-actions"><button class="btn" id="detailQrBtn" type="button">QR</button><div id="detailStatus"></div></div>
         </div>
         <div id="deviceCurrentState" class="device-current-state"></div>
-        <div class="quick-stats device-quick-stats">
+        <div class="quick-stats device-quick-stats" style="display:none">
           <div class="quick-box"><span>Phụ kiện</span><b id="quickAccessories">0</b></div>
           <div class="quick-box"><span>Sửa chữa</span><b id="quickRepairs">0</b></div>
           <div class="quick-box"><span>Bảo dưỡng</span><b id="quickMaint">0</b></div>
@@ -37,13 +37,6 @@
         <button class="tab-btn active" data-tab="tab-general">Thông tin chung</button>
         <button class="tab-btn" data-tab="tab-technical">Công việc kỹ thuật</button>
         <button class="tab-btn" data-tab="tab-transfers">Điều chuyển</button>
-        <button class="tab-btn" data-tab="tab-accessories">Phụ kiện đồng bộ</button>
-        <button class="tab-btn" data-tab="tab-incidents">Sự cố ghi nhận</button>
-        <button class="tab-btn" data-tab="tab-repairs">Nhật ký sửa chữa</button>
-        <button class="tab-btn" data-tab="tab-maint">Bảo dưỡng</button>
-        <button class="tab-btn" data-tab="tab-inspections">Kiểm định</button>
-        <button class="tab-btn" data-tab="tab-op">Nhật ký vận hành</button>
-        <button class="tab-btn" data-tab="tab-docs">Hồ sơ / Tài liệu</button>
       </div>
 
       <section id="tab-general" class="card tab-panel active">
@@ -63,14 +56,14 @@
             <input id="generalDeviceCode" placeholder="Mã thiết bị" readonly />
             <input id="generalInsuranceCode" placeholder="Mã bảo hiểm" />
             <input id="generalName" placeholder="Tên thiết bị" required />
-            <input id="generalManufacturer" placeholder="Hãng sản xuất" required />
-            <input id="generalModel" placeholder="Model" required />
+            <input id="generalManufacturer" placeholder="Hãng sản xuất" />
+            <input id="generalModel" placeholder="Model" />
             <input id="generalSerial" placeholder="Serial của hãng (có thể để trống)" />
-            <input id="generalCountry" placeholder="Nước sản xuất" required />
-            <input id="generalYearManufactured" type="number" placeholder="Năm sản xuất" required />
-            <input id="generalYearInUse" type="number" placeholder="Năm sử dụng" required />
-            <input id="generalWarranty" type="date" required />
-            <select id="generalStatus"><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
+            <input id="generalCountry" placeholder="Nước sản xuất" />
+            <input id="generalYearManufactured" type="number" placeholder="Năm sản xuất" />
+            <input id="generalYearInUse" type="number" placeholder="Năm sử dụng" />
+            <input id="generalWarranty" type="date" />
+            <select id="generalStatus"><option>Đang hoạt động</option><option>Hoạt động hạn chế</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
             <select id="generalQuality"><option value="1">Cấp 1 - Rất tốt</option><option value="2">Cấp 2 - Tốt</option><option value="3">Cấp 3 - Trung bình</option><option value="4">Cấp 4 - Kém</option><option value="5">Cấp 5 - Rất kém</option></select>
             <input id="generalCost" type="number" placeholder="Nguyên giá" />
             <input id="generalFunding" placeholder="Nguồn kinh phí" />
@@ -80,7 +73,7 @@
         </form>
       </section>
 
-      <section id="tab-accessories" class="card tab-panel">
+      <section id="tab-accessories" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Phụ kiện đồng bộ</h2>
           <button class="btn btn-primary" id="toggleAccessoryBtn">+ Thêm phụ kiện</button>
@@ -141,7 +134,7 @@
         </div>
       </section>
 
-      <section id="tab-incidents" class="card tab-panel">
+      <section id="tab-incidents" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Sự cố ghi nhận</h2>
           <a class="btn btn-primary" href="/tickets.html?from=device-detail&device_id=" id="addIncidentFromDeviceBtn">+ Ghi nhận sự cố</a>
@@ -154,7 +147,7 @@
         </div>
       </section>
 
-      <section id="tab-repairs" class="card tab-panel">
+      <section id="tab-repairs" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Nhật ký sửa chữa</h2>
           <button class="btn btn-primary" id="toggleRepairBtn">+ Thêm sửa chữa</button>
@@ -183,7 +176,7 @@
         </div>
       </section>
 
-      <section id="tab-maint" class="card tab-panel">
+      <section id="tab-maint" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Bảo dưỡng</h2>
           <button class="btn btn-primary" id="toggleMaintBtn">+ Thêm bảo dưỡng</button>
@@ -214,7 +207,7 @@
         </div>
       </section>
 
-      <section id="tab-inspections" class="card tab-panel">
+      <section id="tab-inspections" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Kiểm định / Hiệu chuẩn</h2>
           <a class="btn btn-primary" href="/inspections.html">+ Thêm kiểm định</a>
@@ -227,7 +220,7 @@
         </div>
       </section>
 
-      <section id="tab-op" class="card tab-panel">
+      <section id="tab-op" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Nhật ký vận hành</h2>
           <button class="btn btn-primary" id="toggleOpBtn">+ Thêm nhật ký</button>
@@ -260,7 +253,7 @@
         <div id="repairDetailBody"></div>
       </dialog>
 
-      <section id="tab-docs" class="card tab-panel">
+      <section id="tab-docs" class="card tab-panel" style="display:none">
         <div class="section-head">
           <h2 class="section-title">Hồ sơ / Tài liệu</h2>
           <button class="btn btn-primary" id="toggleDocBtn">+ Thêm tài liệu</button>
