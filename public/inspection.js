@@ -5,7 +5,7 @@ function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&
 function norm(value){ return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
 function getDevice(id){ return DEVICES.find(d => Number(d.id) === Number(id)) || null; }
 function deviceLabel(d){ return devicePickerLabel(d); }
-function fillMaintDeviceInfo(){ const d=getDevice(q("deviceId").value); q("maintDept").value=d?(d.department_name||d.department_code||""):""; q("maintLocation").value=d?(d.location||""):""; }
+function fillMaintDeviceInfo(){ const d=getDevice(q("deviceId").value); q("maintDept").value=d?(d.department_code||d.department_name||""):""; q("maintLocation").value=d?(d.location||""):""; }
 function resetForm(){ q("form").reset(); q("maintId").value=""; q("formTitle").textContent="Ghi nhận bảo dưỡng thiết bị"; q("saveMaintBtn").textContent="Lưu bảo dưỡng vào hồ sơ thiết bị"; q("fileHint").textContent="Chọn tệp nếu có biên bản hoặc ảnh hiện trạng."; fillMaintDeviceInfo(); }
 function resultClass(v){ if(v==="Đạt") return "green"; if(v==="Đạt có lưu ý" || v==="Cần theo dõi thêm") return "yellow"; return "red"; }
 function fileCell(r){
