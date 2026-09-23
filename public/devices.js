@@ -165,7 +165,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 
-function exportDevicesExcel() {
+async function exportDevicesExcel() {
   const rows = FILTERED.map(d => ({
     "Mã thiết bị": d.device_code,
     "Khoa/phòng": d.department_name || d.department_code,
@@ -186,10 +186,7 @@ function exportDevicesExcel() {
     "Vị trí đặt máy": d.location || "",
     "Ghi chú": d.note || ""
   }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "BaoCao");
-  XLSX.writeFile(wb, `danh_sach_thiet_bi_${reportFileStamp()}.xlsx`);
+  await exportXlsx(`danh_sach_thiet_bi_${reportFileStamp()}.xlsx`, [{name:"BaoCao",rows}]);
 }
 
 
