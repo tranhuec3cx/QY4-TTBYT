@@ -3084,25 +3084,43 @@ app.get("/api/devices/:id/transfers", (req, res) => {
 });
 
 app.post("/api/devices/:id/transfer", (req, res) => {
-  const id = Number(req.params.id);
-  const d = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(id);
-  if (!d) return res.status(404).json({ error: "Không tìm thấy thiết bị đang quản lý." });
-  const toDepartment = String(req.body.to_department_code || "").trim();
-  if (!toDepartment) return res.status(400).json({ error: "Thiếu khoa/phòng nhận." });
-  const toLocation = String(req.body.to_location || "").trim();
-  const at = normalizeDateTime(req.body.transfer_datetime || nowSql()) || nowSql();
-  const actor = requestActor(req, "");
-  const tx = db.transaction(() => {
-    const info = db.prepare(`
-      INSERT INTO device_transfers
-      (device_id,transfer_datetime,from_department_code,from_location,to_department_code,to_location,reason,actor,note)
-      VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(id, at, d.department_code || "", d.location || "", toDepartment, toLocation, req.body.reason || "", actor, req.body.note || "");
-    db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?").run(toDepartment, toLocation, id);
-    writeAudit(actor, "Điều chuyển thiết bị", "device", id, `${d.department_code || ""}/${d.location || ""} → ${toDepartment}/${toLocation}`);
-    return info.lastInsertRowid;
-  });
-  res.json({ ok: true, id: tx(), qr_uid: ensureDeviceQrUid(id) });
+  try {
+    const id = Number(req.params.id);
+    const d = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(id);
+    if (!d) return res.status(404).json({ error: "Không tìm thấy thiết bị đang quản lý." });
+    const toDepartment = String(req.body.to_department_code || "").trim();
+    if (!toDepartment) return res.status(400).json({ error: "Thiếu khoa/phòng nhận." });
+    if (!db.prepare("SELECT code FROM departments WHERE code=?").get(toDepartment)) {
+      return res.status(400).json({ error: "Khoa/phòng nhận không tồn tại trong danh mục." });
+    }
+    const toLocation = String(req.body.to_location || "").trim();
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) return res.status(400).json({ error: "Vui lòng nhập lý do điều chuyển." });
+    if (toDepartment === String(d.department_code || "") && toLocation === String(d.location || "")) {
+      return res.status(400).json({ error: "Khoa/phòng và vị trí mới không thay đổi so với hiện tại." });
+    }
+    const openRepair = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(id);
+    if (openRepair) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${openRepair.id} chưa hoàn thành; chưa điều chuyển khoa quản lý.` });
+    const openIncident = db.prepare("SELECT id FROM incidents WHERE device_id=? AND status IN ('Mới ghi nhận','Đã tiếp nhận') ORDER BY id DESC LIMIT 1").get(id);
+    if (openIncident) return res.status(400).json({ error: `Thiết bị đang có sự cố #${openIncident.id} chưa hoàn tất; chưa điều chuyển khoa quản lý.` });
+
+    const at = normalizeDateTime(req.body.transfer_datetime || nowSql()) || nowSql();
+    const actor = requestActor(req, "");
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO device_transfers
+        (device_id,transfer_datetime,from_department_code,from_location,to_department_code,to_location,reason,actor,note)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(id, at, d.department_code || "", d.location || "", toDepartment, toLocation, reason, actor, req.body.note || "");
+      db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?").run(toDepartment, toLocation, id);
+      writeAudit(actor, "Điều chuyển thiết bị", "device", id, `${d.department_code || ""}/${d.location || ""} → ${toDepartment}/${toLocation} | ${reason}`);
+      return info.lastInsertRowid;
+    });
+    res.json({ ok: true, id: tx(), qr_uid: ensureDeviceQrUid(id) });
+  } catch(e) {
+    console.error("POST /api/devices/:id/transfer error:",e);
+    res.status(500).json({error:e.message});
+  }
 });
 
 app.get("/api/devices/:id/technical-history", (req, res) => {
