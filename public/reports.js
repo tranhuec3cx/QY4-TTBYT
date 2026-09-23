@@ -153,6 +153,9 @@ function renderKpi(){
   q("kpiMonthRows").innerHTML=(KPI.by_month||[]).length
     ? KPI.by_month.map(x=>`<tr><td>${esc(String(x.month||"").split("-").reverse().join("/"))}</td><td>${Number(x.count||0)}</td><td>${Number(x.qr_count||0)}</td><td>${Number(x.count||0)?(Number(x.qr_count||0)*100/Number(x.count)).toFixed(1):"0.0"}%</td><td>${Number(x.qr_checks||0)}</td></tr>`).join("")
     : '<tr><td colspan="5" class="center-empty">Chưa có dữ liệu.</td></tr>';
+  q("kpiDayRows").innerHTML=(KPI.by_day||[]).length
+    ? KPI.by_day.map(x=>`<tr><td><b>${esc(formatDateVN(x.date||""))}</b></td><td>${Number(x.qr_checks||0)}</td><td>${Number(x.qr_unique_devices||0)}</td><td>${Number(x.qr_check_issues||0)}</td><td>${Number(x.incidents||0)}</td><td>${Number(x.qr_incidents||0)}</td></tr>`).join("")
+    : '<tr><td colspan="6" class="center-empty">Chưa có dữ liệu trong khoảng thời gian đã chọn.</td></tr>';
 
   const unknown=Number(s.unknown_source_incidents||0);
   q("kpiQualityNote").textContent = unknown
@@ -187,6 +190,10 @@ function exportKpiExcel(){
     ["Nguồn báo chưa xác định",s.unknown_source_incidents||0,"Không suy diễn là QR hay nhập trực tiếp"]
   ];
   const source=(KPI.by_source||[]).map(x=>({"Nguồn báo":x.source,"Số sự cố":x.count,"Tỷ lệ (%)":s.total_incidents?Number((x.count*100/s.total_incidents).toFixed(1)):0}));
+  const daily=(KPI.by_day||[]).map(x=>({
+    "Ngày":x.date||"","Lượt kiểm tra QR":x.qr_checks||0,"Thiết bị duy nhất":x.qr_unique_devices||0,
+    "Phát hiện vấn đề":x.qr_check_issues||0,"Tổng sự cố":x.incidents||0,"Sự cố qua QR":x.qr_incidents||0
+  }));
   const qrChecks=(KPI.check_records||[]).map((r,i)=>({
     "STT":i+1,"Thời gian quét":r.check_datetime||"","Mã thiết bị":r.device_code||"",
     "Tên thiết bị":r.device_name||"","Khoa tại thời điểm quét":r.department_code_snapshot||"",
@@ -204,6 +211,7 @@ function exportKpiExcel(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(summary),"TongHopKPI");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(source),"NguonBao");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(daily),"TheoNgay");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qrChecks),"KiemTraQR");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(details),"ChiTietSuCo");
   XLSX.writeFile(wb,`KPI_su_co_QR_${p.from_date||""}_${p.to_date||""}.xlsx`);
