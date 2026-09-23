@@ -2664,49 +2664,69 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
     if (!qrUid) return qrRequestError(req, res, 400, "Thiếu mã QR cố định của thiết bị.");
     const qrRow = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
     if (!qrRow) return qrRequestError(req, res, 404, "Mã QR không hợp lệ hoặc thiết bị đã lưu trữ.");
+
     const deviceId = Number(qrRow.id);
     const condition = String(p.condition || "").trim();
     const inspector = String(p.inspector || "").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
     validateIncidentFiles(req.files);
-    if (!deviceId) return qrRequestError(req, res, 400, "Thiếu thiết bị.");
     if (!inspector) return qrRequestError(req, res, 400, "Vui lòng nhập tên người kiểm tra.");
+
     const normalizedCondition = condition === "Tốt" ? "Bình thường" : condition;
-    if (!["Bình thường", "Có vấn đề"].includes(normalizedCondition)) return qrRequestError(req, res, 400, "Tình trạng kiểm tra không hợp lệ.");
+    if (!["Bình thường", "Có vấn đề"].includes(normalizedCondition)) {
+      return qrRequestError(req, res, 400, "Tình trạng kiểm tra không hợp lệ.");
+    }
     const description = String(p.description || "").trim();
     if (normalizedCondition === "Có vấn đề" && !description) {
       return qrRequestError(req, res, 400, "Vui lòng nhập mô tả vấn đề.");
     }
-    const device = db.prepare("SELECT * FROM devices WHERE id=?").get(deviceId);
-    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị.");
+
+    const device = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị đang quản lý.");
+
     const files = req.files || [];
+    const at = nowSql();
+    const day = at.slice(0,10);
     const noteParts = [];
     if (description) noteParts.push(`Mô tả: ${description}`);
     if (p.note) noteParts.push(`Ghi chú: ${p.note}`);
     const resultText = normalizedCondition === "Bình thường" ? "Bình thường" : "Có vấn đề";
-    const info = db.prepare(`
-      INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
-      VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(deviceId, nowSql(), inspector, "Kiểm tra nhanh bằng mã QR", resultText, noteParts.join("\n"), "QR", device.department_code || "", device.location || "");
-    for (const file of files) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, `Ảnh/Video kiểm tra - ${nowSql().slice(0,10)}`, "Kiểm tra", nowSql().slice(0,10), inspector, p.note || description || "Tệp đính kèm từ kiểm tra", file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
-    }
-    writeHistory("check", info.lastInsertRowid, inspector, "Tạo từ QR", "", resultText, description || p.note || "Kiểm tra nhanh thiết bị");
-    let incidentId = null;
-    if ((p.create_incident === "1" || p.create_incident === "true" || normalizedCondition === "Có vấn đề") && normalizedCondition === "Có vấn đề") {
-      const severity = ["Thấp","Trung bình","Cao"].includes(String(p.severity || "")) ? String(p.severity) : "Trung bình";
-      const inc = db.prepare(`
-        INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, nowSql(), description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "", "QR");
-      incidentId = inc.lastInsertRowid;
-      completeIncidentRow(incidentId, deviceId, inspector, nowSql());
-      saveIncidentFiles(incidentId, deviceId, files);
-    }
-    res.json({ ok: true, check_id: info.lastInsertRowid, incident_id: incidentId });
+    const shouldCreateIncident = (p.create_incident === "1" || p.create_incident === "true" || normalizedCondition === "Có vấn đề")
+      && normalizedCondition === "Có vấn đề";
+    const severity = ["Thấp","Trung bình","Cao"].includes(String(p.severity || "")) ? String(p.severity) : "Trung bình";
+
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(deviceId, at, inspector, "Kiểm tra nhanh bằng mã QR", resultText, noteParts.join("\n"), "QR", device.department_code || "", device.location || "");
+
+      for (const file of files) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, `Ảnh/Video kiểm tra - ${day}`, "Kiểm tra", day, inspector, p.note || description || "Tệp đính kèm từ kiểm tra", file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
+      }
+
+      writeHistory("check", info.lastInsertRowid, inspector, "Tạo từ QR", "", resultText, description || p.note || "Kiểm tra nhanh thiết bị");
+      writeAudit(inspector, "Kiểm tra thiết bị bằng QR", "daily_check", info.lastInsertRowid, `${resultText} | ${description || p.note || ""}`);
+
+      let incidentId = null;
+      if (shouldCreateIncident) {
+        const inc = db.prepare(`
+          INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+          VALUES (?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, at, description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "", "QR");
+        incidentId = Number(inc.lastInsertRowid);
+        completeIncidentRow(incidentId, deviceId, inspector, at);
+        saveIncidentFiles(incidentId, deviceId, files);
+        writeAudit(inspector, "Tạo sự cố từ kiểm tra QR", "incident", incidentId, description || `Kiểm tra: ${condition}`);
+      }
+      return { checkId:Number(info.lastInsertRowid), incidentId };
+    });
+
+    const out = tx();
+    res.json({ ok: true, check_id: out.checkId, incident_id: out.incidentId });
   } catch (e) {
     cleanupUploadedFiles(req.files);
     console.error("POST /api/qr/checks error:", e);
@@ -2721,35 +2741,47 @@ app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) 
     if (!qrUid) return qrRequestError(req, res, 400, "Thiếu mã QR cố định của thiết bị.");
     const qrRow = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
     if (!qrRow) return qrRequestError(req, res, 404, "Mã QR không hợp lệ hoặc thiết bị đã lưu trữ.");
+
     const deviceId = Number(qrRow.id);
     const reporter = String(p.reporter || "").trim();
     const description = String(p.description || "").trim();
     const severity = String(p.severity || "Trung bình").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
     validateIncidentFiles(req.files);
-    if (!deviceId) return qrRequestError(req, res, 400, "Thiếu thiết bị.");
     if (!reporter) return qrRequestError(req, res, 400, "Vui lòng nhập người báo.");
     if (!description) return qrRequestError(req, res, 400, "Vui lòng nhập mô tả sự cố.");
     if (!["Thấp","Trung bình","Cao"].includes(severity)) return qrRequestError(req, res, 400, "Mức độ không hợp lệ.");
-    const device = db.prepare("SELECT * FROM devices WHERE id=?").get(deviceId);
-    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị.");
+
+    const device = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị đang quản lý.");
+
     const files = req.files || [];
-    const noteParts = [];
-    if (p.note) noteParts.push(String(p.note));
-    const info = db.prepare(`
-      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
-      VALUES (?,?,?,?,?,?,?,?,?,?)
-    `).run(deviceId, nowSql(), description, severity, reporter, reporterPhone, "Mới ghi nhận", noteParts.join("\n"), "", "QR");
-    completeIncidentRow(info.lastInsertRowid, deviceId, reporter, nowSql());
-    saveIncidentFiles(info.lastInsertRowid, deviceId, files);
-    writeAudit(reporter, "Báo sự cố QR", "incident", info.lastInsertRowid, description);
-    for (const file of files) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, `Ảnh/Video sự cố QR - ${nowSql().slice(0,10)}`, "Sự cố QR", nowSql().slice(0,10), reporter, p.note || description, file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
-    }
-    res.json({ ok: true, incident_id: info.lastInsertRowid });
+    const at = nowSql();
+    const day = at.slice(0,10);
+    const note = p.note ? String(p.note) : "";
+
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+      `).run(deviceId, at, description, severity, reporter, reporterPhone, "Mới ghi nhận", note, "", "QR");
+
+      const incidentId = Number(info.lastInsertRowid);
+      completeIncidentRow(incidentId, deviceId, reporter, at);
+      saveIncidentFiles(incidentId, deviceId, files);
+
+      for (const file of files) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, `Ảnh/Video sự cố QR - ${day}`, "Sự cố QR", day, reporter, note || description, file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
+      }
+      writeAudit(reporter, "Báo sự cố QR", "incident", incidentId, description);
+      return incidentId;
+    });
+
+    const incidentId = tx();
+    res.json({ ok: true, incident_id: incidentId });
   } catch (e) {
     cleanupUploadedFiles(req.files);
     console.error("POST /api/qr/incidents error:", e);
