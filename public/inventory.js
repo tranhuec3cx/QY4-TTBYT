@@ -23,7 +23,7 @@ function itemRow(x,i){
     <td><select id="d_${x.id}" ${locked?"disabled":""}>${deptOptions(x.actual_department_code||x.expected_department_code)}</select></td>
     <td><input id="l_${x.id}" value="${esc(x.actual_location||x.expected_location||"")}" ${locked?"disabled":""}/></td>
     <td><input id="n_${x.id}" value="${esc(x.note||"")}" ${locked?"disabled":""}/></td>
-    <td>${locked?"—":`<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button>`}</td>
+    <td><div class="table-actions">${locked?"":`<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button>`}<button class="btn btn-secondary btn-sm" onclick="openInventoryDevice(${Number(x.device_id)})">Mở HS</button></div></td>
   </tr>`;
 }
 function onInventoryResultChange(id){
@@ -50,6 +50,7 @@ function onInventoryResultChange(id){
   }
 }
 
+function openInventoryDevice(deviceId){ window.location.href=`/device-detail.html?id=${encodeURIComponent(deviceId)}&from=inventory`; }
 async function openSession(id){
   CURRENT=await api(`/api/inventory-sessions/${id}`);
   q("detailCard").style.display="block";
