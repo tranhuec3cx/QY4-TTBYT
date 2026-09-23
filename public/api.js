@@ -9,6 +9,53 @@ async function api(url, options = {}) {
   try { return text ? JSON.parse(text) : {}; } catch { return text; }
 }
 function q(id) { return document.getElementById(id); }
+
+function devicePickerNorm(value) {
+  return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function devicePickerLabel(d) {
+  if (!d) return "";
+  const code = d.device_code || ("TB-" + d.id);
+  const dept = d.department_code ? ` (${d.department_code})` : "";
+  const extra = [d.model, d.serial].filter(Boolean).join(" - ");
+  return `${code} - ${d.name || ""}${dept}${extra ? " - " + extra : ""}`;
+}
+function bindDevicePicker(searchInputId, hiddenInputId, datalistId, devices, onSelect) {
+  const input = q(searchInputId), hidden = q(hiddenInputId), list = q(datalistId);
+  if (!input || !hidden || !list) return;
+  list.innerHTML = (devices || []).map(d => `<option value="${String(devicePickerLabel(d)).replace(/"/g,"&quot;")}"></option>`).join("");
+  const resolve = () => {
+    const raw = input.value.trim();
+    if (!raw) { hidden.value = ""; if (onSelect) onSelect(null); return null; }
+    const n = devicePickerNorm(raw);
+    let d = (devices || []).find(x => devicePickerNorm(devicePickerLabel(x)) === n);
+    if (!d) {
+      const matches = (devices || []).filter(x => devicePickerNorm([x.device_code,x.name,x.model,x.serial,x.department_code].join(" ")).includes(n));
+      if (matches.length === 1) d = matches[0];
+    }
+    if (d) {
+      hidden.value = d.id;
+      input.value = devicePickerLabel(d);
+      if (onSelect) onSelect(d);
+      return d;
+    }
+    hidden.value = "";
+    if (onSelect) onSelect(null);
+    return null;
+  };
+  input.onchange = resolve;
+  input.onblur = () => { if (input.value.trim()) resolve(); };
+  input.oninput = () => { if (!input.value.trim()) { hidden.value=""; if (onSelect) onSelect(null); } };
+  input._resolveDevicePicker = resolve;
+}
+function setDevicePickerSelection(searchInputId, hiddenInputId, devices, deviceId, onSelect) {
+  const hidden = q(hiddenInputId), input = q(searchInputId);
+  const d = (devices || []).find(x => String(x.id) === String(deviceId)) || null;
+  if (hidden) hidden.value = d ? d.id : "";
+  if (input) input.value = d ? devicePickerLabel(d) : "";
+  if (onSelect) onSelect(d);
+  return d;
+}
 function formatDateVN(dateStr) {
   if (!dateStr) return "";
   if (dateStr.includes(" ")) dateStr = dateStr.split(" ")[0];
