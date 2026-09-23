@@ -1255,6 +1255,7 @@ app.post("/api/repairs", (req, res) => {
         ? `Tạo phiếu sửa chữa từ sự cố ${p.incident_code || ('#' + payload.incident_id)}`
         : (payload.issue || payload.work || "Tạo phiếu sửa chữa");
       writeHistory("repair", info.lastInsertRowid, payload.person || "Khoa Trang bị", payload.incident_id ? "Tạo từ sự cố" : "Tạo phiếu", "", payload.processing_status, note, payload.cost, payload.incident_id ? "Tự động" : "Tự động", p.action_time || payload.received_at || payload.repair_date);
+      writeAudit(payload.person || "Khoa Trang bị", "Tạo phiếu sửa chữa", "repair", info.lastInsertRowid, note);
     }
     res.json({ id: info.lastInsertRowid });
   } catch (e) {
@@ -1332,6 +1333,7 @@ app.put("/api/repairs/:id", (req, res) => {
       const actionType = payload.processing_status === "Đã hoàn thành" ? "Hoàn thành" : (payload.processing_status === "Không sửa được" ? "Không sửa được" : "Cập nhật");
       const note = payload.work || payload.result || payload.issue || "Cập nhật phiếu sửa chữa";
       writeHistory("repair", Number(req.params.id), payload.person || "Khoa Trang bị", actionType, old.processing_status || "", payload.processing_status || "", note, payload.cost, actionType, p.action_time || payload.updated_at);
+      writeAudit(payload.person || "Khoa Trang bị", "Cập nhật sửa chữa", "repair", req.params.id, `${old.processing_status || ""} → ${payload.processing_status || ""} | ${note}`);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -1663,6 +1665,7 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       });
     }
     writeHistory("maintenance", info.lastInsertRowid, p.performer, "Tạo mới", "", p.result || "", p.content || p.note || "");
+    writeAudit(p.performer || "Khoa Trang bị", "Tạo bảo dưỡng", "maintenance", info.lastInsertRowid, p.content || p.note || "");
     res.json({ id: info.lastInsertRowid, file_path: file ? `/uploads/documents/${file.filename}` : null });
   } catch (e) {
     console.error("POST /api/maintenances error:", e);
@@ -1815,6 +1818,7 @@ app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) 
     `).run(deviceId, nowSql(), description, severity, reporter, reporterPhone, "Mới ghi nhận", noteParts.join("\n"), "");
     completeIncidentRow(info.lastInsertRowid, deviceId, reporter, nowSql());
     saveIncidentFiles(info.lastInsertRowid, deviceId, files);
+    writeAudit(reporter, "Báo sự cố QR", "incident", info.lastInsertRowid, description);
     for (const file of files) {
       db.prepare(`
         INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
@@ -1966,6 +1970,7 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
     `).run(payload);
     completeIncidentRow(info.lastInsertRowid, payload.device_id, payload.reporter, payload.incident_datetime);
     saveIncidentFiles(info.lastInsertRowid, payload.device_id, req.files);
+    writeAudit(payload.reporter, "Tạo sự cố", "incident", info.lastInsertRowid, payload.description);
     const row = db.prepare(`
       SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial,
              d.name AS department_name, g.name AS group_name,
@@ -2013,6 +2018,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
     `).run(payload);
     touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
     saveIncidentFiles(Number(req.params.id), payload.device_id, req.files);
+    writeAudit(payload.reporter, "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
     res.json({ ok: true });
   } catch (e) {
     console.error("PUT /api/incidents/:id error:", e);
@@ -2052,6 +2058,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
       db.prepare("UPDATE incidents SET status=? WHERE id=?").run("Đã chuyển sửa chữa", incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
       writeHistory("repair", info.lastInsertRowid, "Hệ thống", "Tạo từ sự cố", "", payload.processing_status, `Tạo phiếu sửa chữa từ sự cố ${incident.incident_code || ('#' + incident.id)}`, 0, "Tự động", payload.received_at);
+      writeAudit(actor || "Khoa Trang bị", "Chuyển sự cố sang sửa chữa", "incident", incident.id, `Phiếu sửa chữa #${info.lastInsertRowid}`);
       return info.lastInsertRowid;
     });
     const repairId = tx();
