@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kiểm kê thiết bị</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="layout"><div id="menuHost"></div><main class="main">
+  <div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="user-box">Người dùng: Quản trị viên</div></div>
+
+  <section class="card">
+    <div class="section-head"><h2 class="section-title">Tạo đợt kiểm kê</h2></div>
+    <form id="sessionForm"><div class="form-grid">
+      <label class="field"><span class="field-label">Ngày kiểm kê</span><input id="inventoryDate" type="date" required /></label>
+      <label class="field"><span class="field-label">Khoa/Phòng</span><select id="inventoryDepartment" required></select></label>
+      <label class="field"><span class="field-label">Người thực hiện</span><input id="inventoryActor" placeholder="Người thực hiện" /></label>
+      <label class="field span-3"><span class="field-label">Ghi chú</span><input id="inventoryNote" /></label>
+    </div><div class="form-actions"><button class="btn btn-primary" type="submit">Tạo danh sách kiểm kê</button></div></form>
+  </section>
+
+  <section class="card">
+    <div class="table-card-header"><h3>Đợt kiểm kê</h3></div>
+    <div class="table-wrap scroll-area"><table>
+      <thead><tr><th>Ngày</th><th>Khoa/Phòng</th><th>Tiến độ</th><th>Không thấy</th><th>Sai vị trí/khoa</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+      <tbody id="sessionRows"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" id="detailCard" style="display:none">
+    <div class="section-head"><div><h2 class="section-title" id="detailTitle">Chi tiết kiểm kê</h2><div id="detailMeta" class="small"></div></div><button class="btn btn-primary" id="completeSessionBtn" type="button">Hoàn thành đợt kiểm kê</button></div>
+    <div class="table-wrap scroll-area"><table>
+      <thead><tr><th>STT</th><th>Mã thiết bị</th><th>Tên thiết bị</th><th>Model/Serial</th><th>Vị trí theo sổ</th><th>Kết quả</th><th>Khoa thực tế</th><th>Vị trí thực tế</th><th>Ghi chú</th><th>Lưu</th></tr></thead>
+      <tbody id="itemRows"></tbody>
+    </table></div>
+  </section>
+</main></div>
+<script src="/api.js"></script><script src="/inventory.js"></script>
+</body></html>
