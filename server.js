@@ -23,6 +23,7 @@ const ALLOW_LEGACY_PUBLIC_QR = process.env.QY4_ALLOW_LEGACY_QR === "1";
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(qrUploadsDir, { recursive: true });
 
