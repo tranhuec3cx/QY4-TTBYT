@@ -593,8 +593,16 @@ function refreshDemoTodayData() {
     if (!countChecksToday) {
       const d1 = db.prepare("SELECT id FROM devices ORDER BY id LIMIT 1").get();
       const d2 = db.prepare("SELECT id FROM devices ORDER BY id LIMIT 1 OFFSET 1").get();
-      if (d1) db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note) VALUES (?,?,?,?,?,?)`).run(d1.id,t1,"KTV TTBYT","Kiểm tra đầu ngày","Đạt","Dữ liệu demo");
-      if (d2) db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note) VALUES (?,?,?,?,?,?)`).run(d2.id,t2,"KTV TTBYT","Kiểm tra đầu ngày","Đạt có lưu ý","Dữ liệu demo");
+      if (d1) {
+        const dv1=db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(d1.id) || {};
+        db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot) VALUES (?,?,?,?,?,?,?,?,?)`)
+          .run(d1.id,t1,"KTV TTBYT","Kiểm tra đầu ngày","Bình thường","Dữ liệu demo","Nhập trực tiếp",dv1.department_code || "",dv1.location || "");
+      }
+      if (d2) {
+        const dv2=db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(d2.id) || {};
+        db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot) VALUES (?,?,?,?,?,?,?,?,?)`)
+          .run(d2.id,t2,"KTV TTBYT","Kiểm tra đầu ngày","Có vấn đề","Dữ liệu demo","Nhập trực tiếp",dv2.department_code || "",dv2.location || "");
+      }
     }
 
     const countIncToday = db.prepare("SELECT COUNT(*) c FROM incidents WHERE substr(incident_datetime,1,10)=?").get(today).c;
