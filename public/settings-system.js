@@ -30,9 +30,9 @@ document.addEventListener("DOMContentLoaded",async()=>{
   q("reloadAuditBtn").onclick=loadAudit;
   q("reloadReadinessBtn").onclick=loadReadiness;
   q("backupBtn").onclick=async()=>{
-    if(!confirm("Tạo một bản sao lưu dữ liệu hiện tại?")) return;
+    if(!confirm("Tạo gói sao lưu database và toàn bộ file đính kèm hiện tại?")) return;
     q("backupBtn").disabled=true; q("backupStatus").textContent="Đang tạo bản sao lưu...";
-    try{const r=await api("/api/system/backup",{method:"POST",body:JSON.stringify({actor:window.QY4_AUTH_USER?.full_name||"Quản trị viên"})});q("backupStatus").textContent=`Đã tạo: ${r.filename}`;await Promise.all([loadBackups(),loadAudit(),loadReadiness()]);}
+    try{const r=await api("/api/system/backup",{method:"POST",body:JSON.stringify({actor:window.QY4_AUTH_USER?.full_name||"Khoa Trang bị"})});q("backupStatus").textContent=`Đã tạo gói: ${r.filename} + snapshot file đính kèm`;await Promise.all([loadBackups(),loadAudit(),loadReadiness()]);}
     catch(e){q("backupStatus").textContent="Không tạo được bản sao lưu: "+(e.message||e);}
     finally{q("backupBtn").disabled=false;}
   };
