@@ -439,7 +439,7 @@ function protectedTechnicalDocumentReason(row) {
   if(!row) return "";
   const ref=technicalFileReference(row.file_path);
   if(ref) return `File đang được ${ref.type} #${ref.id} tham chiếu`;
-  const protectedTypes=new Set(["Bảo dưỡng","Kiểm định","Hiệu chuẩn","Kiểm xạ","ATBX","An toàn bức xạ","Sự cố QR","Kiểm tra"]);
+  const protectedTypes=new Set(["Bảo dưỡng","Kiểm định","Hiệu chuẩn","Kiểm xạ","ATBX","An toàn bức xạ","Kiểm định an toàn bức xạ","Sự cố QR","Kiểm tra"]);
   const type=String(row.type || "").trim();
   if(protectedTypes.has(type) && String(row.file_path || "").trim()) return `Tài liệu loại ${type} là hồ sơ kỹ thuật cần bảo toàn`;
   return "";
