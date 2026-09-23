@@ -804,10 +804,7 @@ function ensureDeviceCodeColumnsAndData() {
   const rows = db.prepare("SELECT id, department_code, group_code, serial, device_code, insurance_code FROM devices ORDER BY id").all();
   const seen = new Set();
   for (const r of rows) {
-    if (!r.insurance_code && r.serial) {
-      db.prepare("UPDATE devices SET insurance_code=? WHERE id=?").run(r.serial, r.id);
-      db.prepare("UPDATE devices SET serial='' WHERE id=?").run(r.id);
-    }
+    // Không tự di chuyển/xóa Serial sang mã bảo hiểm. Hai trường này là dữ liệu độc lập.
     const current = normalizeDeviceCode(r.device_code, r.department_code, r.group_code);
     if (current && !seen.has(current)) {
       seen.add(current);
@@ -2957,6 +2954,52 @@ app.get("/api/reports/summary", (req, res) => {
   `).all();
   const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices GROUP BY status ORDER BY count DESC").all();
   res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, frequentRepairs, replaceList, costByDepartment, statusRatio });
+});
+
+app.get("/api/reports/data-quality", (req, res) => {
+  const rows = db.prepare(`
+    SELECT id,device_code,name,department_code,manufacturer,model,serial,insurance_code,
+           country,year_manufactured,year_in_use,location,qr_uid,is_archived
+    FROM devices
+    WHERE COALESCE(is_archived,0)=0
+    ORDER BY department_code,name,id
+  `).all().map(r=>({...r,device_code:getDeviceCode(r.id),qr_uid:ensureDeviceQrUid(r.id)}));
+
+  const missing = key => rows.filter(r=>String(r[key]??"").trim()==="");
+  const suspiciousSerial = rows.filter(r=>!String(r.serial||"").trim() && String(r.insurance_code||"").trim());
+  const duplicateSerialGroups = db.prepare(`
+    SELECT lower(trim(serial)) AS serial_key, MIN(serial) AS serial, COUNT(*) AS count
+    FROM devices
+    WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))<>''
+    GROUP BY lower(trim(serial))
+    HAVING COUNT(*)>1
+    ORDER BY count DESC,serial
+  `).all();
+  const incompleteRows = rows.filter(r =>
+    !String(r.model||"").trim() || !String(r.serial||"").trim() || !String(r.manufacturer||"").trim()
+    || !String(r.location||"").trim() || !Number(r.year_in_use||0)
+  );
+
+  const total=rows.length;
+  const completeCore=total-incompleteRows.length;
+  res.json({
+    summary:{
+      total_devices:total,
+      core_complete_devices:completeCore,
+      core_complete_percent:total?Number((completeCore*100/total).toFixed(1)):0,
+      missing_serial:missing("serial").length,
+      missing_model:missing("model").length,
+      missing_manufacturer:missing("manufacturer").length,
+      missing_location:missing("location").length,
+      missing_year_in_use:rows.filter(r=>!Number(r.year_in_use||0)).length,
+      missing_qr_uid:missing("qr_uid").length,
+      serial_blank_with_insurance_code:suspiciousSerial.length,
+      duplicate_serial_groups:duplicateSerialGroups.length
+    },
+    suspicious_serial_rows:suspiciousSerial,
+    duplicate_serial_groups:duplicateSerialGroups,
+    incomplete_devices:incompleteRows
+  });
 });
 
 app.get("/api/reports/kpi", (req, res) => {
