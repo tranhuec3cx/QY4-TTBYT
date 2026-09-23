@@ -814,6 +814,34 @@ function ensureCoreManagementSchema() {
       details TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_audit_logs_time ON audit_logs(action_time DESC);
+
+    CREATE TABLE IF NOT EXISTS inventory_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inventory_date TEXT NOT NULL,
+      department_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Đang kiểm kê',
+      actor TEXT,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS inventory_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      device_id INTEGER NOT NULL,
+      expected_department_code TEXT,
+      expected_location TEXT,
+      result TEXT NOT NULL DEFAULT 'Chưa kiểm kê',
+      actual_department_code TEXT,
+      actual_location TEXT,
+      note TEXT,
+      updated_at TEXT,
+      updated_by TEXT,
+      UNIQUE(session_id, device_id),
+      FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_items_session ON inventory_items(session_id);
   `);
 }
 
@@ -2374,6 +2402,104 @@ app.get("/api/devices/:id/technical-history", (req, res) => {
   }));
   rows = rows.filter(r => inRange(r.date) && (type === "ALL" || r.type === type)).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   res.json(rows);
+});
+
+app.get("/api/inventory-sessions", (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.*, d.name AS department_name,
+      COUNT(i.id) AS total_items,
+      SUM(CASE WHEN i.result<>'Chưa kiểm kê' THEN 1 ELSE 0 END) AS checked_items,
+      SUM(CASE WHEN i.result='Không thấy' THEN 1 ELSE 0 END) AS missing_items,
+      SUM(CASE WHEN i.result IN ('Sai vị trí','Sai khoa') THEN 1 ELSE 0 END) AS mismatch_items
+    FROM inventory_sessions s
+    LEFT JOIN departments d ON d.code=s.department_code
+    LEFT JOIN inventory_items i ON i.session_id=s.id
+    GROUP BY s.id
+    ORDER BY s.inventory_date DESC, s.id DESC
+  `).all();
+  res.json(rows);
+});
+
+app.post("/api/inventory-sessions", (req, res) => {
+  const departmentCode = String(req.body.department_code || "").trim();
+  const inventoryDate = String(req.body.inventory_date || nowSql().slice(0,10)).slice(0,10);
+  const actor = String(req.body.actor || "").trim();
+  if (!departmentCode) return res.status(400).json({ error:"Thiếu khoa/phòng kiểm kê." });
+  const dept = db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode);
+  if (!dept) return res.status(400).json({ error:"Khoa/phòng không tồn tại." });
+
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO inventory_sessions (inventory_date,department_code,status,actor,note,created_at)
+      VALUES (?,?,?,?,?,?)
+    `).run(inventoryDate, departmentCode, "Đang kiểm kê", actor, req.body.note || "", nowSql());
+    const devices = db.prepare(`
+      SELECT id, department_code, location
+      FROM devices
+      WHERE department_code=? AND COALESCE(is_archived,0)=0
+      ORDER BY id
+    `).all(departmentCode);
+    const insert = db.prepare(`
+      INSERT INTO inventory_items
+      (session_id,device_id,expected_department_code,expected_location,result,actual_department_code,actual_location,note,updated_at,updated_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `);
+    for (const d of devices) {
+      insert.run(info.lastInsertRowid,d.id,d.department_code,d.location || "","Chưa kiểm kê",d.department_code,d.location || "","",nowSql(),actor);
+    }
+    writeAudit(actor,"Tạo đợt kiểm kê","inventory",info.lastInsertRowid,`${departmentCode} | ${inventoryDate} | ${devices.length} thiết bị`);
+    return { id:info.lastInsertRowid, count:devices.length };
+  });
+  res.json(tx());
+});
+
+app.get("/api/inventory-sessions/:id", (req, res) => {
+  const session = db.prepare(`
+    SELECT s.*, d.name AS department_name
+    FROM inventory_sessions s LEFT JOIN departments d ON d.code=s.department_code
+    WHERE s.id=?
+  `).get(Number(req.params.id));
+  if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
+  const items = db.prepare(`
+    SELECT i.*, dv.device_code, dv.name AS device_name, dv.model, dv.serial,
+           d.name AS actual_department_name
+    FROM inventory_items i
+    JOIN devices dv ON dv.id=i.device_id
+    LEFT JOIN departments d ON d.code=i.actual_department_code
+    WHERE i.session_id=?
+    ORDER BY dv.name, dv.device_code
+  `).all(session.id).map(r => ({...r, device_code:getDeviceCode(r.device_id)}));
+  res.json({ session, items });
+});
+
+app.put("/api/inventory-items/:id", (req, res) => {
+  const old = db.prepare("SELECT * FROM inventory_items WHERE id=?").get(Number(req.params.id));
+  if (!old) return res.status(404).json({ error:"Không tìm thấy dòng kiểm kê." });
+  const allowed = ["Chưa kiểm kê","Có","Không thấy","Sai vị trí","Sai khoa"];
+  const result = allowed.includes(req.body.result) ? req.body.result : "Chưa kiểm kê";
+  const actualDepartment = String(req.body.actual_department_code || old.actual_department_code || old.expected_department_code || "").trim();
+  const actualLocation = String(req.body.actual_location ?? old.actual_location ?? "").trim();
+  const actor = String(req.body.updated_by || "").trim();
+  db.prepare(`
+    UPDATE inventory_items
+    SET result=?, actual_department_code=?, actual_location=?, note=?, updated_at=?, updated_by=?
+    WHERE id=?
+  `).run(result, actualDepartment, actualLocation, req.body.note || "", nowSql(), actor, old.id);
+  writeAudit(actor,"Cập nhật kiểm kê","inventory_item",old.id,`${old.result} → ${result}`);
+  res.json({ok:true});
+});
+
+app.post("/api/inventory-sessions/:id/complete", (req, res) => {
+  const id = Number(req.params.id);
+  const session = db.prepare("SELECT * FROM inventory_sessions WHERE id=?").get(id);
+  if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
+  const pending = db.prepare("SELECT COUNT(*) c FROM inventory_items WHERE session_id=? AND result='Chưa kiểm kê'").get(id).c;
+  if (pending > 0 && String(req.body.force || "") !== "1") {
+    return res.status(400).json({ error:`Còn ${pending} thiết bị chưa kiểm kê.` });
+  }
+  db.prepare("UPDATE inventory_sessions SET status='Đã hoàn thành', completed_at=? WHERE id=?").run(nowSql(),id);
+  writeAudit(req.body.actor || session.actor || "","Hoàn thành kiểm kê","inventory",id,`Còn chưa kiểm kê: ${pending}`);
+  res.json({ok:true,pending});
 });
 
 app.get("/api/dashboard/operations", (req, res) => {
