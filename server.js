@@ -3507,6 +3507,11 @@ app.get("/api/system/readiness", (req, res) => {
   const uploadWritable = qrUploadWritable && documentUploadWritable && backupWritable;
   let dbSize = 0;
   try { dbSize = fs.statSync(dbPath).size; } catch {}
+  let liveDbIntegrity = "Lỗi";
+  try {
+    const row=db.prepare("PRAGMA quick_check").get();
+    liveDbIntegrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "Đạt" : "Lỗi";
+  } catch { liveDbIntegrity="Lỗi"; }
 
   const incompleteCore = db.prepare(`
     SELECT COUNT(*) c FROM devices
@@ -3519,6 +3524,12 @@ app.get("/api/system/readiness", (req, res) => {
   const completePercent = totalDevices ? Number((completeCore*100/totalDevices).toFixed(1)) : 100;
 
   const checks = [
+    {
+      key:"database_integrity",
+      level:liveDbIntegrity === "Đạt" ? "Đạt" : "Cần xử lý",
+      title:"Toàn vẹn database SQLite",
+      detail:liveDbIntegrity === "Đạt" ? "PRAGMA quick_check = ok." : "SQLite quick_check không đạt; không nên tiếp tục nhập dữ liệu trước khi kiểm tra/khôi phục backup."
+    },
     {
       key:"demo",
       level:process.env.QY4_DEMO_SEED === "1" ? "Cần xử lý" : "Đạt",
@@ -3609,6 +3620,7 @@ app.get("/api/system/readiness", (req, res) => {
     system:{
       time_zone:APP_TIME_ZONE,
       database_size_bytes:dbSize,
+      database_integrity:liveDbIntegrity,
       active_users:activeUsers,
       total_devices:totalDevices,
       recommended_qr_origin:recommendedOrigin,
