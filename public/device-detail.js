@@ -96,7 +96,7 @@ async function loadTechnicalHistory() {
 }
 function resetTransferForm() {
   q("transferForm").reset();
-  q("transferDate").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  q("transferDate").value = nowDateTimeLocalValue();
   q("transferDepartment").value = DEVICE.department_code || "";
   q("transferLocation").value = DEVICE.location || "";
   showForm("transferFormWrap", false);
@@ -396,7 +396,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     q("techFromDate").value = firstDayOfYearISO(); q("techToDate").value = todayISO(); q("techType").value = "ALL"; await loadTechnicalHistory();
   };
   if (q("toggleTransferBtn")) q("toggleTransferBtn").onclick = () => {
-    resetTransferForm(); showForm("transferFormWrap", true); q("transferDate").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+    resetTransferForm(); showForm("transferFormWrap", true); q("transferDate").value = nowDateTimeLocalValue();
   };
   if (q("cancelTransferBtn")) q("cancelTransferBtn").onclick = resetTransferForm;
   if (q("transferForm")) q("transferForm").addEventListener("submit", saveTransfer);
