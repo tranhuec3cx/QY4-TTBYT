@@ -43,7 +43,7 @@ jobs:
           curl -fsS "$BASE/api/system/backups" >/tmp/backups.json
           curl -fsS "$BASE/api/system/readiness" >/tmp/readiness.json
           curl -fsS "$BASE/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
-          node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<9||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt") throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
+          node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<10||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt"||r.system?.foreign_keys_enabled!==true||Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
 
       - name: Smoke test QR incident repair lifecycle
         run: |
@@ -492,7 +492,7 @@ jobs:
           const r=JSON.parse(fs.readFileSync("/tmp/auth-readiness.json","utf8"));
           if(!b.filename) throw new Error("Backup failed under auth");
           const m=new Map((r.checks||[]).map(x=>[x.key,x]));
-          for(const key of ["demo","auth","backup","qr_uid"]){
+          for(const key of ["database_integrity","foreign_keys","demo","auth","backup","qr_uid"]){
             if(m.get(key)?.level!=="Đạt") throw new Error("Readiness failed for "+key+": "+JSON.stringify(m.get(key)));
           }
           console.log("Authenticated readiness checklist passed");
