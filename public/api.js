@@ -86,6 +86,7 @@ function renderMenu(active) {
     {key:"maintenance", href:"/maintenance.html", label:"Sửa chữa"},
     {key:"inspection", href:"/inspection.html", label:"Bảo dưỡng"},
     {key:"inspections", href:"/inspections.html", label:"Kiểm định"},
+    {key:"inventory", href:"/inventory.html", label:"Kiểm kê / Điều chuyển"},
     {key:"reports", href:"/reports.html", label:"Báo cáo"},
     {key:"settings", href:"/settings.html", label:"Cài đặt"}
   ];
