@@ -87,13 +87,17 @@ function technicalRecordHref(x) {
   return "/inspections.html?"+base+"&edit_id="+id;
 }
 function renderTechnicalHistory() {
-  renderRows("technicalRows", TECH_HISTORY || [], x => `<tr>
-    <td>${formatDateTimeVNLines(x.date)}</td>
-    <td><b>${esc(x.type||"")}</b></td>
-    <td class="wrap-text">${esc(x.content||"")}</td>
-    <td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"—")}</span></td>
-    <td>${esc(x.person||"")}</td>
-  </tr>`, 5);
+  renderRows("technicalRows", TECH_HISTORY || [], x => {
+    const href=technicalRecordHref(x);
+    return `<tr>
+      <td>${formatDateTimeVNLines(x.date)}</td>
+      <td><b>${esc(x.type||"")}</b></td>
+      <td class="wrap-text">${esc(x.content||"")}</td>
+      <td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"—")}</span></td>
+      <td>${esc(x.person||"")}</td>
+      <td>${href ? `<a class="btn btn-secondary btn-sm" href="${href}">Mở phiếu</a>` : "—"}</td>
+    </tr>`;
+  }, 6);
 }
 async function loadTechnicalHistory() {
   if (!q("technicalRows")) return;
