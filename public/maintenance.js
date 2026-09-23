@@ -23,6 +23,22 @@ function getDevice(id) {
 function deviceLabel(d) {
   return devicePickerLabel(d);
 }
+function syncRepairDeviceStatus(){
+  const status=normalizeRepairStatus(q("repairStatus")?.value || "Đang xử lý");
+  const select=q("statusAfter");
+  if(!select) return;
+  if(status==="Đã hoàn thành"){
+    select.disabled=false;
+    if(!["Đang hoạt động","Hoạt động hạn chế"].includes(select.value)) select.value="Đang hoạt động";
+  }else if(status==="Không sửa được"){
+    select.value="Ngừng hoạt động";
+    select.disabled=true;
+  }else{
+    select.value="Chờ sửa chữa";
+    select.disabled=true;
+  }
+}
+
 function repairStatusClass(status) {
   const st = normalizeRepairStatus(status);
   if (st === "Đã hoàn thành") return "green";
@@ -183,6 +199,8 @@ function editRepair(id) {
   q("result").value = r.result || "";
   q("statusAfter").value = r.status_after || "Đang hoạt động";
   q("repairStatus").value = normalizeRepairStatus(r.processing_status);
+  syncRepairDeviceStatus();
+  if (normalizeRepairStatus(r.processing_status)==="Đã hoàn thành" && ["Đang hoạt động","Hoạt động hạn chế"].includes(r.status_after)) q("statusAfter").value=r.status_after;
   openRepairDialog("edit");
 }
 async function deleteRepair(id) {
@@ -258,9 +276,9 @@ async function saveRepair(e) {
     result: q("result").value.trim(),
     status_after: (() => {
       const s = normalizeRepairStatus(q("repairStatus").value);
-      if (s === "Đã hoàn thành") return "Đang hoạt động";
       if (s === "Không sửa được") return "Ngừng hoạt động";
-      return q("statusAfter").value || "Chờ sửa chữa";
+      if (s === "Đang xử lý" || s === "Chờ linh kiện") return "Chờ sửa chữa";
+      return ["Đang hoạt động","Hoạt động hạn chế"].includes(q("statusAfter").value) ? q("statusAfter").value : "Đang hoạt động";
     })(),
     processing_status: normalizeRepairStatus(q("repairStatus").value),
     action_time: q("actionTime") ? fromDateTimeLocalValue(q("actionTime").value) : "",
@@ -336,6 +354,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   q("closeRepairDialogBtn").onclick = closeRepairDialog;
   q("cancelRepairBtn").onclick = closeRepairDialog;
   q("repairForm").addEventListener("submit", saveRepair);
+  q("repairStatus").addEventListener("change", syncRepairDeviceStatus);
+  syncRepairDeviceStatus();
   q("repairDeviceSearch").addEventListener("change", () => setSelectedDevice(resolveDeviceFromSearch()));
   q("repairDeviceSearch").addEventListener("input", () => { if (!q("repairDeviceSearch").value.trim()) setSelectedDevice(null); });
   ["filterBtn","searchInput","fromDate","toDate","departmentFilter","groupFilter","deviceFilter","repairStatusFilter","methodFilter"].forEach(id => {
