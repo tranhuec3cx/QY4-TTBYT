@@ -147,9 +147,26 @@ function renderKpi(){
   q("kpiCards").innerHTML=cards.map(([title,value,desc])=>`<div class="report-kpi-card"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(desc)}</small></div>`).join("");
 
   const total=Math.max(1,Number(s.total_incidents||0));
-  q("kpiSourceRows").innerHTML=(KPI.by_source||[]).length
-    ? KPI.by_source.map(x=>`<tr><td><b>${esc(x.source)}</b></td><td>${Number(x.count||0)}</td><td>${(Number(x.count||0)*100/total).toFixed(1)}%</td></tr>`).join("")
-    : '<tr><td colspan="3" class="center-empty">Chưa có dữ liệu.</td></tr>';
+  const sourceRows=KPI.by_source||[];
+  q("kpiSourceRows").innerHTML=sourceRows.length
+    ? sourceRows.map(x=>`<tr>
+        <td><b>${esc(x.source)}</b><div class="small">${(Number(x.count||0)*100/total).toFixed(1)}% tổng sự cố</div></td>
+        <td>${Number(x.count||0)}</td>
+        <td>${Number(x.responded_incidents||0)}</td>
+        <td>${Number(x.response_data_completeness_percent||0).toFixed(1)}%</td>
+        <td>${esc(fmtMinutesKpi(x.avg_response_minutes))}</td>
+        <td>${esc(fmtMinutesKpi(x.median_response_minutes))}</td>
+        <td>${Number(x.response_within_target_percent||0).toFixed(1)}%</td>
+        <td>${Number(x.resolved_incidents||0)}</td>
+        <td>${esc(fmtMinutesKpi(x.avg_resolution_minutes))}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="9" class="center-empty">Chưa có dữ liệu.</td></tr>';
+  const qrSource=sourceRows.find(x=>x.source==="QR");
+  const directSource=sourceRows.find(x=>x.source==="Nhập trực tiếp");
+  const smallSample=[qrSource,directSource].filter(Boolean).some(x=>Number(x.responded_incidents||0)<5);
+  q("kpiSourceNote").textContent = qrSource && directSource
+    ? `So sánh chỉ mang tính mô tả: QR n=${qrSource.count||0}, nhập trực tiếp n=${directSource.count||0}. ${smallSample ? "Ít nhất một nhóm có dưới 5 sự cố có mốc tiếp nhận; chưa nên suy diễn hiệu quả hay quan hệ nhân quả." : "Cần xem thêm khác biệt về mức độ sự cố, khoa và thời điểm trước khi diễn giải chênh lệch."}`
+    : "Cần có dữ liệu ở cả nguồn QR và nhập trực tiếp để so sánh mô tả.";
   q("kpiMonthRows").innerHTML=(KPI.by_month||[]).length
     ? KPI.by_month.map(x=>`<tr><td>${esc(String(x.month||"").split("-").reverse().join("/"))}</td><td>${Number(x.count||0)}</td><td>${Number(x.qr_count||0)}</td><td>${Number(x.count||0)?(Number(x.qr_count||0)*100/Number(x.count)).toFixed(1):"0.0"}%</td><td>${Number(x.qr_checks||0)}</td></tr>`).join("")
     : '<tr><td colspan="5" class="center-empty">Chưa có dữ liệu.</td></tr>';
@@ -189,7 +206,19 @@ function exportKpiExcel(){
     ["Sự cố còn mở",s.open_incidents||0,""],
     ["Nguồn báo chưa xác định",s.unknown_source_incidents||0,"Không suy diễn là QR hay nhập trực tiếp"]
   ];
-  const source=(KPI.by_source||[]).map(x=>({"Nguồn báo":x.source,"Số sự cố":x.count,"Tỷ lệ (%)":s.total_incidents?Number((x.count*100/s.total_incidents).toFixed(1)):0}));
+  const source=(KPI.by_source||[]).map(x=>({
+    "Nguồn báo":x.source,
+    "Số sự cố":x.count,
+    "Tỷ lệ tổng sự cố (%)":s.total_incidents?Number((x.count*100/s.total_incidents).toFixed(1)):0,
+    "Có mốc tiếp nhận":x.responded_incidents||0,
+    "Độ đầy đủ mốc tiếp nhận (%)":x.response_data_completeness_percent||0,
+    "Phản hồi TB (phút)":x.avg_response_minutes??"",
+    "Phản hồi trung vị (phút)":x.median_response_minutes??"",
+    "Đáp ứng mục tiêu (%)":x.response_within_target_percent||0,
+    "Đã có kết quả xử lý":x.resolved_incidents||0,
+    "Xử lý TB (phút)":x.avg_resolution_minutes??"",
+    "Xử lý trung vị (phút)":x.median_resolution_minutes??""
+  }));
   const daily=(KPI.by_day||[]).map(x=>({
     "Ngày":x.date||"","Lượt kiểm tra QR":x.qr_checks||0,"Thiết bị duy nhất":x.qr_unique_devices||0,
     "Phát hiện vấn đề":x.qr_check_issues||0,"Tổng sự cố":x.incidents||0,"Sự cố qua QR":x.qr_incidents||0
