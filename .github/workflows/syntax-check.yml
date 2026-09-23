@@ -66,7 +66,13 @@ jobs:
           curl -fsS -X POST "$BASE/api/devices/$DEVICE_ID/transfer" -H 'Content-Type: application/json' --data '{"to_department_code":"TST2","to_location":"Vị trí chuyển","reason":"Kiểm thử snapshot khoa","actor":"CI"}' >/tmp/device-transfer.json
           curl -fsS -X PUT "$BASE/api/devices/$DEVICE_ID" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-AFTER","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí B","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/device-update.json
           curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-after.json
-          curl -fsS -X POST "$BASE/api/qr/incidents" -H 'Content-Type: application/json' --data "{\"qr_uid\":\"$QR_UID\",\"reporter\":\"QR CI\",\"description\":\"Sự cố báo qua QR CI\",\"severity\":\"Trung bình\"}" >/tmp/qr-incident.json
+          printf '\xFF\xD8\xFF\xD9' >/tmp/ci-upload.jpg
+          curl -fsS -X POST "$BASE/api/qr/incidents" \
+            -F "qr_uid=$QR_UID" \
+            -F "reporter=QR CI" \
+            -F "description=Sự cố báo qua QR CI" \
+            -F "severity=Trung bình" \
+            -F "media=@/tmp/ci-upload.jpg;type=image/jpeg" >/tmp/qr-incident.json
           QR_INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/qr-incident.json","utf8")).incident_id')
           TODAY=$(date '+%Y-%m-%d')
           curl -fsS "$BASE/api/incidents" >/tmp/incidents-after.json
@@ -91,6 +97,7 @@ jobs:
           if (row.acknowledged_by!=="Khoa Trang bị - CI") throw new Error("acknowledged_by incorrect: "+row.acknowledged_by);
           if (row.source_channel!=="Nhập trực tiếp") throw new Error("Manual incident source incorrect");
           if (qrRow.source_channel!=="QR") throw new Error("QR incident source incorrect");
+          if (Number(qrRow.media_count||0)<1 || !Array.isArray(qrRow.files) || !qrRow.files[0]?.file_path) throw new Error("Multipart incident media upload missing");
           if (row.location_snapshot!=="Vị trí A") throw new Error("Historical location snapshot changed: "+row.location_snapshot);
           if (row.department_code_snapshot!=="TST") throw new Error("Historical department snapshot changed: "+row.department_code_snapshot);
           if (!row.linked_repair_completed_at) throw new Error("repair completion timestamp missing");
