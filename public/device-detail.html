@@ -35,6 +35,8 @@
 
       <div class="tabs">
         <button class="tab-btn active" data-tab="tab-general">Thông tin chung</button>
+        <button class="tab-btn" data-tab="tab-technical">Công việc kỹ thuật</button>
+        <button class="tab-btn" data-tab="tab-transfers">Điều chuyển</button>
         <button class="tab-btn" data-tab="tab-accessories">Phụ kiện đồng bộ</button>
         <button class="tab-btn" data-tab="tab-incidents">Sự cố ghi nhận</button>
         <button class="tab-btn" data-tab="tab-repairs">Nhật ký sửa chữa</button>
@@ -104,6 +106,40 @@
         </div>
       </section>
 
+
+      <section id="tab-technical" class="card tab-panel">
+        <div class="section-head"><h2 class="section-title">Công việc kỹ thuật</h2></div>
+        <div class="filters" style="grid-template-columns:160px 160px 220px auto auto">
+          <label class="field"><span class="field-label">Từ ngày</span><input id="techFromDate" type="date" /></label>
+          <label class="field"><span class="field-label">Đến ngày</span><input id="techToDate" type="date" /></label>
+          <label class="field"><span class="field-label">Loại công việc</span><select id="techType"><option value="ALL">Tất cả</option><option>Sự cố</option><option>Sửa chữa</option><option>Bảo dưỡng</option><option>Kiểm định</option><option>Hiệu chuẩn</option><option>Kiểm định an toàn bức xạ</option><option>Kiểm xạ</option></select></label>
+          <button class="btn" id="techFilterBtn" type="button">Lọc</button>
+          <button class="btn" id="techResetBtn" type="button">Đặt lại</button>
+        </div>
+        <div class="table-wrap scroll-area">
+          <table><thead><tr><th>Thời gian</th><th>Loại</th><th>Nội dung</th><th>Kết quả/Trạng thái</th><th>Người/Đơn vị thực hiện</th></tr></thead><tbody id="technicalRows"></tbody></table>
+        </div>
+      </section>
+
+      <section id="tab-transfers" class="card tab-panel">
+        <div class="section-head"><h2 class="section-title">Lịch sử điều chuyển</h2><button class="btn btn-primary" id="toggleTransferBtn" type="button">+ Điều chuyển</button></div>
+        <div class="table-wrap scroll-area">
+          <table><thead><tr><th>Thời gian</th><th>Từ khoa/vị trí</th><th>Đến khoa/vị trí</th><th>Lý do</th><th>Người thực hiện</th><th>Ghi chú</th></tr></thead><tbody id="transferRows"></tbody></table>
+        </div>
+        <div class="inline-form-card" id="transferFormWrap" style="display:none">
+          <form id="transferForm">
+            <div class="form-grid">
+              <input id="transferDate" type="datetime-local" required />
+              <select id="transferDepartment" required></select>
+              <input id="transferLocation" placeholder="Vị trí mới" />
+              <input id="transferActor" placeholder="Người thực hiện" />
+              <input id="transferReason" class="span-2" placeholder="Lý do điều chuyển" />
+              <textarea id="transferNote" class="span-3" placeholder="Ghi chú"></textarea>
+            </div>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">Xác nhận điều chuyển</button><button class="btn" id="cancelTransferBtn" type="button">Hủy</button></div>
+          </form>
+        </div>
+      </section>
 
       <section id="tab-incidents" class="card tab-panel">
         <div class="section-head">
