@@ -3421,7 +3421,7 @@ app.get("/api/dashboard/operations", (req, res) => {
   `).get().v || 0);
   const dueInspection = db.prepare("SELECT COUNT(*) c FROM inspections i JOIN devices d ON d.id=i.device_id WHERE COALESCE(d.is_archived,0)=0 AND i.next_date>=? AND i.next_date<=?").get(today,plus30).c;
   const overdueInspection = db.prepare("SELECT COUNT(*) c FROM inspections i JOIN devices d ON d.id=i.device_id WHERE COALESCE(d.is_archived,0)=0 AND i.next_date<?").get(today).c;
-  const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs WHERE processing_status='Chờ linh kiện'").get().c;
+  const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs r JOIN devices d ON d.id=r.device_id WHERE COALESCE(d.is_archived,0)=0 AND r.processing_status='Chờ linh kiện'").get().c;
   const qrChecksToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=?").get(today).c;
   const qrIssuesToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=? AND result='Có vấn đề'").get(today).c;
   const todayParts = today.split("-").map(Number);
@@ -3685,14 +3685,15 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const totalCost = devices.reduce((s,d)=>s+Number(d.cost||0),0);
   const active = devices.filter(d=>d.status === "Đang hoạt động").length;
   const repair = devices.filter(d=>d.status === "Chờ sửa chữa").length;
-  const old10 = devices.filter(d=>Number(d.year_in_use||0) && (new Date().getFullYear() - Number(d.year_in_use)) > 10).length;
+  const currentYear = Number(localDateISO().slice(0,4));
+  const old10 = devices.filter(d=>Number(d.year_in_use||0) && (currentYear - Number(d.year_in_use)) > 10).length;
   const today = localDateISO();
   const plus30 = localDatePlusDays(30);
   const dueInspections = db.prepare("SELECT COUNT(*) c FROM inspections i JOIN devices dv ON dv.id=i.device_id WHERE COALESCE(dv.is_archived,0)=0 AND i.next_date >= ? AND i.next_date <= ?").get(today, plus30).c;
   const overdueInspections = db.prepare("SELECT COUNT(*) c FROM inspections i JOIN devices dv ON dv.id=i.device_id WHERE COALESCE(dv.is_archived,0)=0 AND i.next_date < ?").get(today).c;
   const dueMaint = db.prepare("SELECT COUNT(*) c FROM maintenances m JOIN devices dv ON dv.id=m.device_id WHERE COALESCE(dv.is_archived,0)=0 AND m.next_date >= ? AND m.next_date <= ?").get(today, plus30).c;
   const overdueMaint = db.prepare("SELECT COUNT(*) c FROM maintenances m JOIN devices dv ON dv.id=m.device_id WHERE COALESCE(dv.is_archived,0)=0 AND m.next_date < ?").get(today).c;
-  const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices GROUP BY quality_level ORDER BY quality_level").all();
+  const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY quality_level ORDER BY quality_level").all();
   const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code AND COALESCE(dv.is_archived,0)=0 GROUP BY d.code,d.name ORDER BY count DESC`).all();
   res.json({ total, totalCost, active, repair, old10, dueInspections, overdueInspections, dueMaint, overdueMaint, quality, byDept });
 });
