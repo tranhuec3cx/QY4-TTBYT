@@ -2927,20 +2927,66 @@ app.get("/api/inspections", (req, res) => {
   res.json(rows);
 });
 
+function buildInspectionPayload(input = {}) {
+  return {
+    device_id:Number(input.device_id || 0),
+    inspection_date:normalizeDateTime(input.inspection_date || ""),
+    type:String(input.type || "").trim(),
+    organization:String(input.organization || "").trim(),
+    certificate_no:String(input.certificate_no || "").trim(),
+    result:String(input.result || "Đạt").trim() || "Đạt",
+    next_date:String(input.next_date || "").slice(0,10),
+    file_note:String(input.file_note || "").trim(),
+    note:String(input.note || "")
+  };
+}
+function validateInspectionPayload(payload) {
+  if (!payload.device_id) return "Vui lòng chọn thiết bị.";
+  const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
+  if (!device) return "Thiết bị không tồn tại hoặc đã lưu trữ.";
+  if (!payload.inspection_date) return "Vui lòng nhập thời gian thực hiện.";
+  if (!payload.type) return "Vui lòng chọn loại kiểm định/hiệu chuẩn.";
+  if (!["Đạt","Đạt có lưu ý","Không đạt"].includes(payload.result)) return "Kết quả không hợp lệ.";
+  return "";
+}
+
 app.post("/api/inspections", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note)`).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const payload=buildInspectionPayload(req.body || {});
+    const error=validateInspectionPayload(payload);
+    if(error) return res.status(400).json({error});
+    const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note)`).run(payload);
+    writeAudit(requestActor(req), "Tạo kiểm định/hiệu chuẩn", "inspection", info.lastInsertRowid, `${payload.type} | ${payload.certificate_no}`);
+    res.json({ id: info.lastInsertRowid });
+  } catch(e) {
+    console.error("POST /api/inspections error:",e);
+    res.status(400).json({error:e.message || "Không thể lưu kiểm định/hiệu chuẩn."});
+  }
 });
 
 app.put("/api/inspections/:id", (req, res) => {
-  const p = req.body;
-  db.prepare(`UPDATE inspections SET device_id=@device_id, inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note WHERE id=@id`).run({ ...p, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
+    const payload=buildInspectionPayload(req.body || {});
+    const error=validateInspectionPayload(payload);
+    if(error) return res.status(400).json({error});
+    db.prepare(`UPDATE inspections SET device_id=@device_id, inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note WHERE id=@id`).run({...payload,id});
+    writeAudit(requestActor(req), "Cập nhật kiểm định/hiệu chuẩn", "inspection", id, `${payload.type} | ${payload.certificate_no}`);
+    res.json({ ok: true });
+  } catch(e) {
+    console.error("PUT /api/inspections/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật kiểm định/hiệu chuẩn."});
+  }
 });
 
 app.delete("/api/inspections/:id", (req, res) => {
-  db.prepare("DELETE FROM inspections WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
+  db.prepare("DELETE FROM inspections WHERE id=?").run(id);
+  writeAudit(requestActor(req), "Xóa kiểm định/hiệu chuẩn", "inspection", id, `${old.type || ""} | ${old.certificate_no || ""}`);
   res.json({ ok: true });
 });
 
