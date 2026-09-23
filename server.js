@@ -1236,6 +1236,14 @@ app.get("/api/meta", (req, res) => {
   });
 });
 
+const USER_ROLES = ["Quản trị viên","Kỹ sư TTBYT","Người dùng khoa"];
+function activeAdminCount(excludeId = 0) {
+  return db.prepare(`
+    SELECT COUNT(*) AS c FROM users
+    WHERE role='Quản trị viên' AND status='Hoạt động' AND (?=0 OR id<>?)
+  `).get(Number(excludeId || 0), Number(excludeId || 0)).c;
+}
+
 app.get("/api/users", (req, res) => {
   const rows = db.prepare(`
     SELECT u.id,u.full_name,u.username,u.role,u.department_code,u.status,u.phone,
@@ -1252,6 +1260,8 @@ app.post("/api/users", (req, res) => {
   try {
     const { full_name, username, role, department_code, status, phone, password } = req.body;
     if (!full_name || !username || !role) return res.status(400).json({ error: "Thiếu họ tên, tài khoản hoặc vai trò." });
+    if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Vai trò người dùng không hợp lệ." });
+    if (status && !["Hoạt động","Ngừng hoạt động"].includes(status)) return res.status(400).json({ error: "Trạng thái người dùng không hợp lệ." });
     if (AUTH_REQUIRED && !password) return res.status(400).json({ error: "Khi bật xác thực, người dùng mới phải có mật khẩu." });
     const info = db.prepare(`
       INSERT INTO users (full_name, username, role, department_code, status, phone)
@@ -1270,6 +1280,13 @@ app.put("/api/users/:id", (req, res) => {
     const { full_name, username, role, department_code, status, phone, password } = req.body;
     const old = db.prepare("SELECT * FROM users WHERE id=?").get(Number(req.params.id));
     if (!old) return res.status(404).json({ error: "Không tìm thấy người dùng." });
+    if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Vai trò người dùng không hợp lệ." });
+    if (!["Hoạt động","Ngừng hoạt động"].includes(status || "Hoạt động")) return res.status(400).json({ error: "Trạng thái người dùng không hợp lệ." });
+    const wouldRemoveActiveAdmin = old.role === "Quản trị viên" && old.status === "Hoạt động"
+      && (role !== "Quản trị viên" || (status || "Hoạt động") !== "Hoạt động");
+    if (wouldRemoveActiveAdmin && activeAdminCount(old.id) === 0) {
+      return res.status(400).json({ error: "Không thể hạ quyền hoặc ngừng hoạt động Quản trị viên cuối cùng." });
+    }
     db.prepare(`
       UPDATE users SET full_name=?, username=?, role=?, department_code=?, status=?, phone=?
       WHERE id=?
@@ -1285,9 +1302,17 @@ app.put("/api/users/:id", (req, res) => {
 
 app.delete("/api/users/:id", (req, res) => {
   const id = Number(req.params.id);
+  const old = db.prepare("SELECT * FROM users WHERE id=?").get(id);
+  if (!old) return res.status(404).json({ error: "Không tìm thấy người dùng." });
+  if (AUTH_REQUIRED && Number(req.authUser?.id || 0) === id) {
+    return res.status(400).json({ error: "Không thể tự xóa tài khoản đang đăng nhập." });
+  }
+  if (old.role === "Quản trị viên" && old.status === "Hoạt động" && activeAdminCount(id) === 0) {
+    return res.status(400).json({ error: "Không thể xóa Quản trị viên cuối cùng." });
+  }
   db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
   db.prepare("DELETE FROM users WHERE id=?").run(id);
-  writeAudit(req.authUser?.full_name || "Quản trị viên", "Xóa người dùng", "user", id, "");
+  writeAudit(req.authUser?.full_name || "Quản trị viên", "Xóa người dùng", "user", id, old.username || "");
   res.json({ ok: true });
 });
 
