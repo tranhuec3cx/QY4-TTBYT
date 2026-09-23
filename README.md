@@ -337,6 +337,7 @@ Khuyến nghị:
 
 Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** để xem một checklist tự động trước khi chạy thật hoặc demo Hội đồng. Màn hình kiểm tra:
 
+- database SQLite đang sử dụng có `PRAGMA quick_check = ok` hay không;
 - dữ liệu mẫu đã tắt hay chưa;
 - xác thực và Quản trị viên có sẵn sàng hay không;
 - có gói sao lưu hoàn chỉnh gồm **SQLite + snapshot ảnh/video/tài liệu đính kèm** hay chưa;
@@ -403,7 +404,7 @@ Các nội dung có thể phát triển sau:
 
 ## 13. Checklist trước khi đưa vào dùng thật
 
-- [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý**.
+- [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai**; xác nhận **Toàn vẹn database SQLite = Đạt** và xử lý hết mục **Cần xử lý**.
 - [ ] Tạo **gói backup** và kiểm tra có cả file `.sqlite` và thư mục `.files` đi kèm.
 - [ ] Tắt demo seed: `QY4_DEMO_SEED=0`.
 - [ ] Đặt `QY4_TIME_ZONE=Asia/Bangkok` hoặc múi giờ +07 phù hợp.
