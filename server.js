@@ -874,7 +874,10 @@ function ensureCoreManagementSchema() {
 
   const incidentCols = db.prepare("PRAGMA table_info(incidents)").all().map(c => c.name);
   if (!incidentCols.includes("acknowledged_at")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_at TEXT").run();
+  if (!incidentCols.includes("acknowledged_by")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_by TEXT").run();
   if (!incidentCols.includes("completed_at")) db.prepare("ALTER TABLE incidents ADD COLUMN completed_at TEXT").run();
+  if (!incidentCols.includes("source_channel")) db.prepare("ALTER TABLE incidents ADD COLUMN source_channel TEXT").run();
+  db.prepare("UPDATE incidents SET source_channel='Không xác định' WHERE source_channel IS NULL OR trim(source_channel)=''").run();
 
   const rows = db.prepare("SELECT id, qr_uid FROM devices ORDER BY id").all();
   for (const r of rows) {
@@ -2018,9 +2021,9 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
     if ((p.create_incident === "1" || p.create_incident === "true" || normalizedCondition === "Có vấn đề") && normalizedCondition === "Có vấn đề") {
       const severity = ["Thấp","Trung bình","Cao"].includes(String(p.severity || "")) ? String(p.severity) : "Trung bình";
       const inc = db.prepare(`
-        INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note)
-        VALUES (?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, nowSql(), description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "");
+        INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+      `).run(deviceId, nowSql(), description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "", "QR");
       incidentId = inc.lastInsertRowid;
       completeIncidentRow(incidentId, deviceId, inspector, nowSql());
       saveIncidentFiles(incidentId, deviceId, files);
@@ -2052,9 +2055,9 @@ app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) 
     const noteParts = [];
     if (p.note) noteParts.push(String(p.note));
     const info = db.prepare(`
-      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note)
-      VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(deviceId, nowSql(), description, severity, reporter, reporterPhone, "Mới ghi nhận", noteParts.join("\n"), "");
+      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `).run(deviceId, nowSql(), description, severity, reporter, reporterPhone, "Mới ghi nhận", noteParts.join("\n"), "", "QR");
     completeIncidentRow(info.lastInsertRowid, deviceId, reporter, nowSql());
     saveIncidentFiles(info.lastInsertRowid, deviceId, files);
     writeAudit(reporter, "Báo sự cố QR", "incident", info.lastInsertRowid, description);
@@ -2204,13 +2207,14 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
       reporter_phone: String(p.reporter_phone || "").trim(),
       status: normalizeIncidentPayloadStatus(p.status || "Mới ghi nhận", "Mới ghi nhận", null),
       note: p.note || "",
-      local_resolution_note: p.local_resolution_note || ""
+      local_resolution_note: p.local_resolution_note || "",
+      source_channel: "Nhập trực tiếp"
     };
     const deviceExists = db.prepare("SELECT id FROM devices WHERE id=?").get(payload.device_id);
     if (!deviceExists) return res.status(400).json({ error: "Thiết bị không tồn tại." });
     const info = db.prepare(`
-      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note)
-      VALUES (@device_id,@incident_datetime,@description,@severity,@reporter,@reporter_phone,@status,@note,@local_resolution_note)
+      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+      VALUES (@device_id,@incident_datetime,@description,@severity,@reporter,@reporter_phone,@status,@note,@local_resolution_note,@source_channel)
     `).run(payload);
     completeIncidentRow(info.lastInsertRowid, payload.device_id, payload.reporter, payload.incident_datetime);
     saveIncidentFiles(info.lastInsertRowid, payload.device_id, req.files);
@@ -2261,11 +2265,12 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       WHERE id=@id
     `).run(payload);
     touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
+    const receivingActor = String(req.authUser?.full_name || p.acknowledged_by || "Khoa Trang bị").trim();
     if (payload.status === "Đã tiếp nhận" && !old.acknowledged_at) {
-      db.prepare("UPDATE incidents SET acknowledged_at=? WHERE id=?").run(nowSql(), Number(req.params.id));
+      db.prepare("UPDATE incidents SET acknowledged_at=?, acknowledged_by=? WHERE id=?").run(nowSql(), receivingActor, Number(req.params.id));
     }
     if (payload.status === "Đã xử lý tại chỗ") {
-      db.prepare("UPDATE incidents SET acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), completed_at=COALESCE(NULLIF(completed_at,''),?) WHERE id=?").run(nowSql(), nowSql(), Number(req.params.id));
+      db.prepare("UPDATE incidents SET acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), completed_at=COALESCE(NULLIF(completed_at,''),?) WHERE id=?").run(nowSql(), receivingActor, nowSql(), Number(req.params.id));
     }
     saveIncidentFiles(Number(req.params.id), payload.device_id, req.files);
     writeAudit(payload.reporter, "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
@@ -2283,10 +2288,10 @@ app.post("/api/incidents/:id/acknowledge", (req, res) => {
     if (incident.status === "Đã chuyển sửa chữa" || incident.status === "Đã xử lý tại chỗ") {
       return res.status(400).json({ error:"Sự cố đã được xử lý/chuyển sửa chữa." });
     }
-    const actor = String(req.body?.actor || "Khoa Trang bị").trim();
+    const actor = String(req.authUser?.full_name || req.body?.actor || "Khoa Trang bị").trim();
     const at = incident.acknowledged_at || nowSql();
-    db.prepare("UPDATE incidents SET status='Đã tiếp nhận', acknowledged_at=?, updated_at=?, updated_by=? WHERE id=?")
-      .run(at, nowSql(), actor, incident.id);
+    db.prepare("UPDATE incidents SET status='Đã tiếp nhận', acknowledged_at=?, acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), updated_at=?, updated_by=? WHERE id=?")
+      .run(at, actor, nowSql(), actor, incident.id);
     writeAudit(actor, "Tiếp nhận sự cố", "incident", incident.id, incident.incident_code || incident.description || "");
     res.json({ok:true, acknowledged_at:at});
   } catch(e) {
@@ -2302,7 +2307,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     if (incident.status === "Đã xử lý tại chỗ") return res.status(400).json({ error: "Sự cố đã xử lý tại chỗ, không chuyển sửa chữa." });
     const existed = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(incident.id);
     if (existed) return res.json({ ok: true, repair_id: existed.id, existed: true });
-    const actor = req.body?.actor || incident.reporter || "";
+    const actor = req.authUser?.full_name || req.body?.actor || "Khoa Trang bị";
     const payload = {
       device_id: Number(incident.device_id),
       repair_date: normalizeDateTime(req.body?.repair_date || incident.incident_datetime || nowSql()),
@@ -2324,7 +2329,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
         INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, processing_status, incident_id, received_at, updated_at, completed_at)
         VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
       `).run(payload);
-      db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), incident.id);
+      db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Khoa Trang bị"), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
       writeHistory("repair", info.lastInsertRowid, "Hệ thống", "Tạo từ sự cố", "", payload.processing_status, `Tạo phiếu sửa chữa từ sự cố ${incident.incident_code || ('#' + incident.id)}`, 0, "Tự động", payload.received_at);
       writeAudit(actor || "Khoa Trang bị", "Chuyển sự cố sang sửa chữa", "incident", incident.id, `Phiếu sửa chữa #${info.lastInsertRowid}`);
@@ -2932,6 +2937,104 @@ app.get("/api/reports/summary", (req, res) => {
   `).all();
   const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices GROUP BY status ORDER BY count DESC").all();
   res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, frequentRepairs, replaceList, costByDepartment, statusRatio });
+});
+
+app.get("/api/reports/kpi", (req, res) => {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,"0");
+  const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  const fromDate = String(req.query.from_date || `${now.getFullYear()}-01-01`).slice(0,10);
+  const toDate = String(req.query.to_date || today).slice(0,10);
+  const departmentCode = String(req.query.department_code || "ALL").trim();
+  const responseTargetMinutes = Math.max(1, Math.min(1440, Number(req.query.response_target_minutes || 30)));
+
+  let sql = `
+    SELECT i.id,i.incident_code,i.device_id,i.incident_datetime,i.description,i.status,i.reporter,
+           i.source_channel,i.acknowledged_at,i.acknowledged_by,i.completed_at,
+           COALESCE(NULLIF(i.department_snapshot,''), d.name, dv.department_code) AS department_name,
+           COALESCE(NULLIF(i.device_code_snapshot,''), dv.device_code) AS device_code,
+           COALESCE(NULLIF(i.device_name_snapshot,''), dv.name) AS device_name,
+           dv.department_code,
+           r.id AS repair_id,r.processing_status AS repair_status,r.completed_at AS repair_completed_at,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+             THEN MAX(0,(julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60) ELSE NULL END AS response_minutes,
+           CASE
+             WHEN COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')) IS NOT NULL
+             THEN MAX(0,(julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))-julianday(i.incident_datetime))*24*60)
+             ELSE NULL
+           END AS resolution_minutes
+    FROM incidents i
+    JOIN devices dv ON dv.id=i.device_id
+    LEFT JOIN departments d ON d.code=dv.department_code
+    LEFT JOIN repairs r ON r.id=(SELECT rr.id FROM repairs rr WHERE rr.incident_id=i.id ORDER BY rr.id DESC LIMIT 1)
+    WHERE substr(i.incident_datetime,1,10)>=? AND substr(i.incident_datetime,1,10)<=?
+  `;
+  const params = [fromDate,toDate];
+  if (departmentCode && departmentCode !== "ALL") {
+    sql += " AND dv.department_code=?";
+    params.push(departmentCode);
+  }
+  sql += " ORDER BY i.incident_datetime DESC,i.id DESC";
+  const records = db.prepare(sql).all(...params).map(r => ({
+    ...r,
+    source_channel: r.source_channel || "Không xác định",
+    response_minutes: r.response_minutes == null ? null : Number(Number(r.response_minutes).toFixed(1)),
+    resolution_minutes: r.resolution_minutes == null ? null : Number(Number(r.resolution_minutes).toFixed(1))
+  }));
+
+  const median = values => {
+    const arr = values.filter(v => Number.isFinite(v)).sort((a,b)=>a-b);
+    if (!arr.length) return null;
+    const m = Math.floor(arr.length/2);
+    return arr.length % 2 ? arr[m] : (arr[m-1]+arr[m])/2;
+  };
+  const avg = values => values.length ? values.reduce((s,v)=>s+v,0)/values.length : null;
+  const responseValues = records.map(r=>r.response_minutes).filter(v=>Number.isFinite(v));
+  const resolutionValues = records.map(r=>r.resolution_minutes).filter(v=>Number.isFinite(v));
+  const qrIncidents = records.filter(r=>r.source_channel==="QR").length;
+  const directIncidents = records.filter(r=>r.source_channel==="Nhập trực tiếp").length;
+  const unknownIncidents = records.filter(r=>!["QR","Nhập trực tiếp"].includes(r.source_channel)).length;
+  const withinTarget = responseValues.filter(v=>v<=responseTargetMinutes).length;
+  const resolved = records.filter(r=>Number.isFinite(r.resolution_minutes)).length;
+  const open = records.filter(r=>["Mới ghi nhận","Đã tiếp nhận"].includes(normalizeIncidentStatusForUi(r.status,r.repair_id))).length;
+
+  const sourceMap = new Map();
+  for (const r of records) sourceMap.set(r.source_channel,(sourceMap.get(r.source_channel)||0)+1);
+  const bySource = Array.from(sourceMap.entries()).map(([source,count])=>({source,count})).sort((a,b)=>b.count-a.count);
+
+  const monthMap = new Map();
+  for (const r of records) {
+    const month=String(r.incident_datetime||"").slice(0,7);
+    if(!month) continue;
+    const cur=monthMap.get(month)||{month,count:0,qr_count:0};
+    cur.count++;
+    if(r.source_channel==="QR") cur.qr_count++;
+    monthMap.set(month,cur);
+  }
+
+  res.json({
+    period:{from_date:fromDate,to_date:toDate,department_code:departmentCode,response_target_minutes:responseTargetMinutes},
+    summary:{
+      total_incidents:records.length,
+      qr_incidents:qrIncidents,
+      direct_incidents:directIncidents,
+      unknown_source_incidents:unknownIncidents,
+      qr_share_percent:records.length ? Number((qrIncidents*100/records.length).toFixed(1)) : 0,
+      responded_incidents:responseValues.length,
+      response_data_completeness_percent:records.length ? Number((responseValues.length*100/records.length).toFixed(1)) : 0,
+      avg_response_minutes:avg(responseValues)==null ? null : Number(avg(responseValues).toFixed(1)),
+      median_response_minutes:median(responseValues)==null ? null : Number(median(responseValues).toFixed(1)),
+      response_within_target:withinTarget,
+      response_within_target_percent:responseValues.length ? Number((withinTarget*100/responseValues.length).toFixed(1)) : 0,
+      resolved_incidents:resolved,
+      avg_resolution_minutes:avg(resolutionValues)==null ? null : Number(avg(resolutionValues).toFixed(1)),
+      median_resolution_minutes:median(resolutionValues)==null ? null : Number(median(resolutionValues).toFixed(1)),
+      open_incidents:open
+    },
+    by_source:bySource,
+    by_month:Array.from(monthMap.values()).sort((a,b)=>a.month.localeCompare(b.month)),
+    records
+  });
 });
 
 app.get("/api/force-report", (req, res) => {
