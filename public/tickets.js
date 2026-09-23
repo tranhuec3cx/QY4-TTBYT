@@ -4,7 +4,7 @@ let DEVICES = [];
 function norm(value){ return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
 function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
 function getDevice(id){ return DEVICES.find(d => Number(d.id) === Number(id)) || null; }
-function deviceLabel(d){ return d ? `${d.device_code || d.serial || "TB-"+d.id} - ${d.name || ""}` : ""; }
+function deviceLabel(d){ return devicePickerLabel(d); }
 function statusClass(v){ if(v==="Đã chuyển sửa chữa") return "green"; if(v==="Đã xử lý tại chỗ") return "blue"; if(v==="Đã tiếp nhận") return "orange"; if(v==="Mới ghi nhận") return "yellow"; return "gray"; }
 
 function normalizeIncidentStatus(status, linkedRepairId){
@@ -133,14 +133,13 @@ function sourceTagClass(source){
 function renderRows(rows){
   q("countLabel").textContent = `${rows.length} sự cố`;
   renderIncidentStats(rows);
-  if(!rows.length){ q("rows").innerHTML = `<tr><td colspan="11" class="center-empty">Chưa có sự cố phù hợp.</td></tr>`; return; }
+  if(!rows.length){ q("rows").innerHTML = `<tr><td colspan="10" class="center-empty">Chưa có sự cố phù hợp.</td></tr>`; return; }
   q("rows").innerHTML = rows.map((r,i)=>`
     <tr>
       <td>${i+1}</td>
-      <td>${formatDateTimeVN(r.incident_datetime)}</td>
-      <td class="device-code">${esc(r.device_code || "")}</td>
-      <td><b>${esc(r.device_name || "")}</b></td>
-      <td>${esc(r.location || "")}</td>
+      <td>${formatDateTimeVNLines(r.incident_datetime)}</td>
+      <td>${technicalDeviceCell(r)}</td>
+      <td>${technicalLocationCell(r)}</td>
       <td class="wrap-text">${esc(r.description || "")}</td>
       <td><span class="tag ${sourceTagClass(r.source_channel)}">${esc(r.source_channel || "Không xác định")}</span></td>
       <td>${esc(r.reporter || "")}</td>
