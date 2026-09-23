@@ -1917,56 +1917,84 @@ app.delete("/api/operation-logs/:id", (req, res) => {
 });
 
 app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
-  const p = req.body || {};
-  const file = req.file || null;
-  const info = db.prepare(`
-    INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-    VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-  `).run({
-    device_id: Number(p.device_id),
-    name: p.name || "",
-    type: p.type || "",
-    doc_date: p.doc_date || "",
-    updated_by: p.updated_by || "",
-    note: p.note || "",
-    original_name: file ? file.originalname : null,
-    stored_name: file ? file.filename : null,
-    file_path: file ? `/uploads/documents/${file.filename}` : null,
-    file_mime: file ? file.mimetype : null,
-    file_size: file ? file.size : 0
-  });
-  res.json({ id: info.lastInsertRowid, file_path: file ? `/uploads/documents/${file.filename}` : null, original_name: file ? file.originalname : null });
+  try {
+    const p = req.body || {};
+    const file = req.file || null;
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
+    if (!String(p.name || "").trim() && !file) {
+      return res.status(400).json({ error: "Tài liệu phải có tên hoặc file đính kèm." });
+    }
+    const payload = {
+      device_id: deviceId,
+      name: String(p.name || file?.originalname || "Tài liệu").trim(),
+      type: String(p.type || "").trim(),
+      doc_date: String(p.doc_date || localDateISO()).slice(0,10),
+      updated_by: String(p.updated_by || "").trim(),
+      note: p.note || "",
+      original_name: file ? file.originalname : null,
+      stored_name: file ? file.filename : null,
+      file_path: file ? `/uploads/documents/${file.filename}` : null,
+      file_mime: file ? file.mimetype : null,
+      file_size: file ? file.size : 0
+    };
+    const info = db.prepare(`
+      INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
+      VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+    `).run(payload);
+    writeAudit(requestActor(req, payload.updated_by || "Khoa Trang bị"), "Tạo tài liệu", "document", info.lastInsertRowid, payload.name);
+    res.json({ id: info.lastInsertRowid, file_path: payload.file_path, original_name: payload.original_name });
+  } catch (e) {
+    cleanupSingleUpload(req);
+    console.error("POST /api/documents error:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
-  const p = req.body || {};
-  const id = Number(req.params.id);
-  const old = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
-  if (!old) {
-    if (req.file) safeUnlink(req.file.path);
-    return res.status(404).json({ error: "Không tìm thấy tài liệu." });
+  try {
+    const p = req.body || {};
+    const id = Number(req.params.id);
+    const old = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
+    if (!old) {
+      cleanupSingleUpload(req);
+      return res.status(404).json({ error: "Không tìm thấy tài liệu." });
+    }
+    const file = req.file || null;
+    const payload = {
+      id,
+      name: String(p.name ?? old.name ?? "").trim(),
+      type: String(p.type ?? old.type ?? "").trim(),
+      doc_date: String(p.doc_date ?? old.doc_date ?? localDateISO()).slice(0,10),
+      updated_by: String(p.updated_by ?? old.updated_by ?? "").trim(),
+      note: p.note ?? old.note ?? "",
+      original_name: file ? file.originalname : old.original_name,
+      stored_name: file ? file.filename : old.stored_name,
+      file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
+      file_mime: file ? file.mimetype : old.file_mime,
+      file_size: file ? file.size : (old.file_size || 0)
+    };
+    db.prepare(`
+      UPDATE documents SET
+        name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
+        original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
+      WHERE id=@id
+    `).run(payload);
+    // Chỉ xóa file vật lý cũ sau khi DB đã cập nhật thành công.
+    if (file && old.file_path && old.file_path !== payload.file_path) {
+      safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
+    }
+    writeAudit(requestActor(req, payload.updated_by || "Khoa Trang bị"), "Cập nhật tài liệu", "document", id, payload.name);
+    res.json({ ok: true, file_path: payload.file_path });
+  } catch (e) {
+    cleanupSingleUpload(req);
+    console.error("PUT /api/documents/:id error:", e);
+    res.status(500).json({ error: e.message });
   }
-  const file = req.file || null;
-  if (file && old.file_path) safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
-  db.prepare(`
-    UPDATE documents SET
-      name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
-      original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
-    WHERE id=@id
-  `).run({
-    id,
-    name: p.name || "",
-    type: p.type || "",
-    doc_date: p.doc_date || "",
-    updated_by: p.updated_by || "",
-    note: p.note || "",
-    original_name: file ? file.originalname : old.original_name,
-    stored_name: file ? file.filename : old.stored_name,
-    file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
-    file_mime: file ? file.mimetype : old.file_mime,
-    file_size: file ? file.size : (old.file_size || 0)
-  });
-  res.json({ ok: true });
 });
 
 app.get("/api/documents/:id/download", (req, res) => {
@@ -1980,8 +2008,10 @@ app.get("/api/documents/:id/download", (req, res) => {
 app.delete("/api/documents/:id", (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
-  if (row && row.file_path) safeUnlink(path.join(__dirname, row.file_path.replace(/^\//, "")));
+  if (!row) return res.status(404).json({ error: "Không tìm thấy tài liệu." });
   db.prepare("DELETE FROM documents WHERE id=?").run(id);
+  if (row.file_path) safeUnlink(path.join(__dirname, row.file_path.replace(/^\//, "")));
+  writeAudit(requestActor(req), "Xóa tài liệu", "document", id, row.name || "");
   res.json({ ok: true });
 });
 
