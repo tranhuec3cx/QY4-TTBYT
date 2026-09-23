@@ -431,7 +431,18 @@ function technicalFileReference(filePath) {
   if(maintenance) return {type:"Bảo dưỡng",id:maintenance.id};
   const inspection=db.prepare("SELECT id FROM inspections WHERE file_note=? LIMIT 1").get(value);
   if(inspection) return {type:"Kiểm định/Hiệu chuẩn",id:inspection.id};
+  const incidentFile=db.prepare("SELECT incident_id,id FROM incident_files WHERE file_path=? LIMIT 1").get(value);
+  if(incidentFile) return {type:"Sự cố",id:incidentFile.incident_id || incidentFile.id};
   return null;
+}
+function protectedTechnicalDocumentReason(row) {
+  if(!row) return "";
+  const ref=technicalFileReference(row.file_path);
+  if(ref) return `File đang được ${ref.type} #${ref.id} tham chiếu`;
+  const protectedTypes=new Set(["Bảo dưỡng","Kiểm định","Hiệu chuẩn","Kiểm xạ","ATBX","An toàn bức xạ","Sự cố QR","Kiểm tra"]);
+  const type=String(row.type || "").trim();
+  if(protectedTypes.has(type) && String(row.file_path || "").trim()) return `Tài liệu loại ${type} là hồ sơ kỹ thuật cần bảo toàn`;
+  return "";
 }
 
 function zonedDateParts(date = new Date(), includeTime = false) {
@@ -2361,6 +2372,15 @@ app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
       return res.status(404).json({ error: "Không tìm thấy tài liệu." });
     }
     const file = req.file || null;
+    const protectedReason=protectedTechnicalDocumentReason(old);
+    if(protectedReason && file){
+      cleanupSingleUpload(req);
+      return res.status(409).json({error:`${protectedReason}; không được thay file. Hãy thêm một tài liệu mới nếu có bản cập nhật.`});
+    }
+    if(protectedReason && p.type !== undefined && String(p.type || "").trim() !== String(old.type || "").trim()){
+      cleanupSingleUpload(req);
+      return res.status(409).json({error:`${protectedReason}; không được đổi loại tài liệu để tránh phá chuỗi hồ sơ.`});
+    }
     const payload = {
       id,
       name: String(p.name ?? old.name ?? "").trim(),
@@ -2407,9 +2427,9 @@ app.delete("/api/documents/:id", (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
   if (!row) return res.status(404).json({ error: "Không tìm thấy tài liệu." });
-  const technicalRef=technicalFileReference(row.file_path);
-  if(technicalRef){
-    return res.status(400).json({error:`File đang được ${technicalRef.type} #${technicalRef.id} sử dụng; không được xóa Tài liệu để tránh mất hồ sơ kỹ thuật.`});
+  const protectedReason=protectedTechnicalDocumentReason(row);
+  if(protectedReason){
+    return res.status(409).json({error:`${protectedReason}; không được xóa tài liệu để bảo toàn hồ sơ kỹ thuật.`});
   }
   db.prepare("DELETE FROM documents WHERE id=?").run(id);
   if (row.file_path) safeUnlink(path.join(__dirname, row.file_path.replace(/^\//, "")));
