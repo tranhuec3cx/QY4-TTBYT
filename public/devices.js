@@ -130,7 +130,7 @@ async function loadData() {
   q("groupFilter").innerHTML = opt(META.groups, "Tất cả nhóm");
   const years = [...new Set(DEVICES.map(d => d.year_in_use))].sort((a,b)=>b-a);
   q("yearFilter").innerHTML = '<option value="ALL">Tất cả năm</option>' + years.map(y => `<option value="${y}">${y}</option>`).join("");
-  q("statusFilter").innerHTML = '<option value="ALL">Tất cả trạng thái</option><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option>';
+  q("statusFilter").innerHTML = '<option value="ALL">Tất cả trạng thái</option><option>Đang hoạt động</option><option>Hoạt động hạn chế</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option>';
   q("qualityFilter").innerHTML = '<option value="ALL">Tất cả cấp chất lượng</option><option value="1">Cấp 1</option><option value="2">Cấp 2</option><option value="3">Cấp 3</option><option value="4">Cấp 4</option><option value="5">Cấp 5</option>';
   const fundings = [...new Set(DEVICES.map(d => (d.funding || "").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b, "vi"));
   if (q("fundingFilter")) q("fundingFilter").innerHTML = '<option value="ALL">Tất cả nguồn kinh phí</option>' + fundings.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
