@@ -553,6 +553,9 @@ function initDb() {
       content TEXT NOT NULL,
       result TEXT NOT NULL,
       note TEXT,
+      source_channel TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -912,6 +915,12 @@ function ensureCoreManagementSchema() {
   if (!cols.includes("qr_uid")) db.prepare("ALTER TABLE devices ADD COLUMN qr_uid TEXT").run();
   if (!cols.includes("is_archived")) db.prepare("ALTER TABLE devices ADD COLUMN is_archived INTEGER DEFAULT 0").run();
   if (!cols.includes("archived_at")) db.prepare("ALTER TABLE devices ADD COLUMN archived_at TEXT").run();
+
+  const checkCols = db.prepare("PRAGMA table_info(daily_checks)").all().map(c => c.name);
+  if (!checkCols.includes("source_channel")) db.prepare("ALTER TABLE daily_checks ADD COLUMN source_channel TEXT").run();
+  if (!checkCols.includes("department_code_snapshot")) db.prepare("ALTER TABLE daily_checks ADD COLUMN department_code_snapshot TEXT").run();
+  if (!checkCols.includes("location_snapshot")) db.prepare("ALTER TABLE daily_checks ADD COLUMN location_snapshot TEXT").run();
+  db.prepare("UPDATE daily_checks SET source_channel='Không xác định' WHERE source_channel IS NULL OR trim(source_channel)=''").run();
 
   const incidentCols = db.prepare("PRAGMA table_info(incidents)").all().map(c => c.name);
   if (!incidentCols.includes("acknowledged_at")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_at TEXT").run();
@@ -2063,9 +2072,9 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
     if (p.note) noteParts.push(`Ghi chú: ${p.note}`);
     const resultText = normalizedCondition === "Bình thường" ? "Bình thường" : "Có vấn đề";
     const info = db.prepare(`
-      INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note)
-      VALUES (?,?,?,?,?,?)
-    `).run(deviceId, nowSql(), inspector, "Kiểm tra nhanh bằng mã QR", resultText, noteParts.join("\n"));
+      INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).run(deviceId, nowSql(), inspector, "Kiểm tra nhanh bằng mã QR", resultText, noteParts.join("\n"), "QR", device.department_code || "", device.location || "");
     for (const file of files) {
       db.prepare(`
         INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
@@ -2143,12 +2152,26 @@ app.get("/api/checks", (req, res) => {
 });
 
 app.post("/api/checks", (req, res) => {
-  const p = req.body;
+  const p = req.body || {};
+  const deviceId = Number(p.device_id || 0);
+  const device = db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(deviceId);
+  if (!device) return res.status(400).json({ error:"Thiết bị không tồn tại." });
+  const payload = {
+    device_id:deviceId,
+    check_datetime:normalizeDateTime(p.check_datetime || nowSql()),
+    inspector:String(p.inspector || "").trim(),
+    content:String(p.content || "").trim(),
+    result:String(p.result || "").trim(),
+    note:p.note || "",
+    source_channel:"Nhập trực tiếp",
+    department_code_snapshot:device.department_code || "",
+    location_snapshot:device.location || ""
+  };
   const info = db.prepare(`
-    INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note)
-    VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note)
-  `).run(p);
-  writeHistory("check", info.lastInsertRowid, p.inspector, "Tạo mới", "", p.result, p.content || p.note || "");
+    INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
+    VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note,@source_channel,@department_code_snapshot,@location_snapshot)
+  `).run(payload);
+  writeHistory("check", info.lastInsertRowid, payload.inspector, "Tạo mới", "", payload.result, payload.content || payload.note || "");
   res.json({ id: info.lastInsertRowid });
 });
 
@@ -2159,7 +2182,14 @@ app.put("/api/checks/:id", (req, res) => {
     UPDATE daily_checks
     SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note
     WHERE id=@id
-  `).run({ ...p, id: Number(req.params.id) });
+  `).run({
+    id:Number(req.params.id),
+    check_datetime:normalizeDateTime(p.check_datetime || old.check_datetime || nowSql()),
+    inspector:p.inspector || old.inspector || "",
+    content:p.content || old.content || "",
+    result:p.result || old.result || "",
+    note:p.note ?? old.note ?? ""
+  });
   writeHistory("check", Number(req.params.id), p.inspector, "Cập nhật", old.result || "", p.result || "", p.content || p.note || "");
   res.json({ ok: true });
 });
@@ -3084,6 +3114,25 @@ app.get("/api/reports/kpi", (req, res) => {
     resolution_minutes: r.resolution_minutes == null ? null : Number(Number(r.resolution_minutes).toFixed(1))
   }));
 
+  let checkSql = `
+    SELECT c.id,c.device_id,c.check_datetime,c.inspector,c.result,c.source_channel,
+           c.department_code_snapshot,c.location_snapshot,dv.device_code,dv.name AS device_name
+    FROM daily_checks c
+    JOIN devices dv ON dv.id=c.device_id
+    WHERE substr(c.check_datetime,1,10)>=? AND substr(c.check_datetime,1,10)<=?
+      AND c.source_channel='QR'
+  `;
+  const checkParams=[fromDate,toDate];
+  if (departmentCode && departmentCode !== "ALL") {
+    checkSql += " AND c.department_code_snapshot=?";
+    checkParams.push(departmentCode);
+  }
+  checkSql += " ORDER BY c.check_datetime DESC,c.id DESC";
+  const qrChecks=db.prepare(checkSql).all(...checkParams);
+  const qrCheckIssueCount=qrChecks.filter(r=>String(r.result||"")==="Có vấn đề").length;
+  const qrCheckNormalCount=qrChecks.filter(r=>String(r.result||"")==="Bình thường").length;
+  const qrCheckUniqueDevices=new Set(qrChecks.map(r=>Number(r.device_id))).size;
+
   const median = values => {
     const arr = values.filter(v => Number.isFinite(v)).sort((a,b)=>a-b);
     if (!arr.length) return null;
@@ -3108,9 +3157,17 @@ app.get("/api/reports/kpi", (req, res) => {
   for (const r of records) {
     const month=String(r.incident_datetime||"").slice(0,7);
     if(!month) continue;
-    const cur=monthMap.get(month)||{month,count:0,qr_count:0};
+    const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
     cur.count++;
     if(r.source_channel==="QR") cur.qr_count++;
+    monthMap.set(month,cur);
+  }
+
+  for (const r of qrChecks) {
+    const month=String(r.check_datetime||"").slice(0,7);
+    if(!month) continue;
+    const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
+    cur.qr_checks=(cur.qr_checks||0)+1;
     monthMap.set(month,cur);
   }
 
@@ -3122,6 +3179,10 @@ app.get("/api/reports/kpi", (req, res) => {
       direct_incidents:directIncidents,
       unknown_source_incidents:unknownIncidents,
       qr_share_percent:records.length ? Number((qrIncidents*100/records.length).toFixed(1)) : 0,
+      qr_checks:qrChecks.length,
+      qr_check_unique_devices:qrCheckUniqueDevices,
+      qr_check_issue_count:qrCheckIssueCount,
+      qr_check_normal_count:qrCheckNormalCount,
       responded_incidents:responseValues.length,
       response_data_completeness_percent:records.length ? Number((responseValues.length*100/records.length).toFixed(1)) : 0,
       avg_response_minutes:avg(responseValues)==null ? null : Number(avg(responseValues).toFixed(1)),
@@ -3135,6 +3196,7 @@ app.get("/api/reports/kpi", (req, res) => {
     },
     by_source:bySource,
     by_month:Array.from(monthMap.values()).sort((a,b)=>a.month.localeCompare(b.month)),
+    check_records:qrChecks,
     records
   });
 });
