@@ -15,6 +15,7 @@ const SESSION_COOKIE = "qy4_session";
 const SESSION_HOURS = Math.max(1, Number(process.env.QY4_SESSION_HOURS || 12));
 const QR_RATE_LIMIT = Math.max(5, Number(process.env.QY4_QR_RATE_LIMIT || 20));
 const QR_RATE_WINDOW_MS = Math.max(10000, Number(process.env.QY4_QR_RATE_WINDOW_MS || 60000));
+const APP_TIME_ZONE = String(process.env.QY4_TIME_ZONE || "Asia/Bangkok").trim() || "Asia/Bangkok";
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
@@ -298,19 +299,23 @@ function safeUnlink(filePath) {
 }
 
 function localDateISO(date = new Date()) {
-  const d = new Date(date);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date(date));
+  const get = type => parts.find(p => p.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+function shiftIsoDate(value, days) {
+  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(value || "").slice(0,10);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2])-1, Number(m[3]) + Number(days || 0), 12, 0, 0));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
 }
 function localDatePlusDays(days, base = new Date()) {
-  const d = new Date(base);
-  d.setHours(12,0,0,0);
-  d.setDate(d.getDate() + Number(days || 0));
-  return localDateISO(d);
-}
-function parseLocalDate(value) {
-  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), 12, 0, 0, 0) : null;
+  return shiftIsoDate(localDateISO(base), days);
 }
 function nowSql() {
   const d = new Date();
@@ -802,17 +807,13 @@ function seedData() {
 
 function dateRangeFromPreset(preset, date, fromDate, toDate) {
   if (fromDate && toDate) return { start: String(fromDate).slice(0,10), end: String(toDate).slice(0,10) };
-  const selected = parseLocalDate(date) || new Date();
-  selected.setHours(12,0,0,0);
-  let start = new Date(selected), end = new Date(selected);
+  const selected = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : localDateISO();
   if (preset === "yesterday") {
-    start.setDate(start.getDate() - 1);
-    end = new Date(start);
-  } else if (preset === "last7") {
-    start.setDate(start.getDate() - 6);
-    end = new Date(selected);
+    const day = shiftIsoDate(selected, -1);
+    return { start: day, end: day };
   }
-  return { start: localDateISO(start), end: localDateISO(end) };
+  if (preset === "last7") return { start: shiftIsoDate(selected, -6), end: selected };
+  return { start: selected, end: selected };
 }
 
 function normalizeDeviceCode(value, departmentCode = "XX", groupCode = "K") {
@@ -2966,17 +2967,16 @@ app.get("/api/dashboard/operations", (req, res) => {
   const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs WHERE processing_status='Chờ linh kiện'").get().c;
   const qrChecksToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=?").get(today).c;
   const qrIssuesToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=? AND result='Có vấn đề'").get(today).c;
-  const monthStart = new Date();
-  monthStart.setHours(12,0,0,0);
-  monthStart.setDate(1);
-  monthStart.setMonth(monthStart.getMonth()-5);
+  const todayParts = today.split("-").map(Number);
+  const monthStartUtc = new Date(Date.UTC(todayParts[0], todayParts[1]-1-5, 1, 12, 0, 0));
+  const monthStart = `${monthStartUtc.getUTCFullYear()}-${String(monthStartUtc.getUTCMonth()+1).padStart(2,"0")}-01`;
   const monthlyIncidents = db.prepare(`
     SELECT substr(incident_datetime,1,7) month, COUNT(*) count
     FROM incidents
     WHERE substr(incident_datetime,1,10)>=?
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
-  `).all(localDateISO(monthStart));
+  `).all(monthStart);
   res.json({ total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
 });
 
