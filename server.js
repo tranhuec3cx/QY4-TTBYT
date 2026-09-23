@@ -1370,24 +1370,48 @@ app.get("/api/departments", (req, res) => {
 });
 
 app.post("/api/departments", (req, res) => {
-  const { code, name } = req.body;
-  db.prepare("INSERT INTO departments (code, name) VALUES (?, ?)").run(code, name);
-  res.json({ ok: true });
+  try {
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên khoa/phòng."});
+    if(db.prepare("SELECT code FROM departments WHERE code=?").get(code)) return res.status(400).json({error:"Mã khoa/phòng đã tồn tại."});
+    db.prepare("INSERT INTO departments (code,name) VALUES (?,?)").run(code,name);
+    writeAudit(requestActor(req),"Tạo khoa/phòng","department",code,name);
+    res.json({ok:true,code});
+  } catch(e) {
+    res.status(400).json({error:e.message || "Không thể tạo khoa/phòng."});
+  }
 });
 
 app.put("/api/departments/:code", (req, res) => {
-  const oldCode = req.params.code;
-  const { code, name } = req.body;
-  const tx = db.transaction(() => {
-    if (oldCode !== code) {
-      db.prepare("UPDATE devices SET department_code = ? WHERE department_code = ?").run(code, oldCode);
-      db.prepare("UPDATE users SET department_code = ? WHERE department_code = ?").run(code, oldCode);
-      db.prepare("UPDATE operation_logs SET department_code = ? WHERE department_code = ?").run(code, oldCode);
+  try {
+    const oldCode=String(req.params.code || "").trim().toUpperCase();
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    const old=db.prepare("SELECT * FROM departments WHERE code=?").get(oldCode);
+    if(!old) return res.status(404).json({error:"Không tìm thấy khoa/phòng."});
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên khoa/phòng."});
+    if(oldCode!==code && db.prepare("SELECT code FROM departments WHERE code=?").get(code)) {
+      return res.status(400).json({error:"Mã khoa/phòng mới đã tồn tại."});
     }
-    db.prepare("UPDATE departments SET code = ?, name = ? WHERE code = ?").run(code, name, oldCode);
-  });
-  tx();
-  res.json({ ok: true });
+    const tx=db.transaction(()=>{
+      if(oldCode===code){
+        db.prepare("UPDATE departments SET name=? WHERE code=?").run(name,oldCode);
+      } else {
+        db.prepare("INSERT INTO departments (code,name) VALUES (?,?)").run(code,name);
+        db.prepare("UPDATE devices SET department_code=? WHERE department_code=?").run(code,oldCode);
+        db.prepare("UPDATE users SET department_code=? WHERE department_code=?").run(code,oldCode);
+        db.prepare("UPDATE operation_logs SET department_code=? WHERE department_code=?").run(code,oldCode);
+        db.prepare("DELETE FROM departments WHERE code=?").run(oldCode);
+      }
+      writeAudit(requestActor(req),"Cập nhật khoa/phòng","department",code,`${oldCode} - ${old.name || ""} → ${code} - ${name}`);
+    });
+    tx();
+    res.json({ok:true,code});
+  } catch(e) {
+    console.error("PUT /api/departments/:code error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật khoa/phòng."});
+  }
 });
 
 app.delete("/api/departments/:code", (req, res) => {
@@ -1410,22 +1434,46 @@ app.get("/api/device-groups", (req, res) => {
 });
 
 app.post("/api/device-groups", (req, res) => {
-  const { code, name } = req.body;
-  db.prepare("INSERT INTO device_groups (code, name) VALUES (?, ?)").run(code, name);
-  res.json({ ok: true });
+  try {
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên nhóm thiết bị."});
+    if(db.prepare("SELECT code FROM device_groups WHERE code=?").get(code)) return res.status(400).json({error:"Mã nhóm thiết bị đã tồn tại."});
+    db.prepare("INSERT INTO device_groups (code,name) VALUES (?,?)").run(code,name);
+    writeAudit(requestActor(req),"Tạo nhóm thiết bị","device_group",code,name);
+    res.json({ok:true,code});
+  } catch(e) {
+    res.status(400).json({error:e.message || "Không thể tạo nhóm thiết bị."});
+  }
 });
 
 app.put("/api/device-groups/:code", (req, res) => {
-  const oldCode = req.params.code;
-  const { code, name } = req.body;
-  const tx = db.transaction(() => {
-    if (oldCode !== code) {
-      db.prepare("UPDATE devices SET group_code = ? WHERE group_code = ?").run(code, oldCode);
+  try {
+    const oldCode=String(req.params.code || "").trim().toUpperCase();
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    const old=db.prepare("SELECT * FROM device_groups WHERE code=?").get(oldCode);
+    if(!old) return res.status(404).json({error:"Không tìm thấy nhóm thiết bị."});
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên nhóm thiết bị."});
+    if(oldCode!==code && db.prepare("SELECT code FROM device_groups WHERE code=?").get(code)) {
+      return res.status(400).json({error:"Mã nhóm thiết bị mới đã tồn tại."});
     }
-    db.prepare("UPDATE device_groups SET code = ?, name = ? WHERE code = ?").run(code, name, oldCode);
-  });
-  tx();
-  res.json({ ok: true });
+    const tx=db.transaction(()=>{
+      if(oldCode===code){
+        db.prepare("UPDATE device_groups SET name=? WHERE code=?").run(name,oldCode);
+      } else {
+        db.prepare("INSERT INTO device_groups (code,name) VALUES (?,?)").run(code,name);
+        db.prepare("UPDATE devices SET group_code=? WHERE group_code=?").run(code,oldCode);
+        db.prepare("DELETE FROM device_groups WHERE code=?").run(oldCode);
+      }
+      writeAudit(requestActor(req),"Cập nhật nhóm thiết bị","device_group",code,`${oldCode} - ${old.name || ""} → ${code} - ${name}`);
+    });
+    tx();
+    res.json({ok:true,code});
+  } catch(e) {
+    console.error("PUT /api/device-groups/:code error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật nhóm thiết bị."});
+  }
 });
 
 app.delete("/api/device-groups/:code", (req, res) => {
