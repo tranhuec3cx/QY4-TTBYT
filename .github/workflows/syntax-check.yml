@@ -64,20 +64,36 @@ jobs:
           curl -fsS -X PUT "$BASE/api/repairs/$REPAIR_ID" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$NOW\",\"issue\":\"Sự cố kiểm thử CI\",\"work\":\"Khắc phục hoàn tất\",\"person\":\"Khoa Trang bị - CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\"}" >/tmp/repair-complete.json
           curl -fsS -X PUT "$BASE/api/devices/$DEVICE_ID" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-AFTER","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí B","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/device-update.json
           curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-after.json
+          curl -fsS -X POST "$BASE/api/qr/incidents" -H 'Content-Type: application/json' --data "{\"qr_uid\":\"$QR_UID\",\"reporter\":\"QR CI\",\"description\":\"Sự cố báo qua QR CI\",\"severity\":\"Trung bình\"}" >/tmp/qr-incident.json
+          QR_INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/qr-incident.json","utf8")).incident_id')
+          TODAY=$(date '+%Y-%m-%d')
           curl -fsS "$BASE/api/incidents" >/tmp/incidents-after.json
+          curl -fsS "$BASE/api/reports/kpi?from_date=$TODAY&to_date=$TODAY&department_code=TST&response_target_minutes=30" >/tmp/kpi.json
           node - <<'NODE'
           const fs=require("fs");
           const before=JSON.parse(fs.readFileSync("/tmp/qr-before.json","utf8"));
           const after=JSON.parse(fs.readFileSync("/tmp/qr-after.json","utf8"));
           const incidentId=Number(JSON.parse(fs.readFileSync("/tmp/incident-create.json","utf8")).id);
+          const qrIncidentId=Number(JSON.parse(fs.readFileSync("/tmp/qr-incident.json","utf8")).incident_id);
           const incidents=JSON.parse(fs.readFileSync("/tmp/incidents-after.json","utf8"));
           const row=incidents.find(x=>Number(x.id)===incidentId);
+          const qrRow=incidents.find(x=>Number(x.id)===qrIncidentId);
+          const kpi=JSON.parse(fs.readFileSync("/tmp/kpi.json","utf8"));
           if (!row) throw new Error("Incident not found after lifecycle");
+          if (!qrRow) throw new Error("QR incident not found");
           if (!row.acknowledged_at) throw new Error("acknowledged_at missing");
+          if (row.acknowledged_by!=="Khoa Trang bị - CI") throw new Error("acknowledged_by incorrect: "+row.acknowledged_by);
+          if (row.source_channel!=="Nhập trực tiếp") throw new Error("Manual incident source incorrect");
+          if (qrRow.source_channel!=="QR") throw new Error("QR incident source incorrect");
+          if (row.location_snapshot!=="Vị trí A") throw new Error("Historical location snapshot changed: "+row.location_snapshot);
           if (!row.linked_repair_completed_at) throw new Error("repair completion timestamp missing");
           if (String(before.qr_uid)!==String(after.qr_uid)) throw new Error("QR UID changed after device edit");
           if (String(after.serial)!=="SERIAL-AFTER") throw new Error("QR did not resolve current device data");
-          console.log("QR -> incident -> acknowledge -> repair -> complete lifecycle passed");
+          if (Number(kpi.summary.total_incidents)!==2) throw new Error("KPI total incident count incorrect");
+          if (Number(kpi.summary.qr_incidents)!==1 || Number(kpi.summary.direct_incidents)!==1) throw new Error("KPI source counts incorrect");
+          if (Number(kpi.summary.unknown_source_incidents)!==0) throw new Error("Unexpected unknown incident source");
+          if (!Array.isArray(kpi.records) || kpi.records.length!==2) throw new Error("KPI detail records missing");
+          console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
       - name: Smoke test authentication and roles
         run: |
