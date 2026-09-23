@@ -509,7 +509,8 @@ function initDb() {
   if (!docCols.includes("file_size")) db.exec("ALTER TABLE documents ADD COLUMN file_size INTEGER DEFAULT 0");
 
   const deptCount = db.prepare("SELECT COUNT(*) AS c FROM departments").get().c;
-  if (deptCount === 0) seedData();
+  // Không tự chèn dữ liệu mẫu trên bản chạy thật. Chỉ seed khi chủ động bật QY4_DEMO_SEED=1.
+  if (deptCount === 0 && process.env.QY4_DEMO_SEED === "1") seedData();
 }
 
 function seedData() {
@@ -597,7 +598,8 @@ function seedData() {
 
   const tx = db.transaction(() => {
     devices.forEach(device => {
-      const info = insertDevice.run(device);
+      // Bảo đảm chế độ demo cũng có đủ mọi named parameter của câu INSERT.
+      const info = insertDevice.run({ quality_level: 3, device_code: "", insurance_code: "", ...device });
       const deviceId = info.lastInsertRowid;
       device.accessories.forEach(x => insertAccessory.run(deviceId, ...x));
       device.repairs.forEach(x => insertRepair.run(deviceId, ...x));
