@@ -46,17 +46,6 @@ function repairStatusClass(status) {
   if (st === "Không sửa được") return "red";
   return "gray";
 }
-function renderDeviceOptions() {
-  const list = DEVICES.map(d => `<option value="${esc(deviceLabel(d))}" data-id="${d.id}"></option>`).join("");
-  q("deviceOptions").innerHTML = list;
-}
-function resolveDeviceFromSearch() {
-  const raw = q("repairDeviceSearch").value.trim();
-  if (!raw) return null;
-  const rawNorm = norm(raw);
-  return DEVICES.find(d => norm(deviceLabel(d)) === rawNorm)
-      || DEVICES.find(d => norm([d.device_code, d.serial, d.name, d.model].join(" ")).includes(rawNorm));
-}
 function setSelectedDevice(device) {
   q("selectedDeviceId").value = device ? device.id : "";
   q("repairDeviceName").value = device ? (device.name || "") : "";
@@ -298,7 +287,7 @@ async function loadData() {
   q("departmentFilter").innerHTML = `<option value="ALL">Tất cả khoa/phòng</option>` + (META.departments || []).map(d => `<option value="${d.code}">${esc(d.code)} - ${esc(d.name)}</option>`).join("");
   q("groupFilter").innerHTML = `<option value="ALL">Tất cả nhóm thiết bị</option>` + (META.groups || []).map(g => `<option value="${g.code}">${esc(g.code)} - ${esc(g.name)}</option>`).join("");
   q("deviceFilter").innerHTML = `<option value="ALL">Tất cả thiết bị</option>` + DEVICES.map(d => `<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join("");
-  renderDeviceOptions();
+  bindDevicePicker("repairDeviceSearch","selectedDeviceId","deviceOptions",DEVICES,(d)=>setSelectedDevice(d));
   applyFilter();
 }
 function openRepairFromUrl() {
@@ -352,8 +341,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   q("repairForm").addEventListener("submit", saveRepair);
   q("repairStatus").addEventListener("change", syncRepairDeviceStatus);
   syncRepairDeviceStatus();
-  q("repairDeviceSearch").addEventListener("change", () => setSelectedDevice(resolveDeviceFromSearch()));
-  q("repairDeviceSearch").addEventListener("input", () => { if (!q("repairDeviceSearch").value.trim()) setSelectedDevice(null); });
   ["filterBtn","searchInput","fromDate","toDate","departmentFilter","groupFilter","deviceFilter","repairStatusFilter","methodFilter"].forEach(id => {
     const el = q(id); if (!el) return;
     el.addEventListener(id === "filterBtn" ? "click" : "input", applyFilter);
