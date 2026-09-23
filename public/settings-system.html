@@ -5,6 +5,18 @@
 <div id="settingsTabsHost"></div>
 
 <section class="card">
+  <div class="section-head">
+    <div><h2 class="section-title">Sẵn sàng triển khai</h2><div class="small">Kiểm tra nhanh các điều kiện quan trọng trước khi chạy dữ liệu thật, demo Hội đồng hoặc in QR hàng loạt.</div></div>
+    <button class="btn btn-primary" id="reloadReadinessBtn">Kiểm tra lại</button>
+  </div>
+  <section class="reports-summary-grid" id="readinessSummary"></section>
+  <div id="readinessGenerated" class="muted-note" style="margin:10px 0"></div>
+  <div class="table-wrap scroll-area">
+    <table><thead><tr><th>Trạng thái</th><th>Nội dung kiểm tra</th><th>Kết quả / việc cần làm</th></tr></thead><tbody id="readinessRows"></tbody></table>
+  </div>
+</section>
+
+<section class="card">
   <div class="section-head"><div><h2 class="section-title">Sao lưu dữ liệu</h2><div class="small">Tạo bản sao SQLite trước các đợt nhập dữ liệu lớn hoặc cập nhật phần mềm.</div></div><button class="btn btn-primary" id="backupBtn">Sao lưu ngay</button></div>
   <div id="backupStatus" class="muted-note"></div>
   <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Tệp sao lưu</th></tr></thead><tbody id="backupRows"></tbody></table></div>
