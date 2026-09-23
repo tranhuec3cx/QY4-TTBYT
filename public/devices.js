@@ -111,6 +111,7 @@ async function saveDevice(e) {
     note: q("noteInput").value.trim()
   };
   const id = q("deviceId").value;
+  if (!(await confirmDeviceDuplicate(payload, Number(id || 0)))) return;
   if (id) await api(`/api/devices/${id}`, { method: "PUT", body: JSON.stringify(payload) });
   else await api(`/api/devices`, { method: "POST", body: JSON.stringify(payload) });
   resetForm();
