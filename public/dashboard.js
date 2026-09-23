@@ -3,6 +3,7 @@ function plusDaysISO(n){ const d=new Date(); d.setDate(d.getDate()+n); return `$
 function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
 function fmtDate(v){ return v ? String(v).slice(0,10).split("-").reverse().join("/") : ""; }
 function setText(id, value){ const el=q(id); if(el) el.textContent=value; }
+function fmtMinutes(v){ const n=Math.max(0,Number(v||0)); if(!n) return "—"; if(n<60) return Math.round(n)+" phút"; const h=n/60; return h<24 ? h.toFixed(h<10?1:0)+" giờ" : (h/24).toFixed(1)+" ngày"; }
 function isIssueCheck(x){ const r=String(x.result||"").trim(); return ["Có vấn đề","Nghiêm trọng","Đạt có lưu ý","Không đạt"].includes(r); }
 
 function renderMonthlyIncidents(rows){
@@ -34,6 +35,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbDueInspection", ops.dueInspection || 0);
   setText("dbOverdueInspection", ops.overdueInspection || 0);
   setText("dbWaitingParts", ops.waitingParts || 0);
+  setText("dbAvgResponse", fmtMinutes(ops.avgResponseMinutes));
+  setText("dbAvgResolution", fmtMinutes(ops.avgResolutionMinutes));
   setText("dbQrTotal", checksToday.length);
   setText("dbQrIssue", checksToday.filter(isIssueCheck).length);
 
