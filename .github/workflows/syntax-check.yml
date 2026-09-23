@@ -56,6 +56,12 @@ jobs:
           test -n "$DEVICE_ID"
           test -n "$QR_UID"
           curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-before.json
+          curl -fsS -X POST "$BASE/api/qr/checks" \
+            -F "qr_uid=$QR_UID" \
+            -F "inspector=QR Check CI" \
+            -F "condition=Bình thường" \
+            -F "description=" \
+            -F "create_incident=0" >/tmp/qr-check.json
           NOW=$(date '+%Y-%m-%d %H:%M')
           curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Sự cố kiểm thử CI\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/incident-create.json
           INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/incident-create.json","utf8")).id')
@@ -105,10 +111,14 @@ jobs:
           if (String(after.serial)!=="SERIAL-AFTER") throw new Error("QR did not resolve current device data");
           if (Number(kpi.summary.total_incidents)!==2) throw new Error("KPI total incident count incorrect");
           if (Number(kpi.summary.qr_incidents)!==1 || Number(kpi.summary.direct_incidents)!==1) throw new Error("KPI source counts incorrect");
+          if (Number(kpi.summary.qr_checks)!==1 || Number(kpi.summary.qr_check_unique_devices)!==1) throw new Error("QR check adoption metrics incorrect");
+          if (Number(kpi.summary.qr_check_normal_count)!==1 || Number(kpi.summary.qr_check_issue_count)!==0) throw new Error("QR check result metrics incorrect");
           if (Number(kpi.summary.unknown_source_incidents)!==0) throw new Error("Unexpected unknown incident source");
           if (!Array.isArray(kpi.records) || kpi.records.length!==2) throw new Error("KPI detail records missing");
           if (Number(kpiTst.summary.total_incidents)!==1 || Number(kpiTst.summary.direct_incidents)!==1) throw new Error("Historical KPI department filter failed for TST");
+          if (Number(kpiTst.summary.qr_checks)!==1) throw new Error("Historical QR check department snapshot failed for TST");
           if (Number(kpiTst2.summary.total_incidents)!==1 || Number(kpiTst2.summary.qr_incidents)!==1) throw new Error("KPI department filter failed for TST2");
+          if (Number(kpiTst2.summary.qr_checks)!==0) throw new Error("QR check incorrectly moved to new department");
           console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
       - name: Smoke test public QR rate limit
