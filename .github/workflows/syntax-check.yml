@@ -252,6 +252,32 @@ jobs:
           test "$CODE" = "400"
           echo "Incident snapshot correction rules passed"
 
+      - name: Smoke test repair integrity rules
+        run: |
+          BASE=http://127.0.0.1:5000
+          TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
+          DEV_A=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/snap-device-a.json","utf8")).id')
+          SNAP_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/snap-transfer.json","utf8")).repair_id')
+
+          CODE=$(curl -s -o /tmp/linked-repair-move.json -w '%{http_code}' -X PUT "$BASE/api/repairs/$SNAP_REPAIR" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_A}")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/linked-repair-delete.json -w '%{http_code}' -X DELETE "$BASE/api/repairs/$SNAP_REPAIR")
+          test "$CODE" = "400"
+
+          curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:00\",\"issue\":\"Phiếu độc lập kiểm thử\",\"work\":\"Chờ xử lý\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"\",\"processing_status\":\"Đang xử lý\"}" >/tmp/standalone-repair.json
+          STANDALONE_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/standalone-repair.json","utf8")).id')
+          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-during-standalone.json
+          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-during-standalone.json","utf8")); if(d.status!=="Chờ sửa chữa") throw new Error("Device did not enter repair status")'
+
+          CODE=$(curl -s -o /tmp/duplicate-open-repair.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:05\",\"issue\":\"Phiếu mở trùng\",\"processing_status\":\"Đang xử lý\"}")
+          test "$CODE" = "400"
+
+          curl -fsS -X DELETE "$BASE/api/repairs/$STANDALONE_REPAIR" >/tmp/standalone-delete.json
+          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-delete-repair.json
+          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-after-delete-repair.json","utf8")); const x=JSON.parse(require("fs").readFileSync("/tmp/standalone-delete.json","utf8")); if(d.status!=="Đang hoạt động"||x.restored_device_status!=="Đang hoạt động") throw new Error("Pre-repair device status was not restored")'
+          echo "Repair integrity rules passed"
+
       - name: Smoke test public QR rate limit
         run: |
           BASE=http://127.0.0.1:5000
