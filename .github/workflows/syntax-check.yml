@@ -178,6 +178,29 @@ jobs:
           if (Number(kpiTst2.summary.qr_checks)!==0) throw new Error("QR check incorrectly moved to new department");
           console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
+      - name: Smoke test catalog rename integrity
+        run: |
+          BASE=http://127.0.0.1:5000
+          curl -fsS -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"REN1","name":"Khoa đổi mã"}' >/tmp/ren-dept.json
+          curl -fsS -X POST "$BASE/api/device-groups" -H 'Content-Type: application/json' --data '{"code":"RG1","name":"Nhóm đổi mã"}' >/tmp/ren-group.json
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"REN1","group_code":"RG1","name":"Thiết bị đổi danh mục","serial":"REN-CI-001","status":"Đang hoạt động","location":"Phòng CI"}' >/tmp/ren-device.json
+          REN_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/ren-device.json","utf8")).id')
+          REN_QR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/ren-device.json","utf8")).qr_uid')
+          curl -fsS -X PUT "$BASE/api/departments/REN1" -H 'Content-Type: application/json' --data '{"code":"REN2","name":"Khoa đổi mã mới"}' >/tmp/ren-dept-update.json
+          curl -fsS -X PUT "$BASE/api/device-groups/RG1" -H 'Content-Type: application/json' --data '{"code":"RG2","name":"Nhóm đổi mã mới"}' >/tmp/ren-group-update.json
+          curl -fsS "$BASE/api/devices/$REN_DEVICE" >/tmp/ren-device-after.json
+          curl -fsS "$BASE/api/system/readiness" >/tmp/ren-readiness.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const d=JSON.parse(fs.readFileSync("/tmp/ren-device-after.json","utf8"));
+          const r=JSON.parse(fs.readFileSync("/tmp/ren-readiness.json","utf8"));
+          const original=JSON.parse(fs.readFileSync("/tmp/ren-device.json","utf8"));
+          if(d.department_code!=="REN2" || d.group_code!=="RG2") throw new Error("Catalog rename did not update current device references");
+          if(String(d.qr_uid)!==String(original.qr_uid)) throw new Error("Catalog rename changed QR UID");
+          if(r.system?.foreign_keys_enabled!==true || Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Catalog rename broke foreign-key integrity");
+          console.log("Catalog rename integrity passed");
+          NODE
+
       - name: Smoke test attachment file integrity
         run: |
           BASE=http://127.0.0.1:5000
