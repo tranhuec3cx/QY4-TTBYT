@@ -269,6 +269,25 @@ jobs:
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
           printf '%s\n' '%PDF-1.4' '%%EOF' >/tmp/attachment-a.pdf
           printf '%s\n' '%PDF-1.4' 'replacement' '%%EOF' >/tmp/attachment-b.pdf
+          printf '<html>CI rejected upload</html>' >/tmp/rejected-upload.html
+          printf 'CI rejected QR media' >/tmp/rejected-qr-media.txt
+
+          BEFORE_DOC_REJECT=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          CODE=$(curl -s -o /tmp/rejected-document-type.json -w '%{http_code}' -X POST "$BASE/api/documents" \
+            -F "device_id=$DEVICE_ID" -F "name=File không hợp lệ" -F "type=Khác" \
+            -F "file=@/tmp/rejected-upload.html;type=text/html")
+          test "$CODE" = "400"
+          AFTER_DOC_REJECT=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          test "$BEFORE_DOC_REJECT" = "$AFTER_DOC_REJECT"
+
+          QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
+          BEFORE_QR_REJECT=$(find uploads/qr -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          CODE=$(curl -s -o /tmp/rejected-qr-media-type.json -w '%{http_code}' -X POST "$BASE/api/qr/checks" \
+            -F "qr_uid=$QR_UID" -F "inspector=CI" -F "condition=Bình thường" \
+            -F "media=@/tmp/rejected-qr-media.txt;type=text/plain")
+          test "$CODE" = "400"
+          AFTER_QR_REJECT=$(find uploads/qr -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          test "$BEFORE_QR_REJECT" = "$AFTER_QR_REJECT"
 
           BEFORE=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           CODE=$(curl -s -o /tmp/rejected-maintenance.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
