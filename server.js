@@ -3184,8 +3184,8 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     };
     const tx = db.transaction(() => {
       const info = db.prepare(`
-        INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
-        VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+        INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
+        VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
       `).run(payload);
       db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Khoa Trang bị"), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
