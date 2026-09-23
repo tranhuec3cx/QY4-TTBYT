@@ -2259,8 +2259,14 @@ app.get("/api/incidents", (req, res) => {
   // khi người dùng nhập thời gian ngoài 7 ngày hoặc bộ lọc đang rộng hơn dữ liệu tải về.
   const { preset, date, from_date, to_date } = req.query;
   let sql = `
-    SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial,
-           d.name AS department_name, g.name AS group_name,
+    SELECT i.*,
+           dv.name AS current_device_name,
+           dv.department_code AS current_department_code,
+           dv.group_code,
+           dv.location AS current_location,
+           dv.model,dv.serial,
+           d.name AS current_department_name,
+           g.name AS group_name,
            lr.id AS linked_repair_id,
            lr.processing_status AS linked_repair_status,
            lr.completed_at AS linked_repair_completed_at,
@@ -2294,7 +2300,11 @@ app.get("/api/incidents", (req, res) => {
     return {
       ...r,
       status: normalizeIncidentStatusForUi(r.status, r.linked_repair_id),
-      device_code: getDeviceCode(r.device_id),
+      device_code: r.device_code_snapshot || getDeviceCode(r.device_id),
+      device_name: r.device_name_snapshot || r.current_device_name || "",
+      department_code: r.department_code_snapshot || r.current_department_code || "",
+      department_name: r.department_snapshot || r.current_department_name || r.department_code_snapshot || r.current_department_code || "",
+      location: r.location_snapshot || r.current_location || "",
       files,
       media_count: files.length,
       first_media_path: files[0]?.file_path || "",
