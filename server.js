@@ -832,7 +832,11 @@ function seedData() {
       const info = insertDevice.run({ quality_level: 3, device_code: "", insurance_code: "", ...device });
       const deviceId = info.lastInsertRowid;
       device.accessories.forEach(x => insertAccessory.run(deviceId, ...x));
-      device.repairs.forEach(x => insertRepair.run(deviceId, ...x));
+      device.repairs.forEach(x => {
+        const [repairDate, issue, work, person, method, cost, result, statusAfter, processingStatus] = x;
+        const normalizedProcessing = processingStatus || (statusAfter === "Chờ sửa chữa" ? "Chờ linh kiện" : "Đã hoàn thành");
+        insertRepair.run(deviceId, repairDate, issue, work, person, method, cost, result, statusAfter, normalizedProcessing);
+      });
       device.maints.forEach(x => insertMaintenance.run(deviceId, ...x));
       device.logs.forEach(x => insertOperation.run(deviceId, ...x));
       device.docs.forEach(x => insertDocument.run(deviceId, ...x));
