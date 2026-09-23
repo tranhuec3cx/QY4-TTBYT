@@ -2,7 +2,6 @@ let REPAIR_ROWS = [];
 let FILTERED_REPAIRS = [];
 let DEVICES = [];
 let META = { departments: [], groups: [] };
-let SOURCE_INCIDENT = null;
 
 function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -60,7 +59,6 @@ function resetRepairForm() {
   q("repairId").value = "";
   q("sourceIncidentId").value = "";
   q("repairDeviceSearch").readOnly = false;
-  SOURCE_INCIDENT = null;
   clearSelectedDevice();
   q("repairDialogTitle").textContent = "Tạo phiếu sửa chữa";
   q("repairDialogSubtitle").textContent = "Nhập hoặc chỉnh sửa thông tin phiếu sửa chữa thiết bị y tế";
@@ -242,19 +240,6 @@ async function showRepairHistory(id) {
   q("repairHistoryBody").innerHTML = renderRepairTimeline(rows, repair);
   q("repairHistoryDialog").showModal();
 }
-async function updateSourceIncidentStatus() {
-  if (!SOURCE_INCIDENT || !SOURCE_INCIDENT.id) return;
-  const p = {
-    device_id: SOURCE_INCIDENT.device_id,
-    incident_datetime: SOURCE_INCIDENT.incident_datetime,
-    description: SOURCE_INCIDENT.description,
-    severity: SOURCE_INCIDENT.severity,
-    reporter: SOURCE_INCIDENT.reporter,
-    status: "Đã chuyển sửa chữa",
-    note: SOURCE_INCIDENT.note || ""
-  };
-  try { await api(`/api/incidents/${SOURCE_INCIDENT.id}`, { method: "PUT", body: JSON.stringify(p) }); } catch (e) { console.warn(e); }
-}
 async function saveRepair(e) {
   e.preventDefault();
   const deviceId = Number(q("selectedDeviceId").value);
@@ -285,45 +270,9 @@ async function saveRepair(e) {
   if (id) await api(`/api/repairs/${id}`, { method: "PUT", body: JSON.stringify(payload) });
   else {
     await api("/api/repairs", { method: "POST", body: JSON.stringify(payload) });
-    await updateSourceIncidentStatus();
   }
   closeRepairDialog();
   await loadData();
-}
-function applyIncidentPrefill() {
-  const raw = localStorage.getItem("repair_prefill_from_incident");
-  if (!raw) return;
-  try {
-    const r = JSON.parse(raw);
-    SOURCE_INCIDENT = r;
-    resetRepairForm();
-    q("sourceIncidentId").value = r.id || "";
-    q("repairDialogTitle").textContent = "Tạo phiếu sửa chữa từ sự cố";
-    q("repairDialogSubtitle").textContent = "Thông tin sự cố đã được chuyển sang phiếu sửa chữa, vui lòng kiểm tra trước khi lưu";
-    q("sourceBadge").style.display = "inline-flex";
-    const d = getDevice(r.device_id) || r;
-    q("repairDeviceSearch").value = deviceLabel(d);
-    setSelectedDevice(d);
-    q("repairDate").value = nowDateTimeLocalValue();
-    if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
-    if (q("saveHistory")) q("saveHistory").checked = true;
-    q("issue").value = r.description || "";
-    if (q("reporter")) q("reporter").value = r.reporter || "";
-    if (q("priority")) q("priority").value = r.severity || "Bình thường";
-    q("repairStatus").value = "Đang xử lý";
-    q("person").value = "Khoa Trang bị";
-    q("method").value = "Nội bộ";
-    q("work").value = "Chờ kiểm tra và xử lý kỹ thuật";
-    if (q("note")) q("note").value = r.note || "";
-    q("statusAfter").value = "Chờ sửa chữa";
-    q("prefillNotice").textContent = `Đã chuyển thông tin từ sự cố #${r.id || ""}. Phiếu chỉ được lưu khi bấm “Lưu phiếu”.`;
-    q("prefillNotice").style.display = "block";
-    localStorage.removeItem("repair_prefill_from_incident");
-    openRepairDialog("prefill");
-  } catch (e) {
-    console.error(e);
-    localStorage.removeItem("repair_prefill_from_incident");
-  }
 }
 async function loadData() {
   DEVICES = await api("/api/devices");
@@ -382,7 +331,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   setLayout("maintenance", "Sửa chữa thiết bị", "Theo dõi phiếu sửa chữa, tình trạng xử lý và chi phí khắc phục sự cố thiết bị");
   setDefaultDateRange();
   await loadData();
-  applyIncidentPrefill();
   openRepairFromUrl();
   q("createRepairBtn").onclick = () => openRepairDialog("create");
   q("closeRepairDialogBtn").onclick = closeRepairDialog;
