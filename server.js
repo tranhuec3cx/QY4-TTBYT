@@ -757,6 +757,7 @@ function initDb() {
       source_channel TEXT,
       department_code_snapshot TEXT,
       location_snapshot TEXT,
+      incident_id INTEGER,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -1124,6 +1125,7 @@ function ensureCoreManagementSchema() {
   if (!checkCols.includes("source_channel")) db.prepare("ALTER TABLE daily_checks ADD COLUMN source_channel TEXT").run();
   if (!checkCols.includes("department_code_snapshot")) db.prepare("ALTER TABLE daily_checks ADD COLUMN department_code_snapshot TEXT").run();
   if (!checkCols.includes("location_snapshot")) db.prepare("ALTER TABLE daily_checks ADD COLUMN location_snapshot TEXT").run();
+  if (!checkCols.includes("incident_id")) db.prepare("ALTER TABLE daily_checks ADD COLUMN incident_id INTEGER").run();
   db.prepare("UPDATE daily_checks SET source_channel='Không xác định' WHERE source_channel IS NULL OR trim(source_channel)=''").run();
 
   const incidentCols = db.prepare("PRAGMA table_info(incidents)").all().map(c => c.name);
@@ -2747,6 +2749,7 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
         `).run(deviceId, at, description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "", "QR");
         incidentId = Number(inc.lastInsertRowid);
         completeIncidentRow(incidentId, deviceId, inspector, at);
+        db.prepare("UPDATE daily_checks SET incident_id=? WHERE id=?").run(incidentId, Number(info.lastInsertRowid));
         saveIncidentFiles(incidentId, deviceId, files);
         writeAudit(inspector, "Tạo sự cố từ kiểm tra QR", "incident", incidentId, description || `Kiểm tra: ${condition}`);
       }
@@ -4279,7 +4282,7 @@ app.get("/api/reports/kpi", (req, res) => {
   }));
 
   let checkSql = `
-    SELECT c.id,c.device_id,c.check_datetime,c.inspector,c.result,c.source_channel,
+    SELECT c.id,c.device_id,c.check_datetime,c.inspector,c.result,c.source_channel,c.incident_id,
            c.department_code_snapshot,c.location_snapshot,dv.device_code,dv.name AS device_name
     FROM daily_checks c
     JOIN devices dv ON dv.id=c.device_id
