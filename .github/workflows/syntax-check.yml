@@ -262,14 +262,14 @@ jobs:
           test "$BEFORE" = "$AFTER"
 
           curl -fsS -X POST "$BASE/api/documents" \
-            -F "device_id=$DEVICE_ID" -F "name=Chứng nhận kiểm thử" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "device_id=$DEVICE_ID" -F "name=Tài liệu chung kiểm thử" -F "type=Khác" -F "doc_date=$TODAY" \
             -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/document-create.json
           DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-create.json","utf8")).id')
           OLD_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-create.json","utf8")).file_path')
           test -f ".$OLD_PATH"
 
           curl -fsS -X PUT "$BASE/api/documents/$DOC_ID" \
-            -F "name=Chứng nhận kiểm thử cập nhật" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "name=Tài liệu chung cập nhật" -F "type=Khác" -F "doc_date=$TODAY" \
             -F "file=@/tmp/attachment-b.pdf;type=application/pdf" >/tmp/document-update.json
           NEW_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-update.json","utf8")).file_path')
           test ! -f ".$OLD_PATH"
@@ -304,7 +304,7 @@ jobs:
           NODE
           )
           CODE=$(curl -s -o /tmp/maintenance-doc-delete-reject.json -w '%{http_code}' -X DELETE "$BASE/api/documents/$MAINT_DOC_ID")
-          test "$CODE" = "400"
+          test "$CODE" = "409"
           test -f ".$MAINT_NEW_PATH"
 
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 16:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"CERT-CI\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$MAINT_NEW_PATH\",\"note\":\"Kiểm tra bảo toàn chứng nhận\"}" >/tmp/inspection-evidence.json
