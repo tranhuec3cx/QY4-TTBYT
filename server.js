@@ -4094,12 +4094,19 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`QY4 TTBYT app running at http://localhost:${PORT}`);
-  console.log(`Xác thực người dùng: ${AUTH_REQUIRED ? "BẬT" : "TẮT (chế độ thử nghiệm/nội bộ)"}`);
+  console.log(`QY4-TTBYT 5.0.0 running at http://localhost:${PORT}`);
+  console.log(`Database: ${dbPath}`);
+  console.log(`Múi giờ ứng dụng: ${APP_TIME_ZONE}`);
+  console.log(`Xác thực người dùng: ${AUTH_REQUIRED ? "BẬT" : "TẮT"}`);
+  console.log(`Dữ liệu mẫu: ${process.env.QY4_DEMO_SEED === "1" ? "BẬT" : "TẮT"}`);
+  console.log(`Giữ tối đa backup: ${Math.max(3, Number(process.env.QY4_BACKUP_KEEP || 30))} gói`);
+  if (!AUTH_REQUIRED) console.warn("CẢNH BÁO: QY4_AUTH_REQUIRED đang tắt. Chỉ phù hợp chạy thử nội bộ.");
+  if (process.env.QY4_DEMO_SEED === "1") console.warn("CẢNH BÁO: QY4_DEMO_SEED=1. Không dùng cấu hình này với dữ liệu thật.");
   try {
     const lan = Object.values(os.networkInterfaces()).flat().filter(Boolean).find(net => net.family === "IPv4" && !net.internal);
     if (lan) console.log(`QR/mobile LAN URL: http://${lan.address}:${PORT}`);
   } catch (e) {}
+  console.log("Kiểm tra trước chạy thật: Cài đặt → Hệ thống → Sẵn sàng triển khai.");
   ensureDailyBackup();
   setInterval(ensureDailyBackup, 6 * 60 * 60 * 1000).unref();
 });
