@@ -2095,6 +2095,7 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
     }
     res.json({ ok: true, check_id: info.lastInsertRowid, incident_id: incidentId });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("POST /api/qr/checks error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -2134,6 +2135,7 @@ app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) 
     }
     res.json({ ok: true, incident_id: info.lastInsertRowid });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("POST /api/qr/incidents error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -2200,6 +2202,12 @@ app.delete("/api/checks/:id", (req, res) => {
   db.prepare("DELETE FROM daily_checks WHERE id=?").run(req.params.id);
   res.json({ ok: true });
 });
+
+function cleanupUploadedFiles(files) {
+  for (const file of (Array.isArray(files) ? files : [])) {
+    safeUnlink(file.path || (file.filename ? path.join(qrUploadsDir, file.filename) : ""));
+  }
+}
 
 function validateIncidentFiles(files){
   const list = Array.isArray(files) ? files : [];
@@ -2320,6 +2328,7 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
     `).get(info.lastInsertRowid);
     res.json({ ok: true, id: info.lastInsertRowid, row: { ...row, status: normalizeIncidentStatusForUi(row.status, row.linked_repair_id), device_code: getDeviceCode(row.device_id) } });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("POST /api/incidents error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -2362,6 +2371,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
     writeAudit(requestActor(req, payload.reporter || "Hệ thống"), "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
     res.json({ ok: true });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("PUT /api/incidents/:id error:", e);
     res.status(500).json({ error: e.message });
   }
