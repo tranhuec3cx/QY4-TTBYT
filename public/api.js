@@ -205,7 +205,14 @@ function renderSettingsTabs(active) {
 
 
 
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+function todayISO(){
+  const d=new Date(), pad=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function nowDateTimeLocalValue(){
+  const d=new Date(), pad=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 function firstDayOfYearISO(){ const d=new Date(); return `${d.getFullYear()}-01-01`; }
 function inDateRange(dateStr, from, to){
   if(!dateStr) return true;
