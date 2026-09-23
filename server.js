@@ -112,7 +112,14 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/vendor", express.static(path.join(__dirname, "node_modules", "xlsx", "dist")));
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", (req, res, next) => {
+  if (!AUTH_REQUIRED) return next();
+  const user = readAuthenticatedUser(req);
+  if (!user) return res.status(401).send("Cần đăng nhập để xem tệp đính kèm.");
+  req.authUser = user;
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+}, express.static(path.join(__dirname, "uploads")));
 
 function getLanQrOrigins(req) {
   const port = process.env.PORT || PORT || 5000;
