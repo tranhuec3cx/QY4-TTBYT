@@ -158,7 +158,8 @@ function normalizeIncidentStatusForUi(status, linkedRepairId) {
   const raw = String(status || "").trim();
   if (raw === "Đã chuyển sửa chữa" || raw === "Chuyển sửa chữa" || raw === "Chờ linh kiện") return "Đã chuyển sửa chữa";
   if (raw === "Đã xử lý tại chỗ" || raw === "Đã xử lý" || raw === "Đóng" || raw === "Không cần sửa chữa") return "Đã xử lý tại chỗ";
-  if (raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Đang xử lý" || raw === "Theo dõi") return "Mới ghi nhận";
+  if (raw === "Đã tiếp nhận" || raw === "Tiếp nhận") return "Đã tiếp nhận";
+  if (raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Theo dõi") return "Mới ghi nhận";
   if (REPAIR_STATUSES.includes(raw) || ["Đang kiểm tra","Đã sửa xong","Bàn giao sử dụng","Hủy","Đã hoàn thành"].includes(raw)) return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
 }
@@ -740,7 +741,8 @@ function normalizeIncidentStatusesInDb() {
   try {
     db.prepare(`UPDATE incidents SET status='Đã chuyển sửa chữa' WHERE status IN ('Chuyển sửa chữa','Chờ linh kiện','Đang kiểm tra','Đang sửa chữa','Đã sửa xong','Bàn giao sử dụng')`).run();
     db.prepare(`UPDATE incidents SET status='Đã xử lý tại chỗ' WHERE status IN ('Đã xử lý','Đóng','Không cần sửa chữa')`).run();
-    db.prepare(`UPDATE incidents SET status='Mới ghi nhận' WHERE status IN ('Đã ghi nhận','Đang xử lý','Theo dõi') OR status IS NULL OR status=''`).run();
+    db.prepare(`UPDATE incidents SET status='Đã tiếp nhận' WHERE status IN ('Tiếp nhận')`).run();
+    db.prepare(`UPDATE incidents SET status='Mới ghi nhận' WHERE status IN ('Đã ghi nhận','Theo dõi') OR status IS NULL OR status=''`).run();
     db.prepare(`
       UPDATE incidents
       SET status='Đã chuyển sửa chữa'
@@ -749,7 +751,7 @@ function normalizeIncidentStatusesInDb() {
     db.prepare(`
       UPDATE incidents
       SET status='Mới ghi nhận'
-      WHERE status NOT IN ('Mới ghi nhận','Đã chuyển sửa chữa','Đã xử lý tại chỗ')
+      WHERE status NOT IN ('Mới ghi nhận','Đã tiếp nhận','Đã chuyển sửa chữa','Đã xử lý tại chỗ')
         AND id NOT IN (SELECT DISTINCT incident_id FROM repairs WHERE incident_id IS NOT NULL)
     `).run();
   } catch (e) {}
@@ -781,6 +783,10 @@ function ensureCoreManagementSchema() {
   if (!cols.includes("qr_uid")) db.prepare("ALTER TABLE devices ADD COLUMN qr_uid TEXT").run();
   if (!cols.includes("is_archived")) db.prepare("ALTER TABLE devices ADD COLUMN is_archived INTEGER DEFAULT 0").run();
   if (!cols.includes("archived_at")) db.prepare("ALTER TABLE devices ADD COLUMN archived_at TEXT").run();
+
+  const incidentCols = db.prepare("PRAGMA table_info(incidents)").all().map(c => c.name);
+  if (!incidentCols.includes("acknowledged_at")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_at TEXT").run();
+  if (!incidentCols.includes("completed_at")) db.prepare("ALTER TABLE incidents ADD COLUMN completed_at TEXT").run();
 
   const rows = db.prepare("SELECT id, qr_uid FROM devices ORDER BY id").all();
   for (const r of rows) {
@@ -2017,12 +2023,37 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       WHERE id=@id
     `).run(payload);
     touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
+    if (payload.status === "Đã tiếp nhận" && !old.acknowledged_at) {
+      db.prepare("UPDATE incidents SET acknowledged_at=? WHERE id=?").run(nowSql(), Number(req.params.id));
+    }
+    if (payload.status === "Đã xử lý tại chỗ") {
+      db.prepare("UPDATE incidents SET acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), completed_at=COALESCE(NULLIF(completed_at,''),?) WHERE id=?").run(nowSql(), nowSql(), Number(req.params.id));
+    }
     saveIncidentFiles(Number(req.params.id), payload.device_id, req.files);
     writeAudit(payload.reporter, "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
     res.json({ ok: true });
   } catch (e) {
     console.error("PUT /api/incidents/:id error:", e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/incidents/:id/acknowledge", (req, res) => {
+  try {
+    const incident = db.prepare("SELECT * FROM incidents WHERE id=?").get(Number(req.params.id));
+    if (!incident) return res.status(404).json({ error:"Không tìm thấy sự cố." });
+    if (incident.status === "Đã chuyển sửa chữa" || incident.status === "Đã xử lý tại chỗ") {
+      return res.status(400).json({ error:"Sự cố đã được xử lý/chuyển sửa chữa." });
+    }
+    const actor = String(req.body?.actor || "Khoa Trang bị").trim();
+    const at = incident.acknowledged_at || nowSql();
+    db.prepare("UPDATE incidents SET status='Đã tiếp nhận', acknowledged_at=?, updated_at=?, updated_by=? WHERE id=?")
+      .run(at, nowSql(), actor, incident.id);
+    writeAudit(actor, "Tiếp nhận sự cố", "incident", incident.id, incident.incident_code || incident.description || "");
+    res.json({ok:true, acknowledged_at:at});
+  } catch(e) {
+    console.error("POST /api/incidents/:id/acknowledge error:",e);
+    res.status(500).json({error:e.message});
   }
 });
 
@@ -2055,7 +2086,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
         INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, processing_status, incident_id, received_at, updated_at, completed_at)
         VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
       `).run(payload);
-      db.prepare("UPDATE incidents SET status=? WHERE id=?").run("Đã chuyển sửa chữa", incident.id);
+      db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
       writeHistory("repair", info.lastInsertRowid, "Hệ thống", "Tạo từ sự cố", "", payload.processing_status, `Tạo phiếu sửa chữa từ sự cố ${incident.incident_code || ('#' + incident.id)}`, 0, "Tự động", payload.received_at);
       writeAudit(actor || "Khoa Trang bị", "Chuyển sự cố sang sửa chữa", "incident", incident.id, `Phiếu sửa chữa #${info.lastInsertRowid}`);
@@ -2540,7 +2571,17 @@ app.get("/api/dashboard/operations", (req, res) => {
   const total = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
   const active = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Đang hoạt động'").get().c;
   const repairing = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Chờ sửa chữa'").get().c;
-  const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận'").get().c;
+  const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')").get().c;
+  const avgResponseMinutes = Number(db.prepare(`
+    SELECT AVG((julianday(acknowledged_at)-julianday(incident_datetime))*24*60) v
+    FROM incidents
+    WHERE acknowledged_at IS NOT NULL AND acknowledged_at<>'' AND incident_datetime IS NOT NULL
+  `).get().v || 0);
+  const avgResolutionMinutes = Number(db.prepare(`
+    SELECT AVG((julianday(r.completed_at)-julianday(i.incident_datetime))*24*60) v
+    FROM repairs r JOIN incidents i ON i.id=r.incident_id
+    WHERE r.completed_at IS NOT NULL AND r.completed_at<>'' AND i.incident_datetime IS NOT NULL
+  `).get().v || 0);
   const dueInspection = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date>=? AND next_date<=?").get(today,plus30).c;
   const overdueInspection = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date<?").get(today).c;
   const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs WHERE processing_status='Chờ linh kiện'").get().c;
@@ -2551,7 +2592,7 @@ app.get("/api/dashboard/operations", (req, res) => {
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
   `).all();
-  res.json({ total, active, repairing, openIncidents, dueInspection, overdueInspection, waitingParts, monthlyIncidents });
+  res.json({ total, active, repairing, openIncidents, dueInspection, overdueInspection, waitingParts, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
 });
 
 app.get("/api/audit-logs", (req, res) => {
