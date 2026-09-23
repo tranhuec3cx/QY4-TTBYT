@@ -118,6 +118,7 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 - Số thiết bị duy nhất đã được quét QR.
 - Số lượt kiểm tra QR bình thường và số lượt phát hiện vấn đề.
 - Theo dõi triển khai QR theo từng ngày: lượt quét, thiết bị duy nhất, vấn đề phát hiện, tổng sự cố và sự cố QR.
+- Lượt quét QR có thể truy vết trực tiếp tới sự cố phát sinh qua `incident_id`; file Excel KPI có cột **Sự cố phát sinh #**.
 - Số sự cố có đủ mốc tiếp nhận và tỷ lệ đầy đủ dữ liệu.
 - Thời gian phản hồi trung bình và trung vị.
 - Tỷ lệ đáp ứng mục tiêu phản hồi nội bộ.
@@ -404,6 +405,8 @@ GitHub Actions hiện kiểm tra:
 - Tổng trạng thái thiết bị khớp giữa Đang hoạt động / Hoạt động hạn chế / Chờ sửa chữa / Ngừng hoạt động; `Đang khai thác = bình thường + hạn chế`.
 - SQLite bật khóa ngoại và không có vi phạm quan hệ dữ liệu.
 - Luồng QR → sự cố → tiếp nhận → sửa chữa → hoàn thành.
+- Giao dịch QR là nguyên tử: kiểm tra, tài liệu, sự cố và file liên quan cùng thành công hoặc cùng rollback.
+- Lượt quét QR “Có vấn đề” lưu liên kết tới đúng sự cố được sinh ra.
 - QR UID không đổi sau khi sửa Serial/vị trí.
 - Nguồn sự cố QR và nhập trực tiếp được phân loại đúng.
 - Người tiếp nhận khác người báo sự cố.
@@ -418,6 +421,7 @@ GitHub Actions hiện kiểm tra:
 - Upload ảnh multipart qua QR với Multer 2.4.0.
 - Request QR bắt buộc QR UID hợp lệ; `device_id` đơn thuần không được tính là QR.
 - Request QR/sự cố nhập trực tiếp bị từ chối không để lại file upload rác.
+- Thời điểm lượt quét QR không đổi khi hiệu chỉnh và DELETE lượt quét QR trả 409.
 - Dashboard chỉ đếm kiểm tra có nguồn QR, không cộng kiểm tra nhập trực tiếp.
 - Ngày/giờ ứng dụng được kiểm tra theo `Asia/Bangkok`, độc lập timezone máy chạy CI.
 - Rate limit QR công khai trả HTTP 429 khi vượt ngưỡng.
@@ -427,8 +431,12 @@ GitHub Actions hiện kiểm tra:
 - Phân quyền Quản trị viên/Kỹ sư/Người dùng khoa.
 - Tài khoản khoa chỉ đọc file đính kèm của thiết bị thuộc chính khoa mình.
 - Backup bundle gồm SQLite đã `PRAGMA quick_check` và snapshot toàn bộ thư mục uploads.
+- Bản backup loại bỏ `auth_sessions`, nên sau khi phục hồi mọi người phải đăng nhập lại; không khôi phục phiên đăng nhập cũ.
 - Serial thật trùng bị backend chặn; chỉ ghi khi có xác nhận override rõ ràng.
-- Sự cố đã tiếp nhận, Bảo dưỡng có file và Kiểm định có chứng nhận được bảo vệ khỏi xóa cứng.
+- Sự cố đã tiếp nhận được bảo vệ khỏi xóa cứng.
+- Toàn bộ bản ghi Bảo dưỡng và Kiểm định/Hiệu chuẩn là lịch sử kỹ thuật, không cho xóa cứng; nếu nhập sai phải dùng Cập nhật.
+- Lượt kiểm tra phát sinh từ QR không được xóa; thời điểm quét QR là bất biến, chỉ cho hiệu chỉnh nội dung/kết quả có audit.
+- Tài liệu kỹ thuật do hệ thống sinh ra hoặc đang được Sự cố/Bảo dưỡng/Kiểm định tham chiếu không được thay file/đổi loại/xóa.
 - Kiểm kê khóa sửa sau hoàn thành, chặn hai đợt đang mở cùng khoa và không tự điều chuyển tài sản.
 - Lưu trữ thiết bị bị chặn khi còn sự cố/sửa chữa/kiểm kê mở; báo cáo và mẫu Excel vận hành loại thiết bị đã lưu trữ.
 - QR công khai mặc định chỉ chấp nhận UID ngẫu nhiên; endpoint legacy theo ID/mã trả 410.
