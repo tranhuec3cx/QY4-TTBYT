@@ -2876,7 +2876,7 @@ app.put("/api/checks/:id", (req, res) => {
       check_datetime:isQr ? old.check_datetime : normalizeDateTime(p.check_datetime || old.check_datetime || nowSql()),
       inspector:String(p.inspector ?? old.inspector ?? "").trim(),
       content:String(p.content ?? old.content ?? "").trim(),
-      result:String(p.result ?? old.result ?? "").trim(),
+      result:isQr ? String(old.result || "").trim() : String(p.result ?? old.result ?? "").trim(),
       note:p.note ?? old.note ?? ""
     };
     if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
@@ -2888,7 +2888,7 @@ app.put("/api/checks/:id", (req, res) => {
     `).run(payload);
     writeHistory("check", id, payload.inspector, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
     writeAudit(requestActor(req,payload.inspector),isQr ? "Hiệu chỉnh nội dung kiểm tra QR" : "Cập nhật kiểm tra trực tiếp","daily_check",id,`${old.result || ""} → ${payload.result}`);
-    res.json({ ok: true, qr_timestamp_locked:isQr });
+    res.json({ ok: true, qr_timestamp_locked:isQr, qr_result_locked:isQr });
   } catch(e) {
     console.error("PUT /api/checks/:id error:",e);
     res.status(400).json({error:e.message || "Không thể cập nhật bản ghi kiểm tra."});
