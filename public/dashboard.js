@@ -34,6 +34,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbActive", ops.active || 0);
   setText("dbWaitingRepair", ops.repairing || 0);
   setText("dbOpenIncidents", ops.openIncidents || 0);
+  setText("dbUnacknowledged", ops.unacknowledgedIncidents || 0);
   setText("dbDueInspection", ops.dueInspection || 0);
   setText("dbOverdueInspection", ops.overdueInspection || 0);
   setText("dbWaitingParts", ops.waitingParts || 0);
@@ -44,6 +45,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbQrIncidentShare", `${monthKpi?.summary?.qr_share_percent||0}% (${monthKpi?.summary?.qr_incidents||0}/${monthKpi?.summary?.total_incidents||0})`);
   setText("dbQrChecksMonth", monthKpi?.summary?.qr_checks || 0);
   setText("dbQrDevicesMonth", monthKpi?.summary?.qr_check_unique_devices || 0);
+  setText("dbResponseCompleteness", `${monthKpi?.summary?.response_data_completeness_percent||0}%`);
 
   const dueMaint = maints.filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
