@@ -130,6 +130,14 @@ jobs:
             -F "condition=Bình thường" \
             -F "description=" \
             -F "create_incident=0" >/tmp/qr-check.json
+          QR_CHECK_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/qr-check.json","utf8")).check_id')
+          curl -fsS "$BASE/api/checks?from_date=2000-01-01&to_date=2100-12-31" >/tmp/checks-before-edit.json
+          QR_CHECK_TIME=$(node -e 'const fs=require("fs");const id=Number(process.argv[1]);const rows=JSON.parse(fs.readFileSync("/tmp/checks-before-edit.json","utf8"));const r=rows.find(x=>Number(x.id)===id);if(!r)throw new Error("QR check missing");process.stdout.write(String(r.check_datetime||""))' "$QR_CHECK_ID")
+          curl -fsS -X PUT "$BASE/api/checks/$QR_CHECK_ID" -H 'Content-Type: application/json' --data '{"check_datetime":"2001-01-01 00:00:00","inspector":"QR Check CI sửa","content":"Hiệu chỉnh nội dung","result":"Bình thường","note":"Giữ nguyên thời điểm quét"}' >/tmp/qr-check-update.json
+          curl -fsS "$BASE/api/checks?from_date=2000-01-01&to_date=2100-12-31" >/tmp/checks-after-edit.json
+          node -e 'const fs=require("fs");const id=Number(process.argv[1]);const expected=process.argv[2];const rows=JSON.parse(fs.readFileSync("/tmp/checks-after-edit.json","utf8"));const r=rows.find(x=>Number(x.id)===id);if(!r)throw new Error("QR check disappeared after edit");if(String(r.check_datetime)!==expected)throw new Error("QR timestamp changed");if(r.inspector!=="QR Check CI sửa")throw new Error("QR content correction not saved")' "$QR_CHECK_ID" "$QR_CHECK_TIME"
+          CODE=$(curl -s -o /tmp/qr-check-delete-reject.json -w '%{http_code}' -X DELETE "$BASE/api/checks/$QR_CHECK_ID")
+          test "$CODE" = "409"
           curl -fsS -X POST "$BASE/api/checks" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspector\":\"Manual Check CI\",\"content\":\"Kiểm tra nhập trực tiếp\",\"result\":\"Bình thường\",\"note\":\"Không tính QR\"}" >/tmp/manual-check.json
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard-ops.json
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
