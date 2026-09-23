@@ -71,6 +71,10 @@ function resetRepairForm() {
   q("prefillNotice").style.display = "none";
   q("saveRepairBtn").textContent = "Lưu phiếu";
   q("cost").value = 0;
+  q("repairDate").value = nowDateTimeLocalValue();
+  q("person").value = window.QY4_AUTH_USER?.full_name || "";
+  q("reporter").value = window.QY4_AUTH_USER?.full_name || "";
+  q("priority").value = "Bình thường";
   if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
   if (q("saveHistory")) q("saveHistory").checked = true;
 }
@@ -182,6 +186,9 @@ function editRepair(id) {
   q("issue").value = r.issue || "";
   q("work").value = r.work || "";
   q("person").value = r.person || "";
+  q("priority").value = r.priority || "Bình thường";
+  q("reporter").value = r.reporter || "";
+  q("note").value = r.note || "";
   q("method").value = r.method || "Nội bộ";
   q("cost").value = r.cost || 0;
   q("result").value = r.result || "";
@@ -259,6 +266,9 @@ async function saveRepair(e) {
     issue: q("issue").value.trim(),
     work: q("work").value.trim(),
     person: q("person").value.trim(),
+    priority: q("priority").value,
+    reporter: q("reporter").value.trim(),
+    note: q("note").value.trim(),
     method: q("method").value,
     cost: Number(q("cost").value || 0),
     result: q("result").value.trim(),
@@ -318,6 +328,8 @@ async function exportRepairsExcel() {
     "Tên thiết bị": r.device_name || "",
     "Khoa/phòng": r.department_name || r.department_code || "",
     "Vị trí": r.location || "",
+    "Mức độ ưu tiên": r.priority || "",
+    "Người báo / ghi nhận": r.reporter || "",
     "Nguyên nhân hỏng": r.issue || "",
     "Nội dung sửa chữa": r.work || "",
     "Người thực hiện": r.person || "",
@@ -325,7 +337,8 @@ async function exportRepairsExcel() {
     "Hình thức": r.method || "",
     "Kinh phí": r.cost || 0,
     "Kết quả": r.result || "",
-    "TTTB sau sửa": r.status_after || ""
+    "TTTB sau sửa": r.status_after || "",
+    "Ghi chú": r.note || ""
   }));
   await exportXlsx(`bao_cao_sua_chua_${todayISO()}.xlsx`,[{name:"SuaChua",rows}]);
 }
