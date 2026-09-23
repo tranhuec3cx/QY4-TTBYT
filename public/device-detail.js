@@ -79,7 +79,7 @@ function renderTransfers() {
 }
 function renderTechnicalHistory() {
   renderRows("technicalRows", TECH_HISTORY || [], x => `<tr>
-    <td>${formatDateTimeVN(x.date)}</td>
+    <td>${formatDateTimeVNLines(x.date)}</td>
     <td><b>${esc(x.type||"")}</b></td>
     <td class="wrap-text">${esc(x.content||"")}</td>
     <td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"—")}</span></td>
