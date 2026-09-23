@@ -109,16 +109,15 @@ function renderStats(rows) {
 function renderRows(rows) {
   q("countLabel").textContent = `${rows.length} bản ghi`;
   if (!rows.length) {
-    q("rows").innerHTML = `<tr><td colspan="13" class="center-empty">Chưa có phiếu sửa chữa phù hợp.</td></tr>`;
+    q("rows").innerHTML = `<tr><td colspan="12" class="center-empty">Chưa có phiếu sửa chữa phù hợp.</td></tr>`;
     return;
   }
   q("rows").innerHTML = rows.map((r, i) => `
     <tr id="repair-row-${Number(r.id)}">
       <td>${i + 1}</td>
-      <td>${formatDateTimeVN(r.received_at || r.repair_date)}</td>
-      <td class="device-code">${esc(r.device_code || r.serial || "")}</td>
-      <td><b>${esc(r.device_name || "")}</b><div class="small">${esc(r.model || "")}</div></td>
-      <td><b>${esc(r.department_name || r.department_code || "")}</b><div class="small">${esc(r.location || "")}</div></td>
+      <td>${formatDateTimeVNLines(r.received_at || r.repair_date)}</td>
+      <td>${technicalDeviceCell(r)}</td>
+      <td>${technicalLocationCell(r)}</td>
       <td class="wrap-text">${esc(r.issue || "")}</td>
       <td class="wrap-text">${esc(r.work || "")}</td>
       <td>${esc(r.person || "")}</td>
