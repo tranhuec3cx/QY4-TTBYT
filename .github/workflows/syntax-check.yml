@@ -171,6 +171,54 @@ jobs:
           if (Number(kpiTst2.summary.qr_checks)!==0) throw new Error("QR check incorrectly moved to new department");
           console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
+      - name: Smoke test attachment file integrity
+        run: |
+          BASE=http://127.0.0.1:5000
+          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
+          TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          printf '%s\n' '%PDF-1.4' '%%EOF' >/tmp/attachment-a.pdf
+          printf '%s\n' '%PDF-1.4' 'replacement' '%%EOF' >/tmp/attachment-b.pdf
+
+          BEFORE=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          CODE=$(curl -s -o /tmp/rejected-maintenance.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
+            -F "device_id=999999" -F "maintenance_date=$TODAY 14:00" -F "content=Không hợp lệ" \
+            -F "file=@/tmp/attachment-a.pdf;type=application/pdf")
+          test "$CODE" = "400"
+          AFTER=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          test "$BEFORE" = "$AFTER"
+
+          curl -fsS -X POST "$BASE/api/documents" \
+            -F "device_id=$DEVICE_ID" -F "name=Chứng nhận kiểm thử" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/document-create.json
+          DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-create.json","utf8")).id')
+          OLD_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-create.json","utf8")).file_path')
+          test -f ".$OLD_PATH"
+
+          curl -fsS -X PUT "$BASE/api/documents/$DOC_ID" \
+            -F "name=Chứng nhận kiểm thử cập nhật" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "file=@/tmp/attachment-b.pdf;type=application/pdf" >/tmp/document-update.json
+          NEW_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-update.json","utf8")).file_path')
+          test ! -f ".$OLD_PATH"
+          test -f ".$NEW_PATH"
+          curl -fsS -X DELETE "$BASE/api/documents/$DOC_ID" >/tmp/document-delete.json
+          test ! -f ".$NEW_PATH"
+
+          curl -fsS -X POST "$BASE/api/maintenances" \
+            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 15:00" -F "type=Bảo dưỡng định kỳ" \
+            -F "content=Kiểm tra file lịch sử" -F "result=Đạt" -F "performer=CI" \
+            -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/maintenance-file-create.json
+          MAINT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-create.json","utf8")).id')
+          MAINT_OLD_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-create.json","utf8")).file_path')
+          test -f ".$MAINT_OLD_PATH"
+          curl -fsS -X PUT "$BASE/api/maintenances/$MAINT_ID" \
+            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 15:30" -F "type=Bảo dưỡng định kỳ" \
+            -F "content=Thay file nhưng giữ lịch sử" -F "result=Đạt" -F "performer=CI" \
+            -F "file=@/tmp/attachment-b.pdf;type=application/pdf" >/tmp/maintenance-file-update.json
+          MAINT_NEW_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-update.json","utf8")).file_path')
+          test -f ".$MAINT_OLD_PATH"
+          test -f ".$MAINT_NEW_PATH"
+          echo "Attachment file integrity passed"
+
       - name: Smoke test incident snapshot correction rules
         run: |
           BASE=http://127.0.0.1:5000
