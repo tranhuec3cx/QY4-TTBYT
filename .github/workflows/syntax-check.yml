@@ -56,6 +56,23 @@ jobs:
           test -n "$DEVICE_ID"
           test -n "$QR_UID"
           curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-before.json
+
+          BEFORE_REJECTED_FILES=$(find uploads/qr -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          printf '\xFF\xD8\xFF\xD9' >/tmp/rejected-qr.jpg
+          CODE=$(curl -s -o /tmp/rejected-qr-check.json -w '%{http_code}' -X POST "$BASE/api/qr/checks" \
+            -F "device_id=$DEVICE_ID" \
+            -F "inspector=Giả QR bằng device_id" \
+            -F "condition=Bình thường" \
+            -F "media=@/tmp/rejected-qr.jpg;type=image/jpeg")
+          test "$CODE" = "400"
+          AFTER_REJECTED_FILES=$(find uploads/qr -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+          test "$BEFORE_REJECTED_FILES" = "$AFTER_REJECTED_FILES"
+
+          CODE=$(curl -s -o /tmp/rejected-qr-incident.json -w '%{http_code}' -X POST "$BASE/api/qr/incidents" \
+            -H 'Content-Type: application/json' \
+            --data "{\"device_id\":$DEVICE_ID,\"reporter\":\"CI\",\"description\":\"Không được tính là QR\",\"severity\":\"Trung bình\"}")
+          test "$CODE" = "400"
+
           curl -fsS -X POST "$BASE/api/qr/checks" \
             -F "qr_uid=$QR_UID" \
             -F "inspector=QR Check CI" \
