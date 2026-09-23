@@ -36,6 +36,8 @@ Nguyên tắc quản lý: **Một thiết bị – một QR cố định – m�
 - Báo cáo chất lượng dữ liệu: thiếu Serial/Model/hãng/vị trí/năm sử dụng, nhóm Serial trùng và các dòng cần rà soát.
 - Lưu trữ hồ sơ thay cho xóa cứng.
 - QR UID cố định cho từng thiết bị.
+- Mã thiết bị đã lưu trữ không được tái sử dụng; số thứ tự sinh mới tiếp tục tăng.
+- Form cho phép lưu hồ sơ thực tế chưa đủ Hãng/Model/Serial/Năm/Vị trí; không yêu cầu bịa dữ liệu. Các thiếu hụt được đưa vào Báo cáo → Chất lượng dữ liệu.
 
 ### Sự cố → Sửa chữa
 
@@ -252,6 +254,8 @@ http://192.168.1.20:5000
 
 QR cần trỏ về **địa chỉ máy chủ ổn định**.
 
+Ảnh QR được sinh **ngay trên server QY4-TTBYT** dưới dạng SVG. Phần mềm không cần gọi dịch vụ tạo QR trên Internet và không gửi URL/QR UID thiết bị sang dịch vụ QR bên thứ ba. Khi mở phần mềm bằng `localhost`, hộp QR sẽ ưu tiên gợi ý địa chỉ LAN mà server phát hiện; không nên in tem với `localhost` hoặc `127.0.0.1`.
+
 ### Không nên dùng lâu dài
 
 - IP thay đổi theo lần phát hotspot điện thoại.
@@ -364,6 +368,9 @@ GitHub Actions hiện kiểm tra:
 - Sửa nhầm thiết bị trước chuyển sửa chữa cập nhật snapshot; sau khi đã có phiếu sửa chữa thì bị khóa đổi thiết bị.
 - KPI lọc theo khoa tại thời điểm xảy ra sự cố.
 - Serial còn nguyên sau khi server khởi động lại.
+- Sinh SVG QR ngay trên server nội bộ; source không còn tham chiếu dịch vụ QR Internet.
+- Khi một mã thiết bị đã lưu trữ, mã kế tiếp không tái sử dụng số cũ.
+- API thiết bị chấp nhận bản ghi tối giản có Khoa + Nhóm + Tên, trả lỗi 400 rõ ràng khi thiếu dữ liệu lõi hoặc mã bị trùng.
 - Upload ảnh multipart qua QR với Multer 2.4.0.
 - Request QR bắt buộc QR UID hợp lệ; `device_id` đơn thuần không được tính là QR.
 - Request QR/sự cố nhập trực tiếp bị từ chối không để lại file upload rác.
