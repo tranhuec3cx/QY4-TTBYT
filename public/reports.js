@@ -227,7 +227,7 @@ async function exportKpiExcel(){
     "STT":i+1,"Thời gian quét":r.check_datetime||"","Mã thiết bị":r.device_code||"",
     "Tên thiết bị":r.device_name||"","Khoa tại thời điểm quét":r.department_code_snapshot||"",
     "Vị trí tại thời điểm quét":r.location_snapshot||"","Người kiểm tra":r.inspector||"",
-    "Kết quả":r.result||"","Nguồn":r.source_channel||""
+    "Kết quả":r.result||"","Nguồn":r.source_channel||"","Sự cố phát sinh #":r.incident_id||""
   }));
   const details=(KPI.records||[]).map((r,i)=>({
     "STT":i+1,"Mã sự cố":r.incident_code||"","Thời gian báo":r.incident_datetime||"",
