@@ -3244,22 +3244,61 @@ function listDatabaseBackups() {
   fs.mkdirSync(backupDir, { recursive: true });
   return fs.readdirSync(backupDir).filter(x => /^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
 }
+function backupFilesDirFor(filename) {
+  return path.join(backupDir, String(filename || "").replace(/\.sqlite$/i, ".files"));
+}
+function snapshotDirectoryWithHardlinks(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive:true });
+  if (!fs.existsSync(sourceDir)) return;
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes:true })) {
+    const src=path.join(sourceDir,entry.name);
+    const dst=path.join(targetDir,entry.name);
+    if (entry.isDirectory()) {
+      snapshotDirectoryWithHardlinks(src,dst);
+    } else if (entry.isFile()) {
+      try { fs.linkSync(src,dst); }
+      catch { fs.copyFileSync(src,dst); }
+    }
+  }
+}
+function removeBackupBundle(filename) {
+  try { fs.unlinkSync(path.join(backupDir, filename)); } catch {}
+  try { fs.rmSync(backupFilesDirFor(filename), { recursive:true, force:true }); } catch {}
+}
+function verifySqliteBackup(target) {
+  let checkDb=null;
+  try {
+    checkDb=new Database(target,{readonly:true,fileMustExist:true});
+    const row=checkDb.prepare("PRAGMA quick_check").get();
+    const value=row ? String(Object.values(row)[0] || "") : "";
+    if (value.toLowerCase() !== "ok") throw new Error(`SQLite quick_check: ${value || "không có kết quả"}`);
+  } finally {
+    if (checkDb) checkDb.close();
+  }
+}
 function pruneDatabaseBackups() {
   const keep = Math.max(3, Number(process.env.QY4_BACKUP_KEEP || 30));
   const files = listDatabaseBackups();
-  files.slice(keep).forEach(name => {
-    try { fs.unlinkSync(path.join(backupDir, name)); } catch {}
-  });
+  files.slice(keep).forEach(removeBackupBundle);
 }
 async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu dữ liệu") {
   fs.mkdirSync(backupDir, { recursive: true });
   const stamp = nowSql().replace(/[-: ]/g,"").slice(0,14);
   const filename = `qy4_ttbyt_${stamp}.sqlite`;
   const target = path.join(backupDir, filename);
-  await db.backup(target);
-  pruneDatabaseBackups();
-  writeAudit(actor, reason, "system", filename, target);
-  return filename;
+  const filesTarget = backupFilesDirFor(filename);
+  try {
+    await db.backup(target);
+    verifySqliteBackup(target);
+    fs.rmSync(filesTarget,{recursive:true,force:true});
+    snapshotDirectoryWithHardlinks(path.join(__dirname,"uploads"), filesTarget);
+    pruneDatabaseBackups();
+    writeAudit(actor, reason, "system", filename, `${target} + ${filesTarget}`);
+    return filename;
+  } catch (e) {
+    removeBackupBundle(filename);
+    throw e;
+  }
 }
 async function ensureDailyBackup() {
   try {
@@ -3323,9 +3362,13 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"backup",
-      level:backups.length ? "Đạt" : "Cần xử lý",
-      title:"Sao lưu dữ liệu",
-      detail:backups.length ? `Có ${backups.length} bản sao lưu; mới nhất: ${backups[0]}.` : "Chưa có bản sao lưu SQLite."
+      level:backups.length && fs.existsSync(backupFilesDirFor(backups[0])) ? "Đạt" : "Cần xử lý",
+      title:"Sao lưu dữ liệu + file đính kèm",
+      detail:backups.length
+        ? (fs.existsSync(backupFilesDirFor(backups[0]))
+            ? `Có ${backups.length} bản sao lưu; mới nhất: ${backups[0]} kèm snapshot uploads.`
+            : `Bản backup mới nhất ${backups[0]} chưa có snapshot uploads; hãy tạo backup mới.`)
+        : "Chưa có bản sao lưu dữ liệu."
     },
     {
       key:"qr_origin",
