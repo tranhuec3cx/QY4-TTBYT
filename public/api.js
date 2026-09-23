@@ -293,35 +293,6 @@ function applyFieldLabels(formId, labels){
   });
 }
 
-function parseExcelDate(value) {
-  if (!value) return "";
-  if (typeof value === "number" && window.XLSX && XLSX.SSF) {
-    const d = XLSX.SSF.parse_date_code(value);
-    if (!d) return "";
-    return `${String(d.y).padStart(4,'0')}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
-  }
-  const s = String(value).trim();
-  if (!s) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
-    const [dd,mm,yy] = s.split("/");
-    return `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
-  }
-  return s;
-}
-function parseDateTimeExcel(value) {
-  if (!value) return "";
-  const s = String(value).trim();
-  if (!s) return "";
-  if (s.includes("T")) return s.replace("T"," ");
-  return s;
-}
-function firstSheetRows(workbook) {
-  const name = workbook.SheetNames[0];
-  return XLSX.utils.sheet_to_json(workbook.Sheets[name], { defval: "" });
-}
-
-
 async function showScopePicker(title = "Chọn phạm vi", description = "Chọn khoa/phòng và nhóm thiết bị để tạo file.", options = {}) {
   const meta = await api("/api/meta");
   const departments = meta.departments || [];
