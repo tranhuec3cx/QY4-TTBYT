@@ -1487,9 +1487,12 @@ app.put("/api/users/:id", (req, res) => {
       UPDATE users SET full_name=?, username=?, role=?, department_code=?, status=?, phone=?
       WHERE id=?
     `).run(full_name, username, role, department_code || null, status || "Hoạt động", phone || "", req.params.id);
-    if (password) setUserPassword(req.params.id, password);
+    if (password) {
+      setUserPassword(req.params.id, password);
+      db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(Number(req.params.id));
+    }
     if (status !== "Hoạt động") db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(Number(req.params.id));
-    writeAudit(req.authUser?.full_name || "Quản trị viên", "Cập nhật người dùng", "user", req.params.id, `${old.username} → ${username}`);
+    writeAudit(req.authUser?.full_name || "Quản trị viên", "Cập nhật người dùng", "user", req.params.id, `${old.username} → ${username}${password ? " | đã đổi mật khẩu và thu hồi phiên đăng nhập" : ""}`);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
