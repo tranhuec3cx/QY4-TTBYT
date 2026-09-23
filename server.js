@@ -959,6 +959,10 @@ function ensureCoreManagementSchema() {
   `);
 }
 
+function requestActor(req, fallback = "Hệ thống") {
+  return String(req.authUser?.full_name || req.body?.actor || fallback || "Hệ thống").trim() || "Hệ thống";
+}
+
 function writeAudit(actor, actionType, entityType, entityId, details = "") {
   try {
     db.prepare(`
@@ -1429,7 +1433,7 @@ app.post("/api/devices", (req, res) => {
     VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
   `).run(payload);
   const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
-  writeAudit(req.body.actor || "", "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
+  writeAudit(requestActor(req), "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
   res.json({ id: info.lastInsertRowid, qr_uid: qrUid });
 });
 
@@ -1446,7 +1450,7 @@ app.put("/api/devices/:id", (req, res) => {
     WHERE id=@id
   `).run({ ...payload, id: Number(req.params.id) });
   ensureDeviceQrUid(req.params.id);
-  writeAudit(req.body.actor || "", "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
+  writeAudit(requestActor(req), "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
   res.json({ ok: true, qr_uid: ensureDeviceQrUid(req.params.id) });
 });
 
@@ -1455,7 +1459,7 @@ app.delete("/api/devices/:id", (req, res) => {
   const device = db.prepare("SELECT * FROM devices WHERE id=?").get(id);
   if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   db.prepare("UPDATE devices SET is_archived=1, archived_at=?, status='Ngừng hoạt động' WHERE id=?").run(nowSql(), id);
-  writeAudit(req.body?.actor || "", "Lưu trữ thiết bị", "device", id, `${device.device_code || ""} | ${device.name || ""}`);
+  writeAudit(requestActor(req), "Lưu trữ thiết bị", "device", id, `${device.device_code || ""} | ${device.name || ""}`);
   res.json({ ok: true, archived: true, qr_uid: ensureDeviceQrUid(id) });
 });
 
@@ -1514,7 +1518,7 @@ app.post("/api/repairs", (req, res) => {
         ? `Tạo phiếu sửa chữa từ sự cố ${p.incident_code || ('#' + payload.incident_id)}`
         : (payload.issue || payload.work || "Tạo phiếu sửa chữa");
       writeHistory("repair", info.lastInsertRowid, payload.person || "Khoa Trang bị", payload.incident_id ? "Tạo từ sự cố" : "Tạo phiếu", "", payload.processing_status, note, payload.cost, payload.incident_id ? "Tự động" : "Tự động", p.action_time || payload.received_at || payload.repair_date);
-      writeAudit(payload.person || "Khoa Trang bị", "Tạo phiếu sửa chữa", "repair", info.lastInsertRowid, note);
+      writeAudit(requestActor(req, payload.person || "Khoa Trang bị"), "Tạo phiếu sửa chữa", "repair", info.lastInsertRowid, note);
     }
     res.json({ id: info.lastInsertRowid });
   } catch (e) {
@@ -1592,7 +1596,7 @@ app.put("/api/repairs/:id", (req, res) => {
       const actionType = payload.processing_status === "Đã hoàn thành" ? "Hoàn thành" : (payload.processing_status === "Không sửa được" ? "Không sửa được" : "Cập nhật");
       const note = payload.work || payload.result || payload.issue || "Cập nhật phiếu sửa chữa";
       writeHistory("repair", Number(req.params.id), payload.person || "Khoa Trang bị", actionType, old.processing_status || "", payload.processing_status || "", note, payload.cost, actionType, p.action_time || payload.updated_at);
-      writeAudit(payload.person || "Khoa Trang bị", "Cập nhật sửa chữa", "repair", req.params.id, `${old.processing_status || ""} → ${payload.processing_status || ""} | ${note}`);
+      writeAudit(requestActor(req, payload.person || "Khoa Trang bị"), "Cập nhật sửa chữa", "repair", req.params.id, `${old.processing_status || ""} → ${payload.processing_status || ""} | ${note}`);
     }
     res.json({ ok: true });
   } catch (e) {
@@ -2235,7 +2239,7 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
     `).run(payload);
     completeIncidentRow(info.lastInsertRowid, payload.device_id, payload.reporter, payload.incident_datetime);
     saveIncidentFiles(info.lastInsertRowid, payload.device_id, req.files);
-    writeAudit(payload.reporter, "Tạo sự cố", "incident", info.lastInsertRowid, payload.description);
+    writeAudit(requestActor(req, payload.reporter || "Hệ thống"), "Tạo sự cố", "incident", info.lastInsertRowid, payload.description);
     const row = db.prepare(`
       SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial,
              d.name AS department_name, g.name AS group_name,
@@ -2290,7 +2294,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       db.prepare("UPDATE incidents SET acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), completed_at=COALESCE(NULLIF(completed_at,''),?) WHERE id=?").run(nowSql(), receivingActor, nowSql(), Number(req.params.id));
     }
     saveIncidentFiles(Number(req.params.id), payload.device_id, req.files);
-    writeAudit(payload.reporter, "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
+    writeAudit(requestActor(req, payload.reporter || "Hệ thống"), "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
     res.json({ ok: true });
   } catch (e) {
     console.error("PUT /api/incidents/:id error:", e);
@@ -2685,7 +2689,7 @@ app.post("/api/devices/:id/transfer", (req, res) => {
   if (!toDepartment) return res.status(400).json({ error: "Thiếu khoa/phòng nhận." });
   const toLocation = String(req.body.to_location || "").trim();
   const at = normalizeDateTime(req.body.transfer_datetime || nowSql()) || nowSql();
-  const actor = String(req.body.actor || "").trim();
+  const actor = requestActor(req, "");
   const tx = db.transaction(() => {
     const info = db.prepare(`
       INSERT INTO device_transfers
@@ -2802,7 +2806,7 @@ app.put("/api/inventory-items/:id", (req, res) => {
   const result = allowed.includes(req.body.result) ? req.body.result : "Chưa kiểm kê";
   const actualDepartment = String(req.body.actual_department_code || old.actual_department_code || old.expected_department_code || "").trim();
   const actualLocation = String(req.body.actual_location ?? old.actual_location ?? "").trim();
-  const actor = String(req.body.updated_by || "").trim();
+  const actor = String(req.authUser?.full_name || req.body.updated_by || "").trim();
   db.prepare(`
     UPDATE inventory_items
     SET result=?, actual_department_code=?, actual_location=?, note=?, updated_at=?, updated_by=?
@@ -2821,7 +2825,7 @@ app.post("/api/inventory-sessions/:id/complete", (req, res) => {
     return res.status(400).json({ error:`Còn ${pending} thiết bị chưa kiểm kê.` });
   }
   db.prepare("UPDATE inventory_sessions SET status='Đã hoàn thành', completed_at=? WHERE id=?").run(nowSql(),id);
-  writeAudit(req.body.actor || session.actor || "","Hoàn thành kiểm kê","inventory",id,`Còn chưa kiểm kê: ${pending}`);
+  writeAudit(req.authUser?.full_name || req.body.actor || session.actor || "","Hoàn thành kiểm kê","inventory",id,`Còn chưa kiểm kê: ${pending}`);
   res.json({ok:true,pending});
 });
 
@@ -2898,7 +2902,7 @@ app.get("/api/system/backups", (req, res) => {
 
 app.post("/api/system/backup", async (req, res) => {
   try {
-    const filename = await createDatabaseBackup(req.body?.actor || req.authUser?.full_name || "Quản trị viên", "Sao lưu dữ liệu");
+    const filename = await createDatabaseBackup(req.authUser?.full_name || req.body?.actor || "Quản trị viên", "Sao lưu dữ liệu");
     res.json({ ok:true, filename });
   } catch (e) {
     res.status(500).json({ error:e.message });
