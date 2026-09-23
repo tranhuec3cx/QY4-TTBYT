@@ -3372,11 +3372,65 @@ app.get("/api/quality-ratings", (req, res) => {
 });
 
 app.post("/api/quality-ratings", (req, res) => {
-  const p = req.body;
-  const total = Number(p.age_score||0)+Number(p.performance_score||0)+Number(p.repair_score||0)+Number(p.inspection_score||0)+Number(p.sparepart_score||0);
-  const grade = total >= 90 ? "A" : total >= 80 ? "B" : total >= 65 ? "C" : "D";
-  const info = db.prepare(`INSERT OR REPLACE INTO quality_ratings (id,device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note) VALUES ((SELECT id FROM quality_ratings WHERE device_id=@device_id),@device_id,@rating_date,@age_score,@performance_score,@repair_score,@inspection_score,@sparepart_score,@total_score,@grade,@recommendation,@evaluator,@note)`).run({ ...p, total_score: total, grade });
-  res.json({ id: info.lastInsertRowid, total_score: total, grade });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    const device=db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+
+    const limits={
+      age_score:25,
+      performance_score:25,
+      repair_score:20,
+      inspection_score:15,
+      sparepart_score:15
+    };
+    const payload={
+      device_id:deviceId,
+      rating_date:String(p.rating_date || localDateISO()).slice(0,10),
+      evaluator:String(p.evaluator || "").trim(),
+      recommendation:String(p.recommendation || "").trim(),
+      note:String(p.note || "")
+    };
+    for(const [key,max] of Object.entries(limits)){
+      const value=Number(p[key] ?? 0);
+      if(!Number.isFinite(value) || value<0 || value>max){
+        return res.status(400).json({error:`Điểm ${key} phải từ 0 đến ${max}.`});
+      }
+      payload[key]=Math.round(value);
+    }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.rating_date)) return res.status(400).json({error:"Ngày đánh giá không hợp lệ."});
+    if(!payload.evaluator) return res.status(400).json({error:"Vui lòng nhập người đánh giá."});
+
+    payload.total_score=payload.age_score+payload.performance_score+payload.repair_score+payload.inspection_score+payload.sparepart_score;
+    payload.grade=payload.total_score>=90?"A":payload.total_score>=80?"B":payload.total_score>=65?"C":"D";
+
+    const old=db.prepare("SELECT * FROM quality_ratings WHERE device_id=?").get(deviceId);
+    let id;
+    if(old){
+      db.prepare(`
+        UPDATE quality_ratings SET
+          rating_date=@rating_date,age_score=@age_score,performance_score=@performance_score,
+          repair_score=@repair_score,inspection_score=@inspection_score,sparepart_score=@sparepart_score,
+          total_score=@total_score,grade=@grade,recommendation=@recommendation,evaluator=@evaluator,note=@note
+        WHERE device_id=@device_id
+      `).run(payload);
+      id=old.id;
+      writeAudit(requestActor(req,payload.evaluator),"Cập nhật đánh giá chất lượng","quality_rating",id,`${old.total_score || 0}/${old.grade || ""} → ${payload.total_score}/${payload.grade}`);
+    } else {
+      const info=db.prepare(`
+        INSERT INTO quality_ratings
+        (device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note)
+        VALUES (@device_id,@rating_date,@age_score,@performance_score,@repair_score,@inspection_score,@sparepart_score,@total_score,@grade,@recommendation,@evaluator,@note)
+      `).run(payload);
+      id=Number(info.lastInsertRowid);
+      writeAudit(requestActor(req,payload.evaluator),"Tạo đánh giá chất lượng","quality_rating",id,`${payload.total_score}/${payload.grade}`);
+    }
+    res.json({id,total_score:payload.total_score,grade:payload.grade});
+  } catch(e) {
+    console.error("POST /api/quality-ratings error:",e);
+    res.status(400).json({error:e.message || "Không thể lưu đánh giá chất lượng."});
+  }
 });
 
 app.delete("/api/quality-ratings/:id", (req, res) => {
@@ -3401,9 +3455,31 @@ app.get("/api/usage-reports", (req, res) => {
 });
 
 app.post("/api/usage-reports", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`INSERT INTO usage_reports (device_id,year,month,indicator,value,unit,note) VALUES (@device_id,@year,@month,@indicator,@value,@unit,@note)`).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    const device=db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+    const year=Number(p.year || 0);
+    const month=(p.month===null || p.month==="" || p.month===undefined) ? null : Number(p.month);
+    const value=Number(p.value ?? 0);
+    const indicator=String(p.indicator || "").trim();
+    const unit=String(p.unit || "").trim();
+    if(!Number.isInteger(year) || year<2000 || year>2100) return res.status(400).json({error:"Năm báo cáo không hợp lệ."});
+    if(month!==null && (!Number.isInteger(month) || month<1 || month>12)) return res.status(400).json({error:"Tháng báo cáo phải từ 1 đến 12."});
+    if(!indicator) return res.status(400).json({error:"Vui lòng nhập chỉ tiêu sử dụng."});
+    if(!Number.isFinite(value) || value<0) return res.status(400).json({error:"Giá trị sử dụng phải là số không âm."});
+    const payload={device_id:deviceId,year,month,indicator,value,unit,note:String(p.note || "")};
+    const info=db.prepare(`
+      INSERT INTO usage_reports (device_id,year,month,indicator,value,unit,note)
+      VALUES (@device_id,@year,@month,@indicator,@value,@unit,@note)
+    `).run(payload);
+    writeAudit(requestActor(req),"Tạo báo cáo sử dụng","usage_report",info.lastInsertRowid,`${month || "Năm"}/${year} | ${indicator}: ${value} ${unit}`);
+    res.json({id:info.lastInsertRowid});
+  } catch(e) {
+    console.error("POST /api/usage-reports error:",e);
+    res.status(400).json({error:e.message || "Không thể lưu báo cáo sử dụng."});
+  }
 });
 
 app.delete("/api/usage-reports/:id", (req, res) => {
