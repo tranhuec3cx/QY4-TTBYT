@@ -10,4 +10,35 @@ async function delRow(id){
 }
 async function load(){DEVICES=await api('/api/devices'); ROWS=await api('/api/quality-ratings'); q('deviceId').innerHTML=DEVICES.map(d=>`<option value="${d.id}">${d.device_code} - ${d.name}</option>`).join(''); applyFilter();}
 function exportExcel(){const rows=FILTERED.map(r=>({'Mã thiết bị':r.device_code,'Tên thiết bị':r.device_name,'Khoa':r.department_code,'Ngày đánh giá':r.rating_date,'Tổng điểm':r.total_score,'Cấp':r.grade,'Khuyến nghị':r.recommendation,'Ghi chú':r.note})); const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'PhanCap'); XLSX.writeFile(wb,'phan_cap_chat_luong.xlsx');}
-document.addEventListener('DOMContentLoaded',async()=>{setLayout('quality','Phân cấp chất lượng','Chấm điểm A/B/C/D theo tuổi thiết bị, hiệu suất, sửa chữa, kiểm định và phụ tùng'); await load(); resetForm(); q('filterBtn').onclick=applyFilter; q('searchInput').oninput=applyFilter; q('gradeFilter').onchange=applyFilter; q('exportBtn').onclick=exportExcel; q('resetBtn').onclick=resetForm; q('form').onsubmit=async e=>{e.preventDefault(); const p={device_id:Number(q('deviceId').value),rating_date:q('ratingDate').value,evaluator:q('evaluator').value,age_score:Number(q('ageScore').value||0),performance_score:Number(q('performanceScore').value||0),repair_score:Number(q('repairScore').value||0),inspection_score:Number(q('inspectionScore').value||0),sparepart_score:Number(q('sparepartScore').value||0),recommendation:q('recommendation').value,note:q('note').value}; await api('/api/quality-ratings',{method:'POST',body:JSON.stringify(p)}); resetForm(); await load();};});
+document.addEventListener('DOMContentLoaded',async()=>{
+  setLayout('quality','Phân cấp chất lượng','Chấm điểm A/B/C/D theo tuổi thiết bị, hiệu suất, sửa chữa, kiểm định và phụ tùng');
+  await load();
+  resetForm();
+  q('filterBtn').onclick=applyFilter;
+  q('searchInput').oninput=applyFilter;
+  q('gradeFilter').onchange=applyFilter;
+  q('exportBtn').onclick=exportExcel;
+  q('resetBtn').onclick=resetForm;
+  q('form').onsubmit=async e=>{
+    e.preventDefault();
+    const p={
+      device_id:Number(q('deviceId').value),
+      rating_date:q('ratingDate').value,
+      evaluator:q('evaluator').value.trim(),
+      age_score:Number(q('ageScore').value||0),
+      performance_score:Number(q('performanceScore').value||0),
+      repair_score:Number(q('repairScore').value||0),
+      inspection_score:Number(q('inspectionScore').value||0),
+      sparepart_score:Number(q('sparepartScore').value||0),
+      recommendation:q('recommendation').value.trim(),
+      note:q('note').value.trim()
+    };
+    try{
+      await api('/api/quality-ratings',{method:'POST',body:JSON.stringify(p)});
+      resetForm();
+      await load();
+    }catch(err){
+      alert(err.message || 'Không lưu được đánh giá chất lượng.');
+    }
+  };
+});
