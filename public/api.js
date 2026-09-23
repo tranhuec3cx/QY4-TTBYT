@@ -99,8 +99,7 @@ function renderMenu(active) {
       </div>
       <nav class="menu">${links}</nav>
       <div class="sidebar-footer">
-        <div class="avatar">QT</div>
-        <div><b>Quản trị viên</b><span>Khoa Trang bị</span></div>
+        <div><b>KHOA TRANG BỊ</b><span>© 2026 BVQY4 · Version 5.0.0</span></div>
       </div>
     </aside>
   `;
@@ -328,7 +327,7 @@ function qrModalEsc(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[ch] || ch));
 }
 const QR_BASE_STORAGE_KEY = "qy4PublicQrBaseUrl";
-const QR_DEFAULT_PUBLIC_BASE = "https://qy4.benhvien.vn";
+const QR_DEFAULT_PUBLIC_BASE = (window.location && window.location.origin) ? window.location.origin : "http://localhost:5000";
 function normalizeQrBaseUrl(value) {
   let v = String(value || "").trim().replace(/\/$/, "");
   if (!v) return QR_DEFAULT_PUBLIC_BASE;
