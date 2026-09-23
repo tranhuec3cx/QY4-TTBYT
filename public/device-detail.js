@@ -25,9 +25,15 @@ function docFileLabel(x) {
   const name = x.original_name || x.stored_name || "Tệp đính kèm";
   return `<a href="${esc(x.file_path)}" target="_blank" rel="noopener">${esc(name)}</a>`;
 }
+function isProtectedTechnicalDoc(x) {
+  const protectedTypes=new Set(["Bảo dưỡng","Kiểm định","Hiệu chuẩn","Kiểm xạ","ATBX","An toàn bức xạ","Kiểm định an toàn bức xạ","Sự cố QR","Kiểm tra"]);
+  return protectedTypes.has(String(x?.type||"").trim());
+}
 function docExtraBtns(x) {
-  const html = `<button class="btn btn-sm" onclick="editDoc(${x.id})">Cập nhật</button><button class="btn btn-danger btn-sm" onclick="deleteDoc(${x.id})">Xóa</button>`;
-  return `<div class="table-actions">${html}</div>`;
+  if(isProtectedTechnicalDoc(x)) {
+    return `<div class="table-actions"><button class="btn btn-sm" onclick="editDoc(${x.id})">Cập nhật</button><span class="tag gray" title="Tài liệu kỹ thuật được bảo toàn trong lịch sử">Lịch sử</span></div>`;
+  }
+  return `<div class="table-actions"><button class="btn btn-sm" onclick="editDoc(${x.id})">Cập nhật</button><button class="btn btn-danger btn-sm" onclick="deleteDoc(${x.id})">Xóa</button></div>`;
 }
 function attachedPath(value){ const v = String(value || "").trim(); return v.startsWith("/uploads/") ? v : ""; }
 function fileDownloadCell(path, name){
