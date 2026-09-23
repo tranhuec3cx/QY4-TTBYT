@@ -219,7 +219,9 @@ async function confirmDeviceDuplicate(payload, excludeId = 0) {
     extraSimilar.slice(0,5).forEach(x => lines.push(`- ${x.device_code || ""} - Serial: ${x.serial || "—"} (${x.department_code || ""})`));
   }
   lines.push("", "Nếu đã kiểm tra và đây đúng là thiết bị khác, có thể tiếp tục lưu.");
-  return confirm(lines.join("\n"));
+  const accepted = confirm(lines.join("\n"));
+  if (accepted && serialRows.length) payload.allow_duplicate_serial = true;
+  return accepted;
 }
 
 function exportCsv(filename, rows) {
