@@ -111,6 +111,20 @@ jobs:
           if (Number(kpiTst2.summary.total_incidents)!==1 || Number(kpiTst2.summary.qr_incidents)!==1) throw new Error("KPI department filter failed for TST2");
           console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
+      - name: Smoke test public QR rate limit
+        run: |
+          BASE=http://127.0.0.1:5000
+          HIT_429=0
+          for i in {1..25}; do
+            CODE=$(curl -s -o /tmp/qr-rate-$i.json -w '%{http_code}' -X POST "$BASE/api/qr/incidents" -H 'Content-Type: application/json' --data '{}')
+            if [ "$CODE" = "429" ]; then
+              HIT_429=1
+              break
+            fi
+          done
+          test "$HIT_429" = "1"
+          echo "Public QR write rate limit passed"
+
       - name: Smoke test Serial persistence after restart
         run: |
           if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
