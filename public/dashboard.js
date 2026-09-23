@@ -42,6 +42,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbQrTotal", checksToday.length);
   setText("dbQrIssue", checksToday.filter(isIssueCheck).length);
   setText("dbQrIncidentShare", `${monthKpi?.summary?.qr_share_percent||0}% (${monthKpi?.summary?.qr_incidents||0}/${monthKpi?.summary?.total_incidents||0})`);
+  setText("dbQrChecksMonth", monthKpi?.summary?.qr_checks || 0);
+  setText("dbQrDevicesMonth", monthKpi?.summary?.qr_check_unique_devices || 0);
 
   const dueMaint = maints.filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
