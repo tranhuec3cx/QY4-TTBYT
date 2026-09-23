@@ -305,6 +305,9 @@ try { db.prepare('ALTER TABLE repairs ADD COLUMN received_at TEXT').run(); } cat
 try { db.prepare('ALTER TABLE repairs ADD COLUMN updated_at TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN completed_at TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN status_before TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN priority TEXT DEFAULT "Bình thường"').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN reporter TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN note TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN local_resolution_note TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN reporter_phone TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN incident_code TEXT').run(); } catch (e) {}
@@ -688,6 +691,9 @@ function initDb() {
       issue TEXT,
       work TEXT,
       person TEXT,
+      priority TEXT DEFAULT "Bình thường",
+      reporter TEXT,
+      note TEXT,
       method TEXT,
       cost INTEGER DEFAULT 0,
       result TEXT,
@@ -1955,7 +1961,10 @@ app.post("/api/repairs", (req, res) => {
       repair_date: normalizeDateTime(p.repair_date || ""),
       issue: p.issue || "",
       work: p.work || "",
-      person: p.person || "",
+      person: String(p.person || requestActor(req, "Khoa Trang bị")).trim(),
+      priority: ["Bình thường","Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(p.priority || "").trim()) ? String(p.priority).trim() : "Bình thường",
+      reporter: String(p.reporter || "").trim(),
+      note: String(p.note || ""),
       method: p.method || "",
       cost: Number(p.cost || 0),
       result: p.result || "",
@@ -1968,8 +1977,8 @@ app.post("/api/repairs", (req, res) => {
       completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || "Đang xử lý")) ? nowSql() : ""
     };
     const info = db.prepare(`
-      INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
-      VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+      INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
+      VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
     `).run(payload);
     db.prepare(`UPDATE devices SET status=? WHERE id=?`).run(payload.status_after, payload.device_id);
     if (!p.skip_history) {
@@ -2065,7 +2074,10 @@ app.put("/api/repairs/:id", (req, res) => {
       repair_date: normalizeDateTime(p.repair_date || ""),
       issue: p.issue || "",
       work: p.work || "",
-      person: p.person || "",
+      person: String(p.person ?? old.person ?? requestActor(req, "Khoa Trang bị")).trim(),
+      priority: ["Bình thường","Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(p.priority ?? old.priority ?? "").trim()) ? String(p.priority ?? old.priority).trim() : "Bình thường",
+      reporter: String(p.reporter ?? old.reporter ?? "").trim(),
+      note: String(p.note ?? old.note ?? ""),
       method: p.method || "",
       cost: Number(p.cost || 0),
       result: p.result || "",
@@ -2084,6 +2096,9 @@ app.put("/api/repairs/:id", (req, res) => {
         issue=@issue,
         work=@work,
         person=@person,
+        priority=@priority,
+        reporter=@reporter,
+        note=@note,
         method=@method,
         cost=@cost,
         result=@result,
@@ -3153,6 +3168,9 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
       issue: incident.description || "",
       work: "Chờ kiểm tra và xử lý kỹ thuật",
       person: actor || "Khoa Trang bị",
+      priority: ["Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(incident.severity || "").trim()) ? String(incident.severity).trim() : "Bình thường",
+      reporter: String(incident.reporter || "").trim(),
+      note: String(incident.note || ""),
       method: "Nội bộ",
       cost: 0,
       result: "",
