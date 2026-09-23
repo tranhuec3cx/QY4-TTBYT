@@ -2,6 +2,7 @@
 let META = { departments: [], groups: [] };
 let DEVICE = null;
 let DEVICE_ID = null;
+let TECH_HISTORY = [];
 
 function esc(value) { return String(value ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
 function infoItem(label, value) {
@@ -65,6 +66,57 @@ function renderGeneralInfo() {
     <div class="info-section"><h3>Tài chính / tình trạng</h3>${infoItem("Nguyên giá", formatCurrency(DEVICE.cost))}${infoItem("Nguồn kinh phí", DEVICE.funding)}${infoItem("Tình trạng", DEVICE.status)}${infoItem("Cấp chất lượng", DEVICE.quality_level ? `Cấp ${DEVICE.quality_level}` : "—")}${infoItem("Ghi chú", DEVICE.note || "—")}</div>
   `;
 }
+function renderTransfers() {
+  const rows = DEVICE.transfers || [];
+  renderRows("transferRows", rows, x => `<tr>
+    <td>${formatDateTimeVN(x.transfer_datetime)}</td>
+    <td><b>${esc(x.from_department_code||"—")}</b><div class="small">${esc(x.from_location||"")}</div></td>
+    <td><b>${esc(x.to_department_code||"—")}</b><div class="small">${esc(x.to_location||"")}</div></td>
+    <td class="wrap-text">${esc(x.reason||"")}</td>
+    <td>${esc(x.actor||"")}</td>
+    <td class="wrap-text">${esc(x.note||"")}</td>
+  </tr>`, 6);
+}
+function renderTechnicalHistory() {
+  renderRows("technicalRows", TECH_HISTORY || [], x => `<tr>
+    <td>${formatDateTimeVN(x.date)}</td>
+    <td><b>${esc(x.type||"")}</b></td>
+    <td class="wrap-text">${esc(x.content||"")}</td>
+    <td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"—")}</span></td>
+    <td>${esc(x.person||"")}</td>
+  </tr>`, 5);
+}
+async function loadTechnicalHistory() {
+  if (!q("technicalRows")) return;
+  const from = q("techFromDate")?.value || "";
+  const to = q("techToDate")?.value || "";
+  const type = q("techType")?.value || "ALL";
+  TECH_HISTORY = await api(`/api/devices/${DEVICE_ID}/technical-history?from_date=${encodeURIComponent(from)}&to_date=${encodeURIComponent(to)}&type=${encodeURIComponent(type)}`);
+  renderTechnicalHistory();
+}
+function resetTransferForm() {
+  q("transferForm").reset();
+  q("transferDate").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  q("transferDepartment").value = DEVICE.department_code || "";
+  q("transferLocation").value = DEVICE.location || "";
+  showForm("transferFormWrap", false);
+}
+async function saveTransfer(e) {
+  e.preventDefault();
+  const payload = {
+    transfer_datetime: fromDateTimeLocalValue(q("transferDate").value),
+    to_department_code: q("transferDepartment").value,
+    to_location: q("transferLocation").value.trim(),
+    actor: q("transferActor").value.trim(),
+    reason: q("transferReason").value.trim(),
+    note: q("transferNote").value.trim()
+  };
+  if (!payload.to_department_code) return alert("Vui lòng chọn khoa/phòng nhận.");
+  await api(`/api/devices/${DEVICE_ID}/transfer`, {method:"POST", body:JSON.stringify(payload)});
+  showForm("transferFormWrap", false);
+  await loadDevice();
+}
+
 function renderAll() {
   q("detailName").textContent = DEVICE.name;
   q("detailMeta").innerHTML = `<b>Mã:</b> ${esc(DEVICE.device_code)} &nbsp; | &nbsp; <b>Khoa:</b> ${esc(DEVICE.department_name)} &nbsp; | &nbsp; <b>Nhóm:</b> ${esc(DEVICE.group_name)} &nbsp; | &nbsp; <b>Model:</b> ${esc(DEVICE.model || "—")}`;
@@ -94,11 +146,17 @@ function renderAll() {
   if (q("inspectionRows")) renderRows("inspectionRows", DEVICE.inspections || [], x => `<tr><td>${formatDateTimeVN(x.inspection_date)}</td><td>${esc(x.type||"")}</td><td>${esc(x.organization||"")}</td><td>${esc(x.certificate_no||"")}</td><td>${esc(x.result||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(attachedPath(x.file_note), "")}</td><td><div class="table-actions"><button class="btn btn-sm" onclick="editInspection(${Number(x.id)})">Cập nhật</button><button class="btn btn-danger btn-sm" onclick="deleteInspection(${Number(x.id)})">Xóa</button></div></td></tr>`, 8);
   renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${x.log_datetime||""}</td><td>${x.user_name||""}</td><td>${x.department_code||""}</td><td>${x.usage_count||""}</td><td>${x.status_before||""}</td><td>${x.status_after||""}</td><td>${x.note||""}</td><td>${rowBtns('editOp','deleteOp',x.id)}</td></tr>`, 8);
   renderRows("docRows", DEVICE.documents, x => `<tr><td>${x.name||""}</td><td>${x.type||""}</td><td>${formatDateVN(x.doc_date)}</td><td>${x.updated_by||""}</td><td>${docFileLabel(x)}</td><td>${x.note||""}</td><td>${docExtraBtns(x)}</td></tr>`, 7);
+  if (q("transferDepartment")) {
+    q("transferDepartment").innerHTML = META.departments.map(x=>`<option value="${esc(x.code)}">${esc(x.code)} - ${esc(x.name)}</option>`).join("");
+    q("transferDepartment").value = DEVICE.department_code || "";
+  }
+  renderTransfers();
 }
 async function loadDevice() {
   META = await api("/api/meta");
   DEVICE = await api(`/api/devices/${DEVICE_ID}`);
   renderAll();
+  await loadTechnicalHistory();
 }
 async function saveGeneral() {
   const payload = {
@@ -296,6 +354,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   applyFieldLabels("maintForm", {maintDate:"Thời gian thực hiện", maintType:"Loại bảo dưỡng", maintResult:"Đánh giá", maintContent:"Nội dung bảo dưỡng", maintPerformer:"Người thực hiện", maintUserConfirm:"Người sử dụng xác nhận", maintVendor:"Đơn vị / nhà cung cấp", maintNextDate:"Ngày bảo dưỡng tiếp theo", maintFile:"Tải file đính kèm", maintNote:"Ghi chú"});
   applyFieldLabels("repairForm", {repairDate:"Thời gian tiếp nhận", repairMethod:"Hình thức sửa chữa", repairPerson:"Người thực hiện", repairIssue:"Tình trạng / nguyên nhân hỏng", repairWork:"Nội dung sửa chữa", repairCost:"Kinh phí", repairResult:"Kết quả sửa chữa", repairStatusAfter:"TTTB sau sửa chữa"});
   applyFieldLabels("accessoryForm", {accessoryName:"Tên bộ phận / phụ kiện", accessoryCode:"Ký mã hiệu", accessoryMakerCountry:"Hãng, nước sản xuất", accessorySerial:"Số series", accessoryNote:"Ghi chú"});
+  if (q("techFromDate")) q("techFromDate").value = firstDayOfYearISO();
+  if (q("techToDate")) q("techToDate").value = todayISO();
   await loadDevice();
 
   document.querySelectorAll(".tab-btn").forEach(btn => btn.addEventListener("click", () => {
@@ -329,4 +389,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   q("toggleDocBtn").onclick = () => { resetDocForm(); showForm("docFormWrap", true); };
   q("cancelDocBtn").onclick = resetDocForm;
   q("docForm").addEventListener("submit", saveDoc);
+
+  if (q("techFilterBtn")) q("techFilterBtn").onclick = loadTechnicalHistory;
+  if (q("techResetBtn")) q("techResetBtn").onclick = async () => {
+    q("techFromDate").value = firstDayOfYearISO(); q("techToDate").value = todayISO(); q("techType").value = "ALL"; await loadTechnicalHistory();
+  };
+  if (q("toggleTransferBtn")) q("toggleTransferBtn").onclick = () => {
+    resetTransferForm(); showForm("transferFormWrap", true); q("transferDate").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  };
+  if (q("cancelTransferBtn")) q("cancelTransferBtn").onclick = resetTransferForm;
+  if (q("transferForm")) q("transferForm").addEventListener("submit", saveTransfer);
 });
