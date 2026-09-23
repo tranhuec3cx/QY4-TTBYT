@@ -443,12 +443,26 @@ jobs:
           test "$CODE" = "409"
           curl -fsS "$BASE/api/inventory-sessions/$INV_SESSION" >/tmp/inv-detail.json
           INV_ITEM=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inv-detail.json","utf8")).items[0].id')
+          CODE=$(curl -s -o /tmp/inv-force-complete.json -w '%{http_code}' -X POST "$BASE/api/inventory-sessions/$INV_SESSION/complete" -H 'Content-Type: application/json' --data '{"actor":"CI","force":"1"}')
+          test "$CODE" = "409"
 
           CODE=$(curl -s -o /tmp/inv-bad-dept.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai khoa","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
           CODE=$(curl -s -o /tmp/inv-bad-location.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
           curl -fsS -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng B","note":"CI mismatch","updated_by":"CI"}' >/tmp/inv-valid.json
+          curl -fsS -X POST "$BASE/api/devices/$INV_DEVICE/transfer" -H 'Content-Type: application/json' --data "{"transfer_datetime":"$TODAY 16:00:00","to_department_code":"INV","to_location":"Phòng B","actor":"CI","reason":"Điều chuyển theo kiểm kê CI","note":"Giữ sai lệch trong biên bản kiểm kê"}" >/tmp/inv-transfer.json
+          curl -fsS "$BASE/api/inventory-sessions/$INV_SESSION" >/tmp/inv-after-transfer-session.json
+          curl -fsS "$BASE/api/devices/$INV_DEVICE" >/tmp/inv-after-transfer-device.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const s=JSON.parse(fs.readFileSync("/tmp/inv-after-transfer-session.json","utf8"));
+          const d=JSON.parse(fs.readFileSync("/tmp/inv-after-transfer-device.json","utf8"));
+          const item=(s.items||[])[0];
+          if(!item || item.result!=="Sai vị trí" || item.actual_location!=="Phòng B") throw new Error("Inventory mismatch history was altered by transfer");
+          if(d.location!=="Phòng B") throw new Error("Device current location did not update after transfer");
+          if(!(d.transfers||[]).some(x=>x.reason==="Điều chuyển theo kiểm kê CI")) throw new Error("Inventory transfer missing from device history");
+          NODE
           curl -fsS -X POST "$BASE/api/inventory-sessions/$INV_SESSION/complete" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/inv-complete.json
           CODE=$(curl -s -o /tmp/inv-after-complete.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Có","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
