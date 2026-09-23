@@ -30,15 +30,25 @@ function renderPublicDevice() {
     </div>
   `;
 }
+function publicQrUidFromPath() {
+  const m = window.location.pathname.match(/^\/q\/([^/?#]+)/i);
+  return m ? decodeURIComponent(m[1]) : (publicParam("qr_uid") || "");
+}
 async function loadPublicDevice() {
+  const qrUid = publicQrUidFromPath();
   const id = publicParam("id") || publicParam("device_id");
-  if (!id) {
-    q("publicDeviceCard").innerHTML = '<div class="center-empty">Thiếu mã thiết bị trên đường dẫn QR.</div>';
+  if (!qrUid && !id) {
+    q("publicDeviceCard").innerHTML = '<div class="center-empty">Thiếu mã định danh QR thiết bị.</div>';
     q("publicCheckForm").style.display = "none";
     return;
   }
-  PUBLIC_DEVICE = await api(`/api/public/device/${encodeURIComponent(id)}`);
+  PUBLIC_DEVICE = qrUid
+    ? await api(`/api/public/device-qr/${encodeURIComponent(qrUid)}`)
+    : await api(`/api/public/device/${encodeURIComponent(id)}`);
   renderPublicDevice();
+  if (PUBLIC_DEVICE.is_archived) {
+    q("publicCheckForm").innerHTML = '<div class="public-success"><h2>Thiết bị đã ngừng quản lý sử dụng</h2><p>QR vẫn được giữ để truy xuất đúng hồ sơ thiết bị. Không thể tạo kiểm tra/sự cố mới từ thiết bị đã lưu trữ.</p></div>';
+  }
 }
 function updatePublicForm() {
   const isIssue = publicCondition() === "Có vấn đề";
@@ -76,7 +86,8 @@ async function postPublicCheck(e) {
   btn.textContent = "Đang gửi...";
   try {
     const fd = new FormData();
-    fd.append("device_id", PUBLIC_DEVICE.id);
+    if (PUBLIC_DEVICE.qr_uid) fd.append("qr_uid", PUBLIC_DEVICE.qr_uid);
+    else if (PUBLIC_DEVICE.id) fd.append("device_id", PUBLIC_DEVICE.id);
     fd.append("inspector", q("publicInspector").value.trim());
     fd.append("reporter_phone", q("publicPhone").value.trim());
     fd.append("condition", condition);
