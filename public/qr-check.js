@@ -27,10 +27,11 @@ function renderDevice(){
   `;
 }
 async function loadQrDevice(){
+  const uid = getParam("qr_uid");
   const id = getParam("device_id");
   const code = getParam("code");
-  if(!id && !code){ q("deviceCard").innerHTML = '<div class="center-empty">Thiếu mã thiết bị trên đường dẫn QR.</div>'; return; }
-  QR_DEVICE = await api(id ? `/api/qr/device/${encodeURIComponent(id)}` : `/api/qr/device-code/${encodeURIComponent(code)}`);
+  if(!uid && !id && !code){ q("deviceCard").innerHTML = '<div class="center-empty">Thiếu mã thiết bị trên đường dẫn QR.</div>'; return; }
+  QR_DEVICE = await api(uid ? `/api/qr/device-uid/${encodeURIComponent(uid)}` : (id ? `/api/qr/device/${encodeURIComponent(id)}` : `/api/qr/device-code/${encodeURIComponent(code)}`));
   renderDevice();
 }
 function conditionValue(){ return document.querySelector('input[name="condition"]:checked')?.value || "Bình thường"; }
@@ -70,6 +71,7 @@ async function submitCheck(e){
   if(condition === "Có vấn đề" && !description){ alert("Vui lòng nhập mô tả vấn đề."); return; }
   if(!validateQrFiles()) return;
   const result = await sendMultipart("/api/qr/checks", {
+    qr_uid: QR_DEVICE.qr_uid,
     device_id: QR_DEVICE.id,
     inspector: q("inspectorInput").value.trim(),
     reporter_phone: q("phoneInput")?.value.trim() || "",
