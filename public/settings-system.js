@@ -9,12 +9,15 @@ async function loadAudit(){
 }
 document.addEventListener("DOMContentLoaded",async()=>{
   setLayout("settings","Hệ thống","Sao lưu, nhật ký thao tác và cấu hình quản trị","system");
-  await Promise.all([loadBackups(),loadAudit()]);
+  const [,,auth] = await Promise.all([loadBackups(),loadAudit(),api("/api/auth/status")]);
+  q("authStatus").textContent = auth.auth_required
+    ? (auth.ready ? "Xác thực: ĐANG BẬT · Quản trị viên đã sẵn sàng." : "Xác thực: ĐANG BẬT nhưng chưa có Quản trị viên có mật khẩu.")
+    : "Xác thực: ĐANG TẮT · Phù hợp giai đoạn thử nghiệm; không nên dùng trạng thái này khi triển khai nhiều khoa.";
   q("reloadAuditBtn").onclick=loadAudit;
   q("backupBtn").onclick=async()=>{
     if(!confirm("Tạo một bản sao lưu dữ liệu hiện tại?")) return;
     q("backupBtn").disabled=true; q("backupStatus").textContent="Đang tạo bản sao lưu...";
-    try{const r=await api("/api/system/backup",{method:"POST",body:JSON.stringify({actor:"Quản trị viên"})});q("backupStatus").textContent=`Đã tạo: ${r.filename}`;await Promise.all([loadBackups(),loadAudit()]);}
+    try{const r=await api("/api/system/backup",{method:"POST",body:JSON.stringify({actor:window.QY4_AUTH_USER?.full_name||"Quản trị viên"})});q("backupStatus").textContent=`Đã tạo: ${r.filename}`;await Promise.all([loadBackups(),loadAudit()]);}
     catch(e){q("backupStatus").textContent="Không tạo được bản sao lưu: "+(e.message||e);}
     finally{q("backupBtn").disabled=false;}
   };
