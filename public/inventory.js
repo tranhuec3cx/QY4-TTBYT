@@ -19,13 +19,37 @@ function itemRow(x,i){
   return `<tr>
     <td>${i+1}</td><td class="device-code">${esc(x.device_code||"")}</td><td><b>${esc(x.device_name||"")}</b></td>
     <td>${esc([x.model,x.serial].filter(Boolean).join(" / "))}</td><td>${esc(x.expected_location||"")}</td>
-    <td><select id="r_${x.id}" ${locked?"disabled":""}><option>Chưa kiểm kê</option><option>Có</option><option>Không thấy</option><option>Sai vị trí</option><option>Sai khoa</option></select></td>
+    <td><select id="r_${x.id}" onchange="onInventoryResultChange(${Number(x.id)})" ${locked?"disabled":""}><option>Chưa kiểm kê</option><option>Có</option><option>Không thấy</option><option>Sai vị trí</option><option>Sai khoa</option></select></td>
     <td><select id="d_${x.id}" ${locked?"disabled":""}>${deptOptions(x.actual_department_code||x.expected_department_code)}</select></td>
     <td><input id="l_${x.id}" value="${esc(x.actual_location||x.expected_location||"")}" ${locked?"disabled":""}/></td>
     <td><input id="n_${x.id}" value="${esc(x.note||"")}" ${locked?"disabled":""}/></td>
     <td>${locked?"—":`<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button>`}</td>
   </tr>`;
 }
+function onInventoryResultChange(id){
+  const x=(CURRENT?.items||[]).find(v=>Number(v.id)===Number(id));
+  if(!x) return;
+  const result=q(`r_${id}`)?.value || "Chưa kiểm kê";
+  const dept=q(`d_${id}`), loc=q(`l_${id}`);
+  if(!dept || !loc) return;
+  const locked=CURRENT?.session?.status==="Đã hoàn thành";
+  if(locked){ dept.disabled=true; loc.disabled=true; return; }
+
+  if(result==="Có" || result==="Không thấy" || result==="Chưa kiểm kê"){
+    dept.value=x.expected_department_code || "";
+    loc.value=x.expected_location || "";
+    dept.disabled=true;
+    loc.disabled=true;
+  }else if(result==="Sai vị trí"){
+    dept.value=x.expected_department_code || "";
+    dept.disabled=true;
+    loc.disabled=false;
+  }else if(result==="Sai khoa"){
+    dept.disabled=false;
+    loc.disabled=false;
+  }
+}
+
 async function openSession(id){
   CURRENT=await api(`/api/inventory-sessions/${id}`);
   q("detailCard").style.display="block";
@@ -33,7 +57,11 @@ async function openSession(id){
   q("detailMeta").textContent=`${CURRENT.items.length} thiết bị trong danh sách tại thời điểm tạo đợt kiểm kê`;
   q("completeSessionBtn").style.display=CURRENT.session.status==="Đã hoàn thành"?"none":"inline-flex";
   q("itemRows").innerHTML=CURRENT.items.length?CURRENT.items.map(itemRow).join(""):'<tr><td colspan="10" class="center-empty">Khoa chưa có thiết bị trong danh mục.</td></tr>';
-  CURRENT.items.forEach(x=>{ const el=q(`r_${x.id}`); if(el) el.value=x.result||"Chưa kiểm kê"; });
+  CURRENT.items.forEach(x=>{
+    const el=q(`r_${x.id}`);
+    if(el) el.value=x.result||"Chưa kiểm kê";
+    onInventoryResultChange(x.id);
+  });
   q("detailCard").scrollIntoView({behavior:"smooth"});
 }
 async function saveItem(id){
@@ -45,7 +73,9 @@ async function loadSessions(){SESSIONS=await api("/api/inventory-sessions");rend
 document.addEventListener("DOMContentLoaded",async()=>{
   setLayout("inventory","Kiểm kê / Điều chuyển","Kiểm kê theo khoa; điều chuyển được lưu trong hồ sơ từng thiết bị");
   META=await api("/api/meta"); q("inventoryDepartment").innerHTML=deptOptions("");
-  q("inventoryDate").value=todayISO(); await loadSessions();
+  q("inventoryDate").value=todayISO();
+  if(q("inventoryActor") && !q("inventoryActor").value) q("inventoryActor").value=window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
+  await loadSessions();
   q("sessionForm").onsubmit=async e=>{e.preventDefault();const r=await api("/api/inventory-sessions",{method:"POST",body:JSON.stringify({inventory_date:q("inventoryDate").value,department_code:q("inventoryDepartment").value,actor:q("inventoryActor").value.trim(),note:q("inventoryNote").value.trim()})});await loadSessions();await openSession(r.id);};
   q("completeSessionBtn").onclick=async()=>{if(!CURRENT)return;try{await api(`/api/inventory-sessions/${CURRENT.session.id}/complete`,{method:"POST",body:JSON.stringify({actor:q("inventoryActor").value.trim()})});await loadSessions();await openSession(CURRENT.session.id);}catch(e){alert(e.message||e);}};
 });
