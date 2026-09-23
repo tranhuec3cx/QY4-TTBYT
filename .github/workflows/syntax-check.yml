@@ -301,7 +301,16 @@ jobs:
 
           curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:30\",\"issue\":\"Kiểm thử hoạt động hạn chế\",\"work\":\"Đã xử lý nhưng cần theo dõi\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Theo dõi\",\"processing_status\":\"Đã hoàn thành\",\"status_after\":\"Hoạt động hạn chế\"}" >/tmp/limited-repair.json
           curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-limited-repair.json
-          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-after-limited-repair.json","utf8")); if(d.status!=="Hoạt động hạn chế") throw new Error("Completed repair lost limited-operation outcome")'
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard-after-limited.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const d=JSON.parse(fs.readFileSync("/tmp/device-after-limited-repair.json","utf8"));
+          const o=JSON.parse(fs.readFileSync("/tmp/dashboard-after-limited.json","utf8"));
+          if(d.status!=="Hoạt động hạn chế") throw new Error("Completed repair lost limited-operation outcome");
+          if(Number(o.limited||0)<1) throw new Error("Dashboard did not count limited-operation equipment");
+          if(Number(o.operational||0)!==Number(o.active||0)+Number(o.limited||0)) throw new Error("Operational count is inconsistent");
+          if(Number(o.active||0)+Number(o.limited||0)+Number(o.repairing||0)+Number(o.stopped||0)!==Number(o.total||0)) throw new Error("Dashboard device-state totals do not reconcile");
+          NODE
           echo "Repair integrity rules passed"
 
       - name: Smoke test inventory integrity rules
