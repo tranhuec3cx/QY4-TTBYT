@@ -113,6 +113,9 @@ jobs:
           if (Number(kpi.summary.qr_incidents)!==1 || Number(kpi.summary.direct_incidents)!==1) throw new Error("KPI source counts incorrect");
           if (Number(kpi.summary.qr_checks)!==1 || Number(kpi.summary.qr_check_unique_devices)!==1) throw new Error("QR check adoption metrics incorrect");
           if (Number(kpi.summary.qr_check_normal_count)!==1 || Number(kpi.summary.qr_check_issue_count)!==0) throw new Error("QR check result metrics incorrect");
+          if (!Array.isArray(kpi.by_day) || kpi.by_day.length!==1) throw new Error("Daily KPI trend missing");
+          if (Number(kpi.by_day[0].qr_checks)!==1 || Number(kpi.by_day[0].qr_unique_devices)!==1) throw new Error("Daily QR check metrics incorrect");
+          if (Number(kpi.by_day[0].incidents)!==2 || Number(kpi.by_day[0].qr_incidents)!==1) throw new Error("Daily incident metrics incorrect");
           if (Number(kpi.summary.unknown_source_incidents)!==0) throw new Error("Unexpected unknown incident source");
           if (!Array.isArray(kpi.records) || kpi.records.length!==2) throw new Error("KPI detail records missing");
           if (Number(kpiTst.summary.total_incidents)!==1 || Number(kpiTst.summary.direct_incidents)!==1) throw new Error("Historical KPI department filter failed for TST");
