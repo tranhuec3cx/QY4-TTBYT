@@ -1152,7 +1152,6 @@ ensureAuthSchema();
 ensureDeviceCodeColumnsAndData();
 normalizeIncidentStatusesInDb();
 try {
-  db.prepare("UPDATE devices SET status='Chờ sửa chữa' WHERE status='Hoạt động hạn chế'").run();
   db.prepare("UPDATE repairs SET processing_status='Đang xử lý' WHERE processing_status IN ('Mới tiếp nhận','Đang kiểm tra','Đang sửa chữa')").run();
   db.prepare("UPDATE repairs SET processing_status='Đã hoàn thành' WHERE processing_status IN ('Đã sửa xong','Bàn giao sử dụng')").run();
   db.prepare("UPDATE repairs SET received_at=COALESCE(NULLIF(received_at,''), repair_date) WHERE received_at IS NULL OR received_at=''").run();
