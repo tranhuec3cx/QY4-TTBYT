@@ -357,6 +357,14 @@ jobs:
           test "$CODE" = "403"
 
           curl -fsS -b /tmp/admin-cookie.txt -X POST "$BASE/api/system/backup" -H 'Content-Type: application/json' --data '{"actor":"CI Admin"}' >/tmp/auth-backup.json
+          BACKUP_NAME=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/auth-backup.json","utf8")).filename')
+          BACKUP_FILES="backups/${BACKUP_NAME%.sqlite}.files"
+          test -f "backups/$BACKUP_NAME"
+          test -d "$BACKUP_FILES"
+          SRC_FILE_COUNT=$(find uploads -type f 2>/dev/null | wc -l | tr -d ' ')
+          SNAP_FILE_COUNT=$(find "$BACKUP_FILES" -type f 2>/dev/null | wc -l | tr -d ' ')
+          test "$SRC_FILE_COUNT" = "$SNAP_FILE_COUNT"
+          node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Backup quick_check failed")' "backups/$BACKUP_NAME"
           curl -fsS -b /tmp/admin-cookie.txt "$BASE/api/system/readiness" >/tmp/auth-readiness.json
           node - <<'NODE'
           const fs=require("fs");
