@@ -59,6 +59,7 @@ function resetRepairForm() {
   q("repairForm").reset();
   q("repairId").value = "";
   q("sourceIncidentId").value = "";
+  q("repairDeviceSearch").readOnly = false;
   SOURCE_INCIDENT = null;
   clearSelectedDevice();
   q("repairDialogTitle").textContent = "Tạo phiếu sửa chữa";
@@ -116,7 +117,7 @@ function renderRows(rows) {
           <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Xem HS</button>
           <button class="btn" onclick="editRepair(${Number(r.id)})">Cập nhật</button>
           <button class="btn" onclick="showRepairHistory(${Number(r.id)})">Lịch sử</button>
-          <button class="btn btn-danger" onclick="deleteRepair(${Number(r.id)})">Xóa</button>
+          ${!r.incident_id && normalizeRepairStatus(r.processing_status)==="Đang xử lý" ? `<button class="btn btn-danger" onclick="deleteRepair(${Number(r.id)})">Xóa</button>` : ""}
         </div>
       </td>
     </tr>`).join("");
@@ -172,6 +173,7 @@ function editRepair(id) {
   const d = getDevice(r.device_id) || r;
   q("repairDeviceSearch").value = deviceLabel(d);
   setSelectedDevice(d);
+  q("repairDeviceSearch").readOnly = true;
   q("repairDate").value = toDateTimeLocalValue(r.received_at || r.repair_date || "");
   if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
   if (q("saveHistory")) q("saveHistory").checked = true;
@@ -186,9 +188,15 @@ function editRepair(id) {
   openRepairDialog("edit");
 }
 async function deleteRepair(id) {
-  if (!confirm("Xóa phiếu sửa chữa này?")) return;
-  await api(`/api/repairs/${id}`, { method: "DELETE" });
-  await loadData();
+  const r=REPAIR_ROWS.find(x=>Number(x.id)===Number(id));
+  if(!r) return;
+  if (!confirm(`Xóa phiếu sửa chữa #${id}? Thiết bị sẽ được khôi phục trạng thái trước khi tạo phiếu: ${r.status_before || "chưa xác định"}.`)) return;
+  try{
+    await api(`/api/repairs/${id}`, { method: "DELETE" });
+    await loadData();
+  }catch(e){
+    alert(e.message || "Không xóa được phiếu sửa chữa.");
+  }
 }
 function repairHistoryTypeLabel(r) {
   const t = r.entry_type || r.action_type || "Cập nhật";
