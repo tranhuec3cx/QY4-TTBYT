@@ -7,6 +7,7 @@ const ExcelJS = require("exceljs");
 const multer = require("multer");
 const os = require("os");
 const crypto = require("crypto");
+const qrcodeGenerator = require("qrcode-generator");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -2137,6 +2138,36 @@ app.get("/api/public/device-code/:code", (req, res) => {
   if (!row) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   const data = getPublicDevicePayload(row.id);
   res.json(data);
+});
+
+app.get("/api/qr-image", (req, res) => {
+  try {
+    const data = String(req.query.data || "").trim();
+    if (!data || data.length > 2048) return res.status(400).send("Dữ liệu QR không hợp lệ.");
+    let parsed;
+    try { parsed = new URL(data); } catch { return res.status(400).send("URL QR không hợp lệ."); }
+    if (!["http:","https:"].includes(parsed.protocol)) return res.status(400).send("Giao thức QR không hợp lệ.");
+    let qrUid = "";
+    try {
+      const m = decodeURIComponent(parsed.pathname || "").match(/^\/q\/([^/]+)$/);
+      qrUid = m ? m[1] : "";
+    } catch {}
+    if (!qrUid) return res.status(400).send("Đường dẫn QR không hợp lệ.");
+    const device = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
+    if (!device) return res.status(404).send("QR UID không tồn tại hoặc thiết bị đã lưu trữ.");
+
+    const qr = qrcodeGenerator(0, "M");
+    qr.addData(data, "Byte");
+    qr.make();
+    const svg = qr.createSvgTag({ cellSize: 6, margin: 24, scalable: true });
+    res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(svg);
+  } catch (e) {
+    console.error("GET /api/qr-image error:", e);
+    res.status(500).send("Không tạo được mã QR.");
+  }
 });
 
 app.get("/api/qr/device-uid/:qr_uid", (req, res) => {
