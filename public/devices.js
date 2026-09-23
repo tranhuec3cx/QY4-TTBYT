@@ -52,7 +52,7 @@ function renderRows() {
           <a class="btn btn-sm" href="/device-detail.html?id=${d.id}">Xem hồ sơ</a>
           <button class="btn btn-sm" onclick="showDeviceQrModal(byId(${d.id}))">QR</button>
           <button class="btn btn-sm" onclick="editDevice(${d.id})">Cập nhật</button>
-          <button class="btn btn-sm danger-light" onclick="deleteDevice(${d.id})">Xóa</button>
+          <button class="btn btn-sm danger-light" onclick="deleteDevice(${d.id})">Lưu trữ</button>
         </div>
       </td>
     </tr>
@@ -81,7 +81,7 @@ function editDevice(id) {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
 async function deleteDevice(id) {
-  if (!confirm("Xóa thiết bị này?")) return;
+  if (!confirm("Lưu trữ thiết bị này? Thiết bị sẽ ngừng hiển thị trong danh sách đang quản lý nhưng QR và toàn bộ lịch sử vẫn được giữ.")) return;
   await api(`/api/devices/${id}`, { method: "DELETE" });
   await loadData();
 }
@@ -119,8 +119,8 @@ async function saveDevice(e) {
   alert("Đã lưu thiết bị.");
 }
 function exportDevices() {
-  const rows = [["Mã thiết bị","Tên thiết bị","Nhóm","Khoa/Phòng","Hãng SX","Model","Năm SD","Hạn BH","Tình trạng","Cấp chất lượng","Serial","Nước sản xuất","Năm sản xuất","Nguyên giá","Nguồn kinh phí","Vị trí","Ghi chú"]];
-  FILTERED.forEach(d => rows.push([d.device_code,d.name,d.group_name,d.department_name,d.manufacturer,d.model,d.year_in_use,formatDateVN(d.warranty_end),d.status,d.quality_level,d.serial,d.country,d.year_manufactured,d.cost,d.funding,d.location,d.note]));
+  const rows = [["Mã thiết bị","Tên thiết bị","Nhóm","Khoa/Phòng","Hãng SX","Model","Serial Number","Mã bảo hiểm","Năm SD","Hạn BH","Tình trạng","Cấp chất lượng","Nước sản xuất","Năm sản xuất","Nguyên giá","Nguồn kinh phí","Vị trí","Ghi chú"]];
+  FILTERED.forEach(d => rows.push([d.device_code,d.name,d.group_name,d.department_name,d.manufacturer,d.model,d.serial,d.insurance_code,d.year_in_use,formatDateVN(d.warranty_end),d.status,d.quality_level,d.country,d.year_manufactured,d.cost,d.funding,d.location,d.note]));
   exportCsv("danh_sach_thiet_bi.csv", rows);
 }
 async function loadData() {
@@ -141,7 +141,7 @@ async function loadData() {
 }
 document.addEventListener("DOMContentLoaded", async () => {
   setLayout("devices","Thiết bị y tế","Danh mục thiết bị theo khoa/phòng, nhóm thiết bị và tình trạng sử dụng");
-  applyFieldLabels("deviceForm", {departmentInput:"Khoa sử dụng",groupInput:"Nhóm thiết bị",nameInput:"Tên thiết bị",manufacturerInput:"Hãng sản xuất",modelInput:"Model",insuranceInput:"Mã bảo hiểm",serialInput:"Serial hãng",countryInput:"Nước sản xuất",yearManufacturedInput:"Năm sản xuất",yearUseInput:"Năm sử dụng",warrantyInput:"Hạn bảo hành",statusInput:"Tình trạng",qualityInput:"Cấp chất lượng",costInput:"Nguyên giá",fundingInput:"Nguồn kinh phí",locationInput:"Vị trí đặt máy",noteInput:"Ghi chú"});
+  applyFieldLabels("deviceForm", {departmentInput:"Khoa sử dụng",groupInput:"Nhóm thiết bị",nameInput:"Tên thiết bị",manufacturerInput:"Hãng sản xuất",modelInput:"Model",insuranceInput:"Mã bảo hiểm / mã quản lý",serialInput:"Serial Number",countryInput:"Nước sản xuất",yearManufacturedInput:"Năm sản xuất",yearUseInput:"Năm sử dụng",warrantyInput:"Hạn bảo hành",statusInput:"Tình trạng",qualityInput:"Cấp chất lượng",costInput:"Nguyên giá",fundingInput:"Nguồn kinh phí",locationInput:"Vị trí đặt máy",noteInput:"Ghi chú"});
   await loadData();
   q("filterBtn").onclick = applyFilters;
   q("resetBtn").onclick = () => {
@@ -169,7 +169,8 @@ function exportDevicesExcel() {
     "Tên thiết bị": d.name,
     "Hãng sản xuất": d.manufacturer || "",
     "Model": d.model || "",
-    "Serial": d.serial || "",
+    "Serial Number": d.serial || "",
+    "Mã bảo hiểm / mã quản lý": d.insurance_code || "",
     "Nước sản xuất": d.country || "",
     "Năm sản xuất": d.year_manufactured || "",
     "Năm sử dụng": d.year_in_use || "",
