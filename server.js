@@ -17,6 +17,7 @@ const SESSION_HOURS = Math.max(1, Number(process.env.QY4_SESSION_HOURS || 12));
 const QR_RATE_LIMIT = Math.max(5, Number(process.env.QY4_QR_RATE_LIMIT || 20));
 const QR_RATE_WINDOW_MS = Math.max(10000, Number(process.env.QY4_QR_RATE_WINDOW_MS || 60000));
 const APP_TIME_ZONE = String(process.env.QY4_TIME_ZONE || "Asia/Bangkok").trim() || "Asia/Bangkok";
+const ALLOW_LEGACY_PUBLIC_QR = process.env.QY4_ALLOW_LEGACY_QR === "1";
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
@@ -2256,14 +2257,16 @@ app.get("/api/public/device-qr/:qr_uid", (req, res) => {
   res.json(data);
 });
 
-// Tương thích QR cũ theo id trong giai đoạn chuyển đổi.
+// QR cũ theo id/mã có thể bị dò tuần tự nên tắt mặc định trên bản triển khai.
 app.get("/api/public/device/:id", (req, res) => {
+  if (!ALLOW_LEGACY_PUBLIC_QR) return res.status(410).json({ error: "QR cũ theo ID đã được tắt. Vui lòng in lại QR UID cố định." });
   const data = getPublicDevicePayload(req.params.id);
   if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   res.json(data);
 });
 
 app.get("/api/public/device-code/:code", (req, res) => {
+  if (!ALLOW_LEGACY_PUBLIC_QR) return res.status(410).json({ error: "QR cũ theo mã thiết bị đã được tắt. Vui lòng dùng QR UID cố định." });
   const row = db.prepare("SELECT id FROM devices WHERE device_code=?").get(String(req.params.code || "").trim());
   if (!row) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   const data = getPublicDevicePayload(row.id);
@@ -3499,6 +3502,14 @@ app.get("/api/system/readiness", (req, res) => {
       level:APP_TIME_ZONE === "Asia/Bangkok" ? "Đạt" : "Lưu ý",
       title:"Múi giờ ứng dụng",
       detail:`${APP_TIME_ZONE} · ngày hệ thống: ${localDateISO()} · thời gian: ${nowSql().slice(11,19)}.`
+    },
+    {
+      key:"legacy_qr",
+      level:ALLOW_LEGACY_PUBLIC_QR ? "Lưu ý" : "Đạt",
+      title:"QR cũ theo ID/mã thiết bị",
+      detail:ALLOW_LEGACY_PUBLIC_QR
+        ? "Đang bật tương thích QR cũ. Sau khi in lại tem QR UID cố định, nên tắt QY4_ALLOW_LEGACY_QR."
+        : "Đã tắt endpoint QR cũ có thể dò tuần tự; chỉ QR UID cố định được dùng công khai."
     },
     {
       key:"uploads",
