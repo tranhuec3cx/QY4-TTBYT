@@ -99,6 +99,8 @@ Theo dõi nhanh:
 - Thời gian xử lý sự cố trung bình.
 - Số sự cố theo tháng.
 - Tỷ lệ sự cố báo qua QR trong tháng.
+- Số lượt kiểm tra QR và số thiết bị duy nhất đã quét trong tháng.
+- Cảnh báo số sự cố chưa tiếp nhận và tỷ lệ đầy đủ mốc tiếp nhận trong tháng.
 
 ### Báo cáo KPI phục vụ đánh giá đề tài
 
@@ -107,13 +109,17 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 - Chọn khoảng thời gian và khoa/phòng.
 - Tổng số sự cố.
 - Số và tỷ lệ sự cố báo qua QR.
+- Tổng lượt kiểm tra thiết bị bằng QR.
+- Số thiết bị duy nhất đã được quét QR.
+- Số lượt kiểm tra QR bình thường và số lượt phát hiện vấn đề.
+- Theo dõi triển khai QR theo từng ngày: lượt quét, thiết bị duy nhất, vấn đề phát hiện, tổng sự cố và sự cố QR.
 - Số sự cố có đủ mốc tiếp nhận và tỷ lệ đầy đủ dữ liệu.
 - Thời gian phản hồi trung bình và trung vị.
 - Tỷ lệ đáp ứng mục tiêu phản hồi nội bộ.
 - Số sự cố đã có kết quả xử lý.
 - Thời gian xử lý trung bình và trung vị.
 - Tổng hợp nguồn báo và xu hướng theo tháng.
-- Xuất Excel gồm tổng hợp KPI, nguồn báo và chi tiết từng sự cố.
+- Xuất Excel gồm tổng hợp KPI, nguồn báo, theo ngày, chi tiết kiểm tra QR và chi tiết từng sự cố.
 
 `response_target_minutes` là **mục tiêu quản trị nội bộ do đơn vị tự đặt**, mặc định 30 phút để thuận tiện chạy thử; không được trình bày như một ngưỡng pháp lý bắt buộc nếu chưa có quy định nội bộ tương ứng.
 
@@ -364,5 +370,6 @@ Các nội dung có thể phát triển sau:
 - [ ] Test điều chuyển và kiểm tra sự cố cũ vẫn giữ khoa/vị trí lịch sử.
 - [ ] Mở Báo cáo → Chất lượng dữ liệu và rà các dòng thiếu Serial/Model/vị trí.
 - [ ] Mở Báo cáo → KPI sự cố & QR, chọn đúng khoảng thời gian thu thập số liệu.
+- [ ] Theo dõi bảng QR theo ngày để phát hiện ngày/khoa chưa phát sinh lượt quét thay vì bổ sung dữ liệu giả.
 - [ ] Kiểm tra backup được tạo.
 - [ ] Chỉ sau đó mới in QR hàng loạt.
