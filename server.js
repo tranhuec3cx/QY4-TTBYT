@@ -1471,12 +1471,32 @@ app.get("/api/devices", (req, res) => {
   res.json(rows);
 });
 
+function serialKey(value) {
+  return String(value || "").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function isMeaningfulSerial(value) {
+  const key=serialKey(value);
+  if(!key) return false;
+  return !new Set(["NN","N/A","NA","UNKNOWN","KHONG CO","CHUA RO","NONE","NIL","0","-","--"]).has(key);
+}
+function findSerialDuplicate(serial, excludeId = 0) {
+  if(!isMeaningfulSerial(serial)) return null;
+  return db.prepare(`
+    SELECT id,device_code,name,department_code,is_archived
+    FROM devices
+    WHERE lower(trim(serial))=lower(trim(?)) AND trim(serial)<>''
+      AND (?=0 OR id<>?)
+    ORDER BY COALESCE(is_archived,0),id
+    LIMIT 1
+  `).get(String(serial).trim(), Number(excludeId||0), Number(excludeId||0)) || null;
+}
+
 app.get("/api/devices/duplicate-check", (req, res) => {
   const serial = String(req.query.serial || "").trim();
   const name = String(req.query.name || "").trim();
   const model = String(req.query.model || "").trim();
   const excludeId = Number(req.query.exclude_id || 0);
-  const serialMatches = serial ? db.prepare(`
+  const serialMatches = isMeaningfulSerial(serial) ? db.prepare(`
     SELECT id, device_code, name, model, serial, department_code
     FROM devices
     WHERE lower(trim(serial))=lower(trim(?)) AND trim(serial)<>'' AND (?=0 OR id<>?)
@@ -1593,12 +1613,18 @@ app.post("/api/devices", (req, res) => {
     if (db.prepare("SELECT id FROM devices WHERE device_code=? LIMIT 1").get(payload.device_code)) {
       return res.status(400).json({ error:"Mã thiết bị đã được sử dụng, kể cả trong hồ sơ đã lưu trữ." });
     }
+    const serialDuplicate=findSerialDuplicate(payload.serial,0);
+    const allowDuplicateSerial = req.body?.allow_duplicate_serial === true || String(req.body?.allow_duplicate_serial || "") === "1";
+    if(serialDuplicate && !allowDuplicateSerial){
+      return res.status(409).json({ error:`Serial ${payload.serial} đã có ở ${serialDuplicate.device_code || "thiết bị #"+serialDuplicate.id}. Hãy kiểm tra lại trước khi lưu.` });
+    }
     const info = db.prepare(`
       INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
       VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
     `).run(payload);
     const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
     writeAudit(requestActor(req), "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
+    if(serialDuplicate && allowDuplicateSerial) writeAudit(requestActor(req), "Xác nhận Serial trùng", "device", info.lastInsertRowid, `${payload.serial} trùng với ${serialDuplicate.device_code || "#"+serialDuplicate.id}`);
     res.json({ id: info.lastInsertRowid, qr_uid: qrUid });
   } catch (e) {
     console.error("POST /api/devices error:", e);
@@ -1618,6 +1644,11 @@ app.put("/api/devices/:id", (req, res) => {
       const duplicateCode = db.prepare("SELECT id FROM devices WHERE device_code=? AND id<>? LIMIT 1").get(payload.device_code, Number(req.params.id));
       if (duplicateCode) return res.status(400).json({ error:"Mã thiết bị đã được sử dụng, kể cả trong hồ sơ đã lưu trữ." });
     }
+    const serialDuplicate=findSerialDuplicate(payload.serial,Number(req.params.id));
+    const allowDuplicateSerial = req.body?.allow_duplicate_serial === true || String(req.body?.allow_duplicate_serial || "") === "1";
+    if(serialDuplicate && !allowDuplicateSerial){
+      return res.status(409).json({ error:`Serial ${payload.serial} đã có ở ${serialDuplicate.device_code || "thiết bị #"+serialDuplicate.id}. Hãy kiểm tra lại trước khi lưu.` });
+    }
     db.prepare(`
       UPDATE devices SET
         department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
@@ -1628,6 +1659,7 @@ app.put("/api/devices/:id", (req, res) => {
     `).run({ ...payload, id: Number(req.params.id) });
     ensureDeviceQrUid(req.params.id);
     writeAudit(requestActor(req), "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
+    if(serialDuplicate && allowDuplicateSerial) writeAudit(requestActor(req), "Xác nhận Serial trùng", "device", req.params.id, `${payload.serial} trùng với ${serialDuplicate.device_code || "#"+serialDuplicate.id}`);
     res.json({ ok: true, qr_uid: ensureDeviceQrUid(req.params.id) });
   } catch (e) {
     console.error("PUT /api/devices/:id error:", e);
@@ -2846,7 +2878,7 @@ function addListValidation(ws, startCol, endCol, formulaName, startRow = 2, endR
 }
 async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "ALL") {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "ChatGPT";
+  workbook.creator = "Khoa Trang bị - Bệnh viện Quân y 4";
   workbook.company = "Bệnh viện Quân y 4";
   workbook.created = new Date();
 
@@ -2867,7 +2899,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
   devices.forEach((d, i) => listSheet.getCell(`C${i+2}`).value = d.device_code);
 
   listSheet.getCell("D1").value = "Tình trạng";
-  ["Đang hoạt động","Chờ sửa chữa","Ngừng hoạt động"].forEach((v, i) => listSheet.getCell(`D${i+2}`).value = v);
+  ["Đang hoạt động","Hoạt động hạn chế","Chờ sửa chữa","Ngừng hoạt động"].forEach((v, i) => listSheet.getCell(`D${i+2}`).value = v);
 
   listSheet.getCell("E1").value = "Hình thức";
   ["Nội bộ","Thuê ngoài","Thay thế linh kiện","Nâng cấp thiết bị"].forEach((v, i) => listSheet.getCell(`E${i+2}`).value = v);
