@@ -74,7 +74,7 @@ Hệ thống lưu:
 Giao diện hồ sơ thiết bị được tối giản còn **03 tab chính**:
 
 - **Thông tin chung**.
-- **Công việc kỹ thuật**: tổng hợp Sự cố, Sửa chữa, Bảo dưỡng, Kiểm định/Hiệu chuẩn/ATBX; có lọc theo khoảng thời gian và loại công việc.
+- **Công việc kỹ thuật**: tổng hợp Sự cố, Sửa chữa, Bảo dưỡng, Kiểm định/Hiệu chuẩn/ATBX; có lọc theo khoảng thời gian, loại công việc và nút **Mở phiếu** để truy đúng hồ sơ nguồn.
 - **Điều chuyển**: xem lịch sử và thực hiện điều chuyển có kiểm soát.
 
 Các màn nghiệp vụ Sự cố, Sửa chữa, Bảo dưỡng và Kiểm định vẫn là nơi nhập/cập nhật hồ sơ chi tiết; trang hồ sơ máy chỉ đóng vai trò tổng hợp để tránh giao diện rối.
@@ -84,8 +84,9 @@ Các màn nghiệp vụ Sự cố, Sửa chữa, Bảo dưỡng và Kiểm đị
 - Tạo đợt kiểm kê theo khoa/phòng; mỗi khoa chỉ có **01 đợt đang mở** tại một thời điểm.
 - Tự lấy danh sách thiết bị đang thuộc khoa tại thời điểm tạo đợt.
 - Kết quả: Có / Không thấy / Sai vị trí / Sai khoa; backend kiểm tra logic để tránh kết quả mâu thuẫn.
+- Chỉ được hoàn thành đợt kiểm kê khi **100% thiết bị đã có kết quả**; không có chế độ bỏ qua/force các dòng chưa kiểm kê.
 - Đợt đã hoàn thành bị khóa sửa.
-- Kiểm kê **không tự thay đổi** khoa/vị trí thiết bị. Khi phát hiện sai khoa/sai vị trí, người dùng mở hồ sơ thiết bị và thực hiện Điều chuyển riêng có lý do + audit.
+- Kiểm kê **không tự thay đổi** khoa/vị trí thiết bị. Khi phát hiện Sai khoa/Sai vị trí, người dùng có thể bấm **Điều chuyển** ngay trên dòng sai lệch; hệ thống yêu cầu xác nhận, lưu kết quả kiểm kê trước rồi mới thực hiện luồng Điều chuyển chuẩn có lý do + audit. Sai lệch ban đầu vẫn được giữ nguyên trong biên bản kiểm kê để truy vết.
 - Thiết bị đang nằm trong đợt kiểm kê, còn sự cố hoặc sửa chữa mở thì chưa được lưu trữ.
 - Điều chuyển cập nhật khoa/vị trí hiện tại nhưng giữ lịch sử cũ và không làm thay đổi QR.
 
@@ -402,6 +403,8 @@ GitHub Actions hiện kiểm tra:
 - Khởi động server trên database trống.
 - Các API lõi.
 - Dashboard, kiểm kê, backup và kiểm tra trùng.
+- Kiểm kê không thể hoàn thành khi còn dòng Chưa kiểm kê; điều chuyển từ Sai khoa/Sai vị trí cập nhật vị trí hiện tại nhưng giữ nguyên sai lệch lịch sử trong đợt kiểm kê.
+- Hồ sơ thiết bị mở đúng phiếu nguồn từ dòng Công việc kỹ thuật.
 - Tổng trạng thái thiết bị khớp giữa Đang hoạt động / Hoạt động hạn chế / Chờ sửa chữa / Ngừng hoạt động; `Đang khai thác = bình thường + hạn chế`.
 - SQLite bật khóa ngoại và không có vi phạm quan hệ dữ liệu.
 - Luồng QR → sự cố → tiếp nhận → sửa chữa → hoàn thành.
@@ -421,7 +424,7 @@ GitHub Actions hiện kiểm tra:
 - Upload ảnh multipart qua QR với Multer 2.4.0.
 - Request QR bắt buộc QR UID hợp lệ; `device_id` đơn thuần không được tính là QR.
 - Request QR/sự cố nhập trực tiếp bị từ chối không để lại file upload rác.
-- Thời điểm lượt quét QR không đổi khi hiệu chỉnh và DELETE lượt quét QR trả 409.
+- Thời điểm **và kết quả** lượt quét QR không đổi khi hiệu chỉnh; DELETE lượt quét QR trả 409.
 - Dashboard chỉ đếm kiểm tra có nguồn QR, không cộng kiểm tra nhập trực tiếp.
 - Ngày/giờ ứng dụng được kiểm tra theo `Asia/Bangkok`, độc lập timezone máy chạy CI.
 - Rate limit QR công khai trả HTTP 429 khi vượt ngưỡng.
@@ -435,7 +438,7 @@ GitHub Actions hiện kiểm tra:
 - Serial thật trùng bị backend chặn; chỉ ghi khi có xác nhận override rõ ràng.
 - Sự cố đã tiếp nhận được bảo vệ khỏi xóa cứng.
 - Toàn bộ bản ghi Bảo dưỡng và Kiểm định/Hiệu chuẩn là lịch sử kỹ thuật, không cho xóa cứng; nếu nhập sai phải dùng Cập nhật.
-- Lượt kiểm tra phát sinh từ QR không được xóa; thời điểm quét QR là bất biến, chỉ cho hiệu chỉnh nội dung/kết quả có audit.
+- Lượt kiểm tra phát sinh từ QR không được xóa; **thời điểm và kết quả quét QR là bất biến**. Chỉ cho hiệu chỉnh người kiểm tra, nội dung/ghi chú và mọi hiệu chỉnh đều có audit.
 - Tài liệu kỹ thuật do hệ thống sinh ra hoặc đang được Sự cố/Bảo dưỡng/Kiểm định tham chiếu không được thay file/đổi loại/xóa.
 - Kiểm kê khóa sửa sau hoàn thành, chặn hai đợt đang mở cùng khoa và không tự điều chuyển tài sản.
 - Lưu trữ thiết bị bị chặn khi còn sự cố/sửa chữa/kiểm kê mở; báo cáo và mẫu Excel vận hành loại thiết bị đã lưu trữ.
