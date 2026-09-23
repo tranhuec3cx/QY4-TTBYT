@@ -1549,7 +1549,7 @@ function validateDevicePayload(payload) {
   if(missing.length) return `Thiếu thông tin bắt buộc: ${missing.join(", ")}`;
   if(!db.prepare("SELECT code FROM departments WHERE code=?").get(payload.department_code)) return "Khoa sử dụng không tồn tại trong danh mục.";
   if(!db.prepare("SELECT code FROM device_groups WHERE code=?").get(payload.group_code)) return "Nhóm thiết bị không tồn tại trong danh mục.";
-  if(!["Đang hoạt động","Chờ sửa chữa","Ngừng hoạt động"].includes(payload.status)) return "Tình trạng thiết bị không hợp lệ.";
+  if(!["Đang hoạt động","Hoạt động hạn chế","Chờ sửa chữa","Ngừng hoạt động"].includes(payload.status)) return "Tình trạng thiết bị không hợp lệ.";
   if(payload.year_in_use && (payload.year_in_use < 1900 || payload.year_in_use > 2100)) return "Năm sử dụng không hợp lệ.";
   if(payload.year_manufactured && (payload.year_manufactured < 1900 || payload.year_manufactured > 2100)) return "Năm sản xuất không hợp lệ.";
   return "";
