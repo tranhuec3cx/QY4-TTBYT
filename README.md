@@ -94,8 +94,9 @@ Các màn nghiệp vụ Sự cố, Sửa chữa, Bảo dưỡng và Kiểm đị
 Theo dõi nhanh:
 
 - Tổng thiết bị **đang quản lý**; thiết bị đã lưu trữ không làm sai tổng số/cảnh báo.
-- Thiết bị đang hoạt động.
-- Thiết bị đang sửa chữa.
+- Thiết bị **đang khai thác** = Đang hoạt động + Hoạt động hạn chế.
+- Hiển thị riêng số thiết bị **Hoạt động hạn chế**.
+- Thiết bị chờ sửa chữa và ngừng hoạt động.
 - Sự cố chưa xử lý.
 - Kiểm định/hiệu chuẩn sắp đến hạn và quá hạn.
 - Phiếu chờ linh kiện.
@@ -303,11 +304,15 @@ db/qy4_ttbyt.sqlite
 Bản sao lưu:
 
 ```text
-backups/qy4_ttbyt_YYYYMMDDHHMMSS.sqlite
+backups/qy4_ttbyt_YYYYMMDDHHMMSS_mmm.sqlite
+backups/qy4_ttbyt_YYYYMMDDHHMMSS_mmm.files/
 ```
 
+- Mỗi gói gồm **SQLite + snapshot toàn bộ uploads**.
+- SQLite backup được tạo bằng API backup của SQLite và chạy `PRAGMA quick_check` trước khi coi là hợp lệ.
+- Snapshot file dùng hard-link khi filesystem hỗ trợ để hạn chế nhân đôi dung lượng; nếu không hỗ trợ sẽ copy file.
 - Server kiểm tra và tạo backup tự động trong ngày.
-- `QY4_BACKUP_KEEP` quy định số bản gần nhất giữ lại, mặc định 30.
+- `QY4_BACKUP_KEEP` quy định số gói gần nhất giữ lại, mặc định 30.
 - Có thể tạo backup thủ công tại **Cài đặt → Hệ thống**.
 
 **Trước mỗi lần cập nhật phiên bản trên máy đang có dữ liệu thật, phải sao lưu database.**
@@ -346,6 +351,7 @@ Khuyến nghị:
 Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** để xem một checklist tự động trước khi chạy thật hoặc demo Hội đồng. Màn hình kiểm tra:
 
 - database SQLite đang sử dụng có `PRAGMA quick_check = ok` hay không;
+- `PRAGMA foreign_keys=ON` và `foreign_key_check` không có bản ghi mồ côi;
 - dữ liệu mẫu đã tắt hay chưa;
 - xác thực và Quản trị viên có sẵn sàng hay không;
 - có gói sao lưu hoàn chỉnh gồm **SQLite + snapshot ảnh/video/tài liệu đính kèm** hay chưa;
@@ -368,6 +374,8 @@ GitHub Actions hiện kiểm tra:
 - Khởi động server trên database trống.
 - Các API lõi.
 - Dashboard, kiểm kê, backup và kiểm tra trùng.
+- Tổng trạng thái thiết bị khớp giữa Đang hoạt động / Hoạt động hạn chế / Chờ sửa chữa / Ngừng hoạt động; `Đang khai thác = bình thường + hạn chế`.
+- SQLite bật khóa ngoại và không có vi phạm quan hệ dữ liệu.
 - Luồng QR → sự cố → tiếp nhận → sửa chữa → hoàn thành.
 - QR UID không đổi sau khi sửa Serial/vị trí.
 - Nguồn sự cố QR và nhập trực tiếp được phân loại đúng.
@@ -398,6 +406,8 @@ GitHub Actions hiện kiểm tra:
 - Lưu trữ thiết bị bị chặn khi còn sự cố/sửa chữa/kiểm kê mở; báo cáo và mẫu Excel vận hành loại thiết bị đã lưu trữ.
 - QR công khai mặc định chỉ chấp nhận UID ngẫu nhiên; endpoint legacy theo ID/mã trả 410.
 - Checklist sẵn sàng triển khai hoạt động ở chế độ thử và chế độ xác thực.
+- Reset dữ liệu demo có xác thực sau khi đã phát sinh kiểm kê/điều chuyển; session cũ bị thu hồi, Admin đăng nhập lại được, QR UID được sinh lại và foreign key vẫn sạch.
+- Đổi mã Khoa/Nhóm an toàn với foreign key và không làm đổi QR UID thiết bị.
 
 ## 12. Nội dung chưa nên tuyên bố là đã hoàn thiện
 
@@ -415,7 +425,7 @@ Các nội dung có thể phát triển sau:
 
 ## 13. Checklist trước khi đưa vào dùng thật
 
-- [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai**; xác nhận **Toàn vẹn database SQLite = Đạt** và xử lý hết mục **Cần xử lý**.
+- [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai**; xác nhận **Toàn vẹn database SQLite = Đạt** và **Toàn vẹn quan hệ dữ liệu = Đạt**, sau đó xử lý hết mục **Cần xử lý**.
 - [ ] Tạo **gói backup** và kiểm tra có cả file `.sqlite` và thư mục `.files` đi kèm.
 - [ ] Tắt demo seed: `QY4_DEMO_SEED=0`.
 - [ ] Đặt `QY4_TIME_ZONE=Asia/Bangkok` hoặc múi giờ +07 phù hợp.
