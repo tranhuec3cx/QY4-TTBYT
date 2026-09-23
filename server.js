@@ -3924,6 +3924,37 @@ function finalizeSqliteBackup(target) {
     if (checkDb) checkDb.close();
   }
 }
+function inspectBackupBundle(filename) {
+  if (!filename) return { exists:false, files_exists:false, integrity:"missing", sessions:0, age_hours:null };
+  const target=path.join(backupDir,filename);
+  const filesTarget=backupFilesDirFor(filename);
+  const out={
+    exists:fs.existsSync(target),
+    files_exists:fs.existsSync(filesTarget),
+    integrity:"error",
+    sessions:0,
+    age_hours:null
+  };
+  if (!out.exists) return out;
+  try {
+    const stat=fs.statSync(target);
+    out.age_hours=Math.max(0,(Date.now()-stat.mtimeMs)/3600000);
+  } catch {}
+  let checkDb=null;
+  try {
+    checkDb=new Database(target,{readonly:true,fileMustExist:true});
+    const row=checkDb.prepare("PRAGMA quick_check").get();
+    out.integrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "ok" : "error";
+    const hasSessions=checkDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get();
+    out.sessions=hasSessions ? Number(checkDb.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c || 0) : 0;
+  } catch {
+    out.integrity="error";
+  } finally {
+    if(checkDb) checkDb.close();
+  }
+  return out;
+}
+
 function pruneDatabaseBackups() {
   const keep = Math.max(3, Number(process.env.QY4_BACKUP_KEEP || 30));
   const files = listDatabaseBackups();
@@ -3962,6 +3993,8 @@ async function ensureDailyBackup() {
 
 app.get("/api/system/readiness", (req, res) => {
   const backups = listDatabaseBackups();
+  const latestBackup = backups[0] || "";
+  const latestBackupStatus = inspectBackupBundle(latestBackup);
   const origins = getLanQrOrigins(req);
   const recommendedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
   const totalDevices = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
@@ -4036,13 +4069,19 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"backup",
-      level:backups.length && fs.existsSync(backupFilesDirFor(backups[0])) ? "Đạt" : "Cần xử lý",
+      level:!latestBackupStatus.exists || !latestBackupStatus.files_exists || latestBackupStatus.integrity!=="ok" || latestBackupStatus.sessions>0
+        ? "Cần xử lý"
+        : (Number(latestBackupStatus.age_hours||0)>24 ? "Lưu ý" : "Đạt"),
       title:"Sao lưu dữ liệu + file đính kèm",
-      detail:backups.length
-        ? (fs.existsSync(backupFilesDirFor(backups[0]))
-            ? `Có ${backups.length} bản sao lưu; mới nhất: ${backups[0]} kèm snapshot uploads.`
-            : `Bản backup mới nhất ${backups[0]} chưa có snapshot uploads; hãy tạo backup mới.`)
-        : "Chưa có bản sao lưu dữ liệu."
+      detail:!latestBackup
+        ? "Chưa có bản sao lưu dữ liệu."
+        : (!latestBackupStatus.files_exists
+            ? `Bản backup mới nhất ${latestBackup} chưa có snapshot uploads; hãy tạo backup mới.`
+            : (latestBackupStatus.integrity!=="ok"
+                ? `Bản backup mới nhất ${latestBackup} không vượt qua SQLite quick_check.`
+                : (latestBackupStatus.sessions>0
+                    ? `Bản backup mới nhất còn ${latestBackupStatus.sessions} session đăng nhập; hãy tạo lại backup bằng phiên bản hiện tại.`
+                    : `Có ${backups.length} gói backup; mới nhất: ${latestBackup}, quick_check=ok, tuổi ${Number(latestBackupStatus.age_hours||0).toFixed(1)} giờ, kèm snapshot uploads.`)))
     },
     {
       key:"qr_origin",
@@ -4118,7 +4157,10 @@ app.get("/api/system/readiness", (req, res) => {
       active_users:activeUsers,
       total_devices:totalDevices,
       recommended_qr_origin:recommendedOrigin,
-      backups:backups.length
+      backups:backups.length,
+      latest_backup:latestBackup,
+      latest_backup_integrity:latestBackupStatus.integrity,
+      latest_backup_age_hours:latestBackupStatus.age_hours
     }
   });
 });
