@@ -597,7 +597,7 @@ jobs:
           SRC_FILE_COUNT=$(find uploads -type f 2>/dev/null | wc -l | tr -d ' ')
           SNAP_FILE_COUNT=$(find "$BACKUP_FILES" -type f 2>/dev/null | wc -l | tr -d ' ')
           test "$SRC_FILE_COUNT" = "$SNAP_FILE_COUNT"
-          node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();const has=db.prepare("SELECT name FROM sqlite_master WHERE type=\"table\" AND name=\"auth_sessions\"").get();const sessions=has?db.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c:0;db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Backup quick_check failed");if(Number(sessions)!==0)throw new Error("Backup still contains active login sessions")' "backups/$BACKUP_NAME"
+          node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();const has=db.prepare("SELECT name FROM sqlite_master WHERE type=? AND name=?").get("table","auth_sessions");const sessions=has?db.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c:0;db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Backup quick_check failed");if(Number(sessions)!==0)throw new Error("Backup still contains active login sessions")' "backups/$BACKUP_NAME"
           curl -fsS -b /tmp/admin-cookie.txt "$BASE/api/system/readiness" >/tmp/auth-readiness.json
           node - <<'NODE'
           const fs=require("fs");
