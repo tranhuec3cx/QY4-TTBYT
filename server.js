@@ -3485,8 +3485,11 @@ app.get("/api/system/readiness", (req, res) => {
   const activeAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND trim(COALESCE(password_hash,''))<>''").get().c;
   const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
   const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
-  let uploadWritable = true;
-  try { fs.accessSync(qrUploadsDir, fs.constants.W_OK); } catch { uploadWritable = false; }
+  let qrUploadWritable = true, documentUploadWritable = true, backupWritable = true;
+  try { fs.accessSync(qrUploadsDir, fs.constants.W_OK); } catch { qrUploadWritable = false; }
+  try { fs.accessSync(uploadsDir, fs.constants.W_OK); } catch { documentUploadWritable = false; }
+  try { fs.mkdirSync(backupDir,{recursive:true}); fs.accessSync(backupDir, fs.constants.W_OK); } catch { backupWritable = false; }
+  const uploadWritable = qrUploadWritable && documentUploadWritable && backupWritable;
   let dbSize = 0;
   try { dbSize = fs.statSync(dbPath).size; } catch {}
 
@@ -3525,9 +3528,13 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"qr_origin",
-      level:recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin) ? "Lưu ý" : "Cần xử lý",
+      level:recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin) ? "Đạt" : "Cần xử lý",
       title:"Địa chỉ QR trên mạng nội bộ",
-      detail:recommendedOrigin ? `Địa chỉ đề xuất: ${recommendedOrigin}. Cần chốt IP/hostname ổn định trước khi in QR hàng loạt.` : "Chưa xác định được địa chỉ LAN cho QR."
+      detail:recommendedOrigin
+        ? (/localhost|127\.0\.0\.1/i.test(recommendedOrigin)
+            ? `Địa chỉ hiện tại ${recommendedOrigin} chỉ dùng trên chính máy chủ; cần chốt IP/hostname LAN trước khi in QR.`
+            : `Địa chỉ LAN đề xuất: ${recommendedOrigin}. Hãy giữ IP/hostname này ổn định sau khi in QR.`)
+        : "Chưa xác định được địa chỉ LAN cho QR."
     },
     {
       key:"timezone",
@@ -3546,8 +3553,10 @@ app.get("/api/system/readiness", (req, res) => {
     {
       key:"uploads",
       level:uploadWritable ? "Đạt" : "Cần xử lý",
-      title:"Lưu ảnh/video QR",
-      detail:uploadWritable ? "Thư mục upload có quyền ghi." : "Thư mục upload không có quyền ghi."
+      title:"Quyền ghi dữ liệu và file",
+      detail:uploadWritable
+        ? "Thư mục ảnh/video QR, tài liệu đính kèm và backup đều có quyền ghi."
+        : `Thiếu quyền ghi: QR=${qrUploadWritable?"OK":"LỖI"}, tài liệu=${documentUploadWritable?"OK":"LỖI"}, backup=${backupWritable?"OK":"LỖI"}.`
     },
     {
       key:"data_quality",
