@@ -2057,22 +2057,25 @@ app.get("/api/qr/device-code/:code", (req, res) => {
 app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    const qrRow = p.qr_uid ? db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(String(p.qr_uid).trim()) : null;
-    const deviceId = Number(qrRow?.id || p.device_id || 0);
+    const qrUid = String(p.qr_uid || "").trim();
+    if (!qrUid) return qrRequestError(req, res, 400, "Thiếu mã QR cố định của thiết bị.");
+    const qrRow = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
+    if (!qrRow) return qrRequestError(req, res, 404, "Mã QR không hợp lệ hoặc thiết bị đã lưu trữ.");
+    const deviceId = Number(qrRow.id);
     const condition = String(p.condition || "").trim();
     const inspector = String(p.inspector || "").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
     validateIncidentFiles(req.files);
-    if (!deviceId) return res.status(400).json({ error: "Thiếu thiết bị." });
-    if (!inspector) return res.status(400).json({ error: "Vui lòng nhập tên người kiểm tra." });
+    if (!deviceId) return qrRequestError(req, res, 400, "Thiếu thiết bị.");
+    if (!inspector) return qrRequestError(req, res, 400, "Vui lòng nhập tên người kiểm tra.");
     const normalizedCondition = condition === "Tốt" ? "Bình thường" : condition;
-    if (!["Bình thường", "Có vấn đề"].includes(normalizedCondition)) return res.status(400).json({ error: "Tình trạng kiểm tra không hợp lệ." });
+    if (!["Bình thường", "Có vấn đề"].includes(normalizedCondition)) return qrRequestError(req, res, 400, "Tình trạng kiểm tra không hợp lệ.");
     const description = String(p.description || "").trim();
     if (normalizedCondition === "Có vấn đề" && !description) {
-      return res.status(400).json({ error: "Vui lòng nhập mô tả vấn đề." });
+      return qrRequestError(req, res, 400, "Vui lòng nhập mô tả vấn đề.");
     }
     const device = db.prepare("SELECT * FROM devices WHERE id=?").get(deviceId);
-    if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị.");
     const files = req.files || [];
     const noteParts = [];
     if (description) noteParts.push(`Mô tả: ${description}`);
@@ -2111,19 +2114,22 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
 app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    const qrRow = p.qr_uid ? db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(String(p.qr_uid).trim()) : null;
-    const deviceId = Number(qrRow?.id || p.device_id || 0);
+    const qrUid = String(p.qr_uid || "").trim();
+    if (!qrUid) return qrRequestError(req, res, 400, "Thiếu mã QR cố định của thiết bị.");
+    const qrRow = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
+    if (!qrRow) return qrRequestError(req, res, 404, "Mã QR không hợp lệ hoặc thiết bị đã lưu trữ.");
+    const deviceId = Number(qrRow.id);
     const reporter = String(p.reporter || "").trim();
     const description = String(p.description || "").trim();
     const severity = String(p.severity || "Trung bình").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
     validateIncidentFiles(req.files);
-    if (!deviceId) return res.status(400).json({ error: "Thiếu thiết bị." });
-    if (!reporter) return res.status(400).json({ error: "Vui lòng nhập người báo." });
-    if (!description) return res.status(400).json({ error: "Vui lòng nhập mô tả sự cố." });
-    if (!["Thấp","Trung bình","Cao"].includes(severity)) return res.status(400).json({ error: "Mức độ không hợp lệ." });
+    if (!deviceId) return qrRequestError(req, res, 400, "Thiếu thiết bị.");
+    if (!reporter) return qrRequestError(req, res, 400, "Vui lòng nhập người báo.");
+    if (!description) return qrRequestError(req, res, 400, "Vui lòng nhập mô tả sự cố.");
+    if (!["Thấp","Trung bình","Cao"].includes(severity)) return qrRequestError(req, res, 400, "Mức độ không hợp lệ.");
     const device = db.prepare("SELECT * FROM devices WHERE id=?").get(deviceId);
-    if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị.");
     const files = req.files || [];
     const noteParts = [];
     if (p.note) noteParts.push(String(p.note));
@@ -2214,6 +2220,11 @@ function cleanupUploadedFiles(files) {
   for (const file of (Array.isArray(files) ? files : [])) {
     safeUnlink(file.path || (file.filename ? path.join(qrUploadsDir, file.filename) : ""));
   }
+}
+
+function qrRequestError(req, res, status, message) {
+  cleanupUploadedFiles(req.files);
+  return res.status(status).json({ error: message });
 }
 
 function validateIncidentFiles(files){
