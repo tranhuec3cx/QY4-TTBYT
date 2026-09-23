@@ -6,6 +6,7 @@ const Database = require("better-sqlite3");
 const ExcelJS = require("exceljs");
 const multer = require("multer");
 const os = require("os");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -695,7 +696,7 @@ function getDeviceCode(id) {
 
 
 function enrichDevice(device) {
-  return { ...device, device_code: getDeviceCode(device.id) };
+  return { ...device, device_code: getDeviceCode(device.id), qr_uid: ensureDeviceQrUid(device.id) };
 }
 
 function ensureDeviceCodeColumnsAndData() {
@@ -761,7 +762,74 @@ function ensureDeviceQualityColumn() {
   }
 }
 
+function makeQrUid() {
+  return crypto.randomUUID();
+}
+
+function ensureDeviceQrUid(deviceId) {
+  const row = db.prepare("SELECT id, qr_uid FROM devices WHERE id=?").get(Number(deviceId));
+  if (!row) return "";
+  if (row.qr_uid) return row.qr_uid;
+  let uid = makeQrUid();
+  while (db.prepare("SELECT 1 FROM devices WHERE qr_uid=?").get(uid)) uid = makeQrUid();
+  db.prepare("UPDATE devices SET qr_uid=? WHERE id=?").run(uid, row.id);
+  return uid;
+}
+
+function ensureCoreManagementSchema() {
+  const cols = db.prepare("PRAGMA table_info(devices)").all().map(c => c.name);
+  if (!cols.includes("qr_uid")) db.prepare("ALTER TABLE devices ADD COLUMN qr_uid TEXT").run();
+  if (!cols.includes("is_archived")) db.prepare("ALTER TABLE devices ADD COLUMN is_archived INTEGER DEFAULT 0").run();
+  if (!cols.includes("archived_at")) db.prepare("ALTER TABLE devices ADD COLUMN archived_at TEXT").run();
+
+  const rows = db.prepare("SELECT id, qr_uid FROM devices ORDER BY id").all();
+  for (const r of rows) {
+    if (!r.qr_uid) ensureDeviceQrUid(r.id);
+  }
+  db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_qr_uid ON devices(qr_uid)").run();
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS device_transfers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      transfer_datetime TEXT NOT NULL,
+      from_department_code TEXT,
+      from_location TEXT,
+      to_department_code TEXT NOT NULL,
+      to_location TEXT,
+      reason TEXT,
+      actor TEXT,
+      note TEXT,
+      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+    );
+    CREATE INDEX IF NOT EXISTS idx_device_transfers_device ON device_transfers(device_id, transfer_datetime);
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action_time TEXT NOT NULL,
+      actor TEXT,
+      action_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      details TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_time ON audit_logs(action_time DESC);
+  `);
+}
+
+function writeAudit(actor, actionType, entityType, entityId, details = "") {
+  try {
+    db.prepare(`
+      INSERT INTO audit_logs (action_time, actor, action_type, entity_type, entity_id, details)
+      VALUES (?,?,?,?,?,?)
+    `).run(nowSql(), actor || "Hệ thống", actionType, entityType, String(entityId || ""), details || "");
+  } catch (e) {
+    console.error("writeAudit error:", e.message);
+  }
+}
+
 initDb();
+ensureCoreManagementSchema();
 ensureDeviceCodeColumnsAndData();
 normalizeIncidentStatusesInDb();
 try {
@@ -820,6 +888,8 @@ function initExtendedModules() {
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
   `);
+
+  if (process.env.QY4_DEMO_SEED !== "1") return;
 
   const inspectionCount = db.prepare("SELECT COUNT(*) c FROM inspections").get().c;
   if (inspectionCount === 0) {
@@ -988,13 +1058,15 @@ app.delete("/api/users/:id", (req, res) => {
 });
 
 app.get("/api/devices", (req, res) => {
+  const includeArchived = String(req.query.include_archived || "") === "1";
   const rows = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
     FROM devices dv
     LEFT JOIN departments d ON d.code = dv.department_code
     LEFT JOIN device_groups g ON g.code = dv.group_code
+    WHERE (? = 1 OR COALESCE(dv.is_archived,0)=0)
     ORDER BY dv.id
-  `).all().map(enrichDevice);
+  `).all(includeArchived ? 1 : 0).map(enrichDevice);
   res.json(rows);
 });
 
@@ -1030,7 +1102,8 @@ app.get("/api/devices/:id", (req, res) => {
     maintenances: db.prepare("SELECT * FROM maintenances WHERE device_id = ? ORDER BY id DESC").all(id),
     inspections: db.prepare("SELECT * FROM inspections WHERE device_id = ? ORDER BY id DESC").all(id).map(r => ({ ...r, device_code: getDeviceCode(r.device_id), device_name: device.name, department_code: device.department_code })),
     operation_logs: db.prepare("SELECT * FROM operation_logs WHERE device_id = ? ORDER BY id DESC").all(id),
-    documents: db.prepare("SELECT * FROM documents WHERE device_id = ? ORDER BY id DESC").all(id)
+    documents: db.prepare("SELECT * FROM documents WHERE device_id = ? ORDER BY id DESC").all(id),
+    transfers: db.prepare("SELECT * FROM device_transfers WHERE device_id = ? ORDER BY transfer_datetime DESC, id DESC").all(id)
   };
   res.json(data);
 });
@@ -1043,10 +1116,14 @@ app.post("/api/devices", (req, res) => {
     INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
     VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
   `).run(payload);
-  res.json({ id: info.lastInsertRowid });
+  const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
+  writeAudit(req.body.actor || "", "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
+  res.json({ id: info.lastInsertRowid, qr_uid: qrUid });
 });
 
 app.put("/api/devices/:id", (req, res) => {
+  const old = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(req.params.id));
+  if (!old) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   const payload = { ...req.body, quality_level: Number(req.body.quality_level || 3), device_code: req.body.device_code || "", insurance_code: req.body.insurance_code || "" };
   db.prepare(`
     UPDATE devices SET
@@ -1056,19 +1133,18 @@ app.put("/api/devices/:id", (req, res) => {
       device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code
     WHERE id=@id
   `).run({ ...payload, id: Number(req.params.id) });
-  res.json({ ok: true });
+  ensureDeviceQrUid(req.params.id);
+  writeAudit(req.body.actor || "", "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
+  res.json({ ok: true, qr_uid: ensureDeviceQrUid(req.params.id) });
 });
 
 app.delete("/api/devices/:id", (req, res) => {
   const id = Number(req.params.id);
-  db.prepare("DELETE FROM accessories WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM repairs WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM maintenances WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM inspections WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM operation_logs WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM documents WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM devices WHERE id=?").run(id);
-  res.json({ ok: true });
+  const device = db.prepare("SELECT * FROM devices WHERE id=?").get(id);
+  if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  db.prepare("UPDATE devices SET is_archived=1, archived_at=?, status='Ngừng hoạt động' WHERE id=?").run(nowSql(), id);
+  writeAudit(req.body?.actor || "", "Lưu trữ thiết bị", "device", id, `${device.device_code || ""} | ${device.name || ""}`);
+  res.json({ ok: true, archived: true, qr_uid: ensureDeviceQrUid(id) });
 });
 
 app.get("/api/repairs", (req, res) => {
@@ -1544,23 +1620,53 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
 
 
 
+function getQrDevicePayloadByUid(qrUid) {
+  const row = db.prepare("SELECT id FROM devices WHERE qr_uid=?").get(String(qrUid || "").trim());
+  return row ? getQrDevicePayload(row.id) : null;
+}
+
 function getPublicDevicePayload(deviceId) {
   const d = getQrDevicePayload(deviceId);
   if (!d) return null;
   return {
-    id: d.id,
+    qr_uid: d.qr_uid || ensureDeviceQrUid(d.id),
     device_code: d.device_code,
     name: d.name,
     department_name: d.department_name || d.department_code || "",
     location: d.location || "",
     status: d.status || "",
     model: d.model || "",
-    serial: d.serial || ""
+    serial: d.serial || "",
+    is_archived: Number(d.is_archived || 0) === 1
   };
 }
 
+function getPublicDevicePayloadByUid(qrUid) {
+  const d = getQrDevicePayloadByUid(qrUid);
+  return d ? getPublicDevicePayload(d.id) : null;
+}
+
+app.get("/q/:qr_uid", (req, res) => {
+  const row = db.prepare("SELECT id FROM devices WHERE qr_uid=?").get(req.params.qr_uid);
+  if (!row) return res.status(404).send("Mã QR thiết bị không hợp lệ.");
+  res.sendFile(path.join(__dirname, "public", "inspect.html"));
+});
+
+app.get("/api/public/device-qr/:qr_uid", (req, res) => {
+  const data = getPublicDevicePayloadByUid(req.params.qr_uid);
+  if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  res.json(data);
+});
+
+// Tương thích QR cũ theo id trong giai đoạn chuyển đổi.
 app.get("/api/public/device/:id", (req, res) => {
   const data = getPublicDevicePayload(req.params.id);
+  if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  res.json(data);
+});
+
+app.get("/api/qr/device-uid/:qr_uid", (req, res) => {
+  const data = getQrDevicePayloadByUid(req.params.qr_uid);
   if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   res.json(data);
 });
@@ -1581,7 +1687,8 @@ app.get("/api/qr/device-code/:code", (req, res) => {
 app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    const deviceId = Number(p.device_id || 0);
+    const qrRow = p.qr_uid ? db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(String(p.qr_uid).trim()) : null;
+    const deviceId = Number(qrRow?.id || p.device_id || 0);
     const condition = String(p.condition || "").trim();
     const inspector = String(p.inspector || "").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
@@ -1633,7 +1740,8 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
 app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    const deviceId = Number(p.device_id || 0);
+    const qrRow = p.qr_uid ? db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(String(p.qr_uid).trim()) : null;
+    const deviceId = Number(qrRow?.id || p.device_id || 0);
     const reporter = String(p.reporter || "").trim();
     const description = String(p.description || "").trim();
     const severity = String(p.severity || "Trung bình").trim();
@@ -2206,6 +2314,115 @@ app.delete("/api/usage-reports/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/devices/:id/transfers", (req, res) => {
+  const rows = db.prepare(`
+    SELECT t.*, fd.name AS from_department_name, td.name AS to_department_name
+    FROM device_transfers t
+    LEFT JOIN departments fd ON fd.code=t.from_department_code
+    LEFT JOIN departments td ON td.code=t.to_department_code
+    WHERE t.device_id=?
+    ORDER BY t.transfer_datetime DESC, t.id DESC
+  `).all(Number(req.params.id));
+  res.json(rows);
+});
+
+app.post("/api/devices/:id/transfer", (req, res) => {
+  const id = Number(req.params.id);
+  const d = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(id);
+  if (!d) return res.status(404).json({ error: "Không tìm thấy thiết bị đang quản lý." });
+  const toDepartment = String(req.body.to_department_code || "").trim();
+  if (!toDepartment) return res.status(400).json({ error: "Thiếu khoa/phòng nhận." });
+  const toLocation = String(req.body.to_location || "").trim();
+  const at = normalizeDateTime(req.body.transfer_datetime || nowSql()) || nowSql();
+  const actor = String(req.body.actor || "").trim();
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO device_transfers
+      (device_id,transfer_datetime,from_department_code,from_location,to_department_code,to_location,reason,actor,note)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).run(id, at, d.department_code || "", d.location || "", toDepartment, toLocation, req.body.reason || "", actor, req.body.note || "");
+    db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?").run(toDepartment, toLocation, id);
+    writeAudit(actor, "Điều chuyển thiết bị", "device", id, `${d.department_code || ""}/${d.location || ""} → ${toDepartment}/${toLocation}`);
+    return info.lastInsertRowid;
+  });
+  res.json({ ok: true, id: tx(), qr_uid: ensureDeviceQrUid(id) });
+});
+
+app.get("/api/devices/:id/technical-history", (req, res) => {
+  const id = Number(req.params.id);
+  const from = String(req.query.from_date || "");
+  const to = String(req.query.to_date || "");
+  const type = String(req.query.type || "ALL");
+  const inRange = (v) => {
+    const d = String(v || "").slice(0,10);
+    return (!from || d >= from) && (!to || d <= to);
+  };
+  let rows = [];
+  db.prepare("SELECT * FROM incidents WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:"Sự cố", date:r.incident_datetime, status:normalizeIncidentStatusForUi(r.status, db.prepare("SELECT id FROM repairs WHERE incident_id=? LIMIT 1").get(r.id)?.id),
+    content:r.description || "", person:r.reporter || "", record_id:r.id
+  }));
+  db.prepare("SELECT * FROM repairs WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:"Sửa chữa", date:r.received_at || r.repair_date, status:normalizeRepairStatus(r.processing_status),
+    content:[r.issue,r.work,r.result].filter(Boolean).join(" | "), person:r.person || "", record_id:r.id
+  }));
+  db.prepare("SELECT * FROM maintenances WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:"Bảo dưỡng", date:r.maintenance_date, status:r.result || "", content:[r.type,r.content].filter(Boolean).join(" | "), person:r.performer || "", record_id:r.id
+  }));
+  db.prepare("SELECT * FROM inspections WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:r.type || "Kiểm định", date:r.inspection_date, status:r.result || "", content:[r.organization,r.certificate_no].filter(Boolean).join(" | "), person:r.organization || "", record_id:r.id
+  }));
+  rows = rows.filter(r => inRange(r.date) && (type === "ALL" || r.type === type)).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+  res.json(rows);
+});
+
+app.get("/api/dashboard/operations", (req, res) => {
+  const today = new Date().toISOString().slice(0,10);
+  const plus30 = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+  const total = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
+  const active = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Đang hoạt động'").get().c;
+  const repairing = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Chờ sửa chữa'").get().c;
+  const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận'").get().c;
+  const dueInspection = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date>=? AND next_date<=?").get(today,plus30).c;
+  const overdueInspection = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date<?").get(today).c;
+  const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs WHERE processing_status='Chờ linh kiện'").get().c;
+  const monthlyIncidents = db.prepare(`
+    SELECT substr(incident_datetime,1,7) month, COUNT(*) count
+    FROM incidents
+    WHERE incident_datetime >= date('now','start of month','-5 months')
+    GROUP BY substr(incident_datetime,1,7)
+    ORDER BY month
+  `).all();
+  res.json({ total, active, repairing, openIncidents, dueInspection, overdueInspection, waitingParts, monthlyIncidents });
+});
+
+app.get("/api/audit-logs", (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit || 200)));
+  res.json(db.prepare("SELECT * FROM audit_logs ORDER BY action_time DESC, id DESC LIMIT ?").all(limit));
+});
+
+app.get("/api/system/backups", (req, res) => {
+  const dir = path.join(__dirname, "backups");
+  fs.mkdirSync(dir, { recursive: true });
+  const files = fs.readdirSync(dir).filter(x => /^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
+  res.json(files);
+});
+
+app.post("/api/system/backup", async (req, res) => {
+  try {
+    const dir = path.join(__dirname, "backups");
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = nowSql().replace(/[-: ]/g,"").slice(0,14);
+    const filename = `qy4_ttbyt_${stamp}.sqlite`;
+    const target = path.join(dir, filename);
+    await db.backup(target);
+    writeAudit(req.body?.actor || "", "Sao lưu dữ liệu", "system", filename, target);
+    res.json({ ok:true, filename });
+  } catch (e) {
+    res.status(500).json({ error:e.message });
+  }
+});
+
 app.get("/api/leadership-dashboard", (req, res) => {
   const devices = db.prepare("SELECT * FROM devices").all();
   const total = devices.length;
@@ -2321,7 +2538,7 @@ app.post("/api/reset-seed", (req, res) => {
   res.json({ ok: true });
 });
 
-refreshDemoTodayData();
+if (process.env.QY4_DEMO_SEED === "1") refreshDemoTodayData();
 
 app.get("/", (req, res) => {
   res.redirect("/dashboard.html");
