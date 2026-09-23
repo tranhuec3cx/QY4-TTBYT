@@ -499,6 +499,54 @@ jobs:
           NODE
           echo "Authentication and role smoke test passed"
 
+      - name: Smoke test authenticated demo reset
+        run: |
+          if [ -f /tmp/qy4-auth-server.pid ]; then kill $(cat /tmp/qy4-auth-server.pid) || true; fi
+          rm -f db/qy4_ttbyt.sqlite db/qy4_ttbyt.sqlite-shm db/qy4_ttbyt.sqlite-wal
+          QY4_DEMO_SEED=1 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' PORT=5002 node server.js > /tmp/qy4-demo-reset.log 2>&1 &
+          echo $! > /tmp/qy4-demo-reset.pid
+          BASE=http://127.0.0.1:5002
+          for i in {1..20}; do
+            if curl -fsS "$BASE/api/auth/status" >/tmp/demo-auth-status.json; then break; fi
+            sleep 1
+          done
+          curl -fsS -c /tmp/demo-admin-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"admin","password":"AdminPass123!"}' >/tmp/demo-admin-login.json
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"RST1","name":"Khoa reset 1"}' >/tmp/rst1.json
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"RST2","name":"Khoa reset 2"}' >/tmp/rst2.json
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/device-groups" -H 'Content-Type: application/json' --data '{"code":"RST","name":"Nhóm reset"}' >/tmp/rst-group.json
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"RST1","group_code":"RST","name":"Thiết bị reset","serial":"RST-001","status":"Đang hoạt động","location":"Phòng A"}' >/tmp/rst-device.json
+          RST_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/rst-device.json","utf8")).id')
+          TODAY=$(node -p 'new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok"}).format(new Date())')
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/inventory-sessions" -H 'Content-Type: application/json' --data "{\"inventory_date\":\"$TODAY\",\"department_code\":\"RST1\",\"actor\":\"CI reset\"}" >/tmp/rst-session.json
+          RST_SESSION=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/rst-session.json","utf8")).id')
+          curl -fsS -b /tmp/demo-admin-cookie.txt "$BASE/api/inventory-sessions/$RST_SESSION" >/tmp/rst-detail.json
+          RST_ITEM=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/rst-detail.json","utf8")).items.find(x=>Number(x.device_id)===Number(process.argv[1])).id' "$RST_DEVICE")
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X PUT "$BASE/api/inventory-items/$RST_ITEM" -H 'Content-Type: application/json' --data '{"result":"Có","actual_department_code":"RST1","actual_location":"Phòng A","updated_by":"CI reset"}' >/tmp/rst-item-update.json
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/inventory-sessions/$RST_SESSION/complete" -H 'Content-Type: application/json' --data '{"actor":"CI reset"}' >/tmp/rst-complete.json
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/devices/$RST_DEVICE/transfer" -H 'Content-Type: application/json' --data '{"to_department_code":"RST2","to_location":"Phòng B","reason":"Kiểm thử reset","actor":"CI reset"}' >/tmp/rst-transfer.json
+
+          curl -fsS -b /tmp/demo-admin-cookie.txt -X POST "$BASE/api/reset-seed" -H 'Content-Type: application/json' --data '{}' >/tmp/rst-reset.json
+          CODE=$(curl -s -b /tmp/demo-admin-cookie.txt -o /tmp/rst-old-session.json -w '%{http_code}' "$BASE/api/auth/me")
+          test "$CODE" = "401"
+
+          curl -fsS -c /tmp/demo-admin-cookie2.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"admin","password":"AdminPass123!"}' >/tmp/demo-admin-login2.json
+          curl -fsS -b /tmp/demo-admin-cookie2.txt "$BASE/api/system/readiness" >/tmp/rst-readiness.json
+          curl -fsS -b /tmp/demo-admin-cookie2.txt "$BASE/api/devices" >/tmp/rst-devices-after.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const r=JSON.parse(fs.readFileSync("/tmp/rst-readiness.json","utf8"));
+          const devices=JSON.parse(fs.readFileSync("/tmp/rst-devices-after.json","utf8"));
+          const m=new Map((r.checks||[]).map(x=>[x.key,x]));
+          if(r.system?.foreign_keys_enabled!==true || Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Foreign-key integrity failed after demo reset");
+          for(const key of ["database_integrity","foreign_keys","auth","qr_uid"]){
+            if(m.get(key)?.level!=="Đạt") throw new Error("Reset readiness failed: "+key);
+          }
+          if(m.get("demo")?.level!=="Cần xử lý") throw new Error("Demo mode should remain visibly flagged");
+          if(!devices.length || devices.some(x=>!x.qr_uid)) throw new Error("Reseeded devices missing QR UID");
+          if(devices.some(x=>x.serial==="RST-001")) throw new Error("Pre-reset custom device survived reset");
+          console.log("Authenticated demo reset passed");
+          NODE
+
       - name: Show server log on failure
         if: failure()
         run: |
