@@ -1431,7 +1431,7 @@ function initExtendedModules() {
   if (qualityCount === 0) {
     const devices = db.prepare("SELECT id, year_in_use, status FROM devices ORDER BY id").all();
     const insertQuality = db.prepare(`INSERT INTO quality_ratings (device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-    const currentYear = new Date().getFullYear();
+    const currentYear = Number(localDateISO().slice(0,4));
     devices.forEach(d => {
       const age = Math.max(0, currentYear - Number(d.year_in_use || currentYear));
       const age_score = age <= 3 ? 25 : age <= 7 ? 20 : age <= 10 ? 15 : 8;
@@ -2328,9 +2328,9 @@ app.delete("/api/operation-logs/:id", (req, res) => {
   const id=Number(req.params.id);
   const old=db.prepare("SELECT * FROM operation_logs WHERE id=?").get(id);
   if(!old) return res.status(404).json({error:"Không tìm thấy nhật ký vận hành."});
-  db.prepare("DELETE FROM operation_logs WHERE id=?").run(id);
-  writeAudit(requestActor(req, old.user_name || "Khoa Trang bị"), "Xóa nhật ký vận hành", "operation_log", id, `${old.log_datetime || ""} | ${old.note || ""}`);
-  res.json({ ok: true });
+  return res.status(409).json({
+    error:"Nhật ký vận hành là dữ liệu lịch sử và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để hiệu chỉnh nội dung."
+  });
 });
 
 app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
@@ -2899,13 +2899,11 @@ app.delete("/api/checks/:id", (req, res) => {
   const id=Number(req.params.id);
   const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(id);
   if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi kiểm tra."});
-  if(String(old.source_channel || "")==="QR"){
-    return res.status(409).json({error:"Bản ghi kiểm tra phát sinh từ QR là dữ liệu sử dụng thực tế và không được xóa. Có thể cập nhật nội dung nếu cần hiệu chỉnh."});
-  }
-  writeHistory("check", id, old.inspector, "Xóa", old.result || "", "", old.content || old.note || "");
-  db.prepare("DELETE FROM daily_checks WHERE id=?").run(id);
-  writeAudit(requestActor(req,old.inspector || "Khoa Trang bị"),"Xóa kiểm tra nhập trực tiếp","daily_check",id,old.content || old.note || "");
-  res.json({ ok: true });
+  return res.status(409).json({
+    error:String(old.source_channel || "")==="QR"
+      ? "Bản ghi kiểm tra phát sinh từ QR là dữ liệu sử dụng thực tế và không được xóa. Có thể cập nhật nội dung nếu cần hiệu chỉnh."
+      : "Bản ghi kiểm tra là lịch sử kỹ thuật và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để hiệu chỉnh nội dung."
+  });
 });
 
 function cleanupUploadedFiles(files) {
@@ -3125,7 +3123,7 @@ app.post("/api/incidents/:id/acknowledge", (req, res) => {
     if (incident.status === "Đã chuyển sửa chữa" || incident.status === "Đã xử lý tại chỗ") {
       return res.status(400).json({ error:"Sự cố đã được xử lý/chuyển sửa chữa." });
     }
-    const actor = String(req.authUser?.full_name || req.body?.actor || "Khoa Trang bị").trim();
+    const actor = requestActor(req, "Khoa Trang bị");
     const at = incident.acknowledged_at || nowSql();
     db.prepare("UPDATE incidents SET status='Đã tiếp nhận', acknowledged_at=?, acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), updated_at=?, updated_by=? WHERE id=?")
       .run(at, actor, nowSql(), actor, incident.id);
@@ -3148,7 +3146,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
     const otherOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(incident.device_id));
     if (otherOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${otherOpen.id} chưa hoàn thành. Hãy xử lý trên phiếu hiện có.` });
-    const actor = req.authUser?.full_name || req.body?.actor || "Khoa Trang bị";
+    const actor = requestActor(req, "Khoa Trang bị");
     const payload = {
       device_id: Number(incident.device_id),
       repair_date: normalizeDateTime(req.body?.repair_date || incident.incident_datetime || nowSql()),
@@ -3586,9 +3584,9 @@ app.delete("/api/quality-ratings/:id", (req, res) => {
   const id=Number(req.params.id);
   const old=db.prepare("SELECT * FROM quality_ratings WHERE id=?").get(id);
   if(!old) return res.status(404).json({error:"Không tìm thấy đánh giá chất lượng."});
-  db.prepare("DELETE FROM quality_ratings WHERE id=?").run(id);
-  writeAudit(requestActor(req, old.evaluator || "Khoa Trang bị"), "Xóa đánh giá chất lượng", "quality_rating", id, `Thiết bị #${old.device_id} | ${old.rating_date || ""} | ${old.grade || ""}`);
-  res.json({ ok: true });
+  return res.status(409).json({
+    error:"Đánh giá chất lượng là dữ liệu theo dõi lịch sử và không được xóa. Nếu cần thay đổi, hãy cập nhật lại đánh giá của thiết bị."
+  });
 });
 
 app.get("/api/usage-reports", (req, res) => {
@@ -4171,7 +4169,7 @@ app.get("/api/system/backups", (req, res) => {
 
 app.post("/api/system/backup", async (req, res) => {
   try {
-    const filename = await createDatabaseBackup(req.authUser?.full_name || req.body?.actor || "Quản trị viên", "Sao lưu dữ liệu");
+    const filename = await createDatabaseBackup(requestActor(req, "Quản trị viên"), "Sao lưu dữ liệu");
     res.json({ ok:true, filename });
   } catch (e) {
     res.status(500).json({ error:e.message });
