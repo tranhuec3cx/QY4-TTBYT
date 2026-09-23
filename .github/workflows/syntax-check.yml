@@ -88,7 +88,12 @@ jobs:
           MIN_DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-minimal.json","utf8")).id')
           curl -fsS "$BASE/api/devices/$MIN_DEVICE_ID" >/tmp/device-minimal-read.json
           node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-minimal-read.json","utf8")); if(d.name!=="Thiết bị tối giản CI"||d.model!==""||d.serial!==""||!d.qr_uid) throw new Error("Minimal device defaults failed")'
+          MIN_QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-minimal-read.json","utf8")).qr_uid')
           curl -fsS -X DELETE "$BASE/api/devices/$MIN_DEVICE_ID" >/tmp/device-minimal-archive.json
+          curl -fsS "$BASE/api/public/device-qr/$MIN_QR_UID" >/tmp/device-minimal-archived-public.json
+          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-minimal-archived-public.json","utf8")); if(!d.is_archived||d.qr_uid!==process.argv[1]) throw new Error("Archived QR did not preserve identity")' "$MIN_QR_UID"
+          CODE=$(curl -s -o /tmp/device-minimal-archived-post.json -w '%{http_code}' -X POST "$BASE/api/qr/checks" -F "qr_uid=$MIN_QR_UID" -F "inspector=CI" -F "condition=Bình thường")
+          test "$CODE" = "404"
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-BEFORE","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí A","note":"","insurance_code":"","actor":"CI"}' >/tmp/device-create.json
           DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
           QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
