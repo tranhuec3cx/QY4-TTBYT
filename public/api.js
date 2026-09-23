@@ -115,6 +115,28 @@ function formatDateTimeVN(value) {
   const [date, time] = value.split(" ");
   return `${formatDateVN(date)} ${time ? time.slice(0,5) : ""}`.trim();
 }
+function formatDateTimeVNLines(value) {
+  if (!value) return "";
+  let raw = String(value);
+  if (raw.includes("T")) raw = raw.replace("T", " ");
+  const [date, time] = raw.split(" ");
+  const dateText = formatDateVN(date);
+  const timeText = time ? time.slice(0,5) : "";
+  return `<div class="dt-cell"><b>${dateText}</b>${timeText ? `<div class="small">${timeText}</div>` : ""}</div>`;
+}
+function technicalDeviceCell(row = {}) {
+  const safe = (v) => String(v ?? "").replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[ch] || ch));
+  const name = safe(row.device_name || row.name || "");
+  const model = safe(row.model || "");
+  const code = safe(row.device_code || row.serial || "");
+  return `<div class="technical-device-cell"><b>${name || "—"}</b>${model ? `<div class="small">${model}</div>` : ""}${code ? `<div class="small device-code">${code}</div>` : ""}</div>`;
+}
+function technicalLocationCell(row = {}) {
+  const safe = (v) => String(v ?? "").replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[ch] || ch));
+  const dept = safe(row.department_code || row.department_name || "");
+  const location = safe(row.location || "");
+  return `<div class="technical-location-cell"><b>${dept || "—"}</b>${location ? `<div class="small">${location}</div>` : ""}</div>`;
+}
 function formatCurrency(v) {
   return new Intl.NumberFormat("vi-VN").format(Number(v || 0)) + " đ";
 }
