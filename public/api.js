@@ -156,7 +156,9 @@ async function refreshAuthUi() {
     }
     window.QY4_AUTH_USER = data.user || null;
     if (box && data.user) {
-      box.style.display = "";
+      box.style.display = "flex";
+      box.style.alignItems = "center";
+      box.style.gap = "10px";
       box.innerHTML = `<span><b>${String(data.user.full_name || data.user.username || "")}</b><br><small>${String(data.user.role || "")}</small></span><button type="button" class="icon-btn" id="logoutBtn" title="Đăng xuất">↪</button>`;
       const logout = document.getElementById("logoutBtn");
       if (logout) logout.onclick = async () => {
