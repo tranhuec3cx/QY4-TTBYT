@@ -298,15 +298,27 @@ function safeUnlink(filePath) {
   } catch {}
 }
 
-function localDateISO(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+function zonedDateParts(date = new Date(), includeTime = false) {
+  const options = {
     timeZone: APP_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).formatToParts(new Date(date));
-  const get = type => parts.find(p => p.type === type)?.value || "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
+  };
+  if (includeTime) {
+    options.hour = "2-digit";
+    options.minute = "2-digit";
+    options.second = "2-digit";
+    options.hourCycle = "h23";
+  }
+  const parts = new Intl.DateTimeFormat("en-CA", options).formatToParts(new Date(date));
+  const out = {};
+  for (const p of parts) if (p.type !== "literal") out[p.type] = p.value;
+  return out;
+}
+function localDateISO(date = new Date()) {
+  const p = zonedDateParts(date, false);
+  return `${p.year}-${p.month}-${p.day}`;
 }
 function shiftIsoDate(value, days) {
   const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -318,9 +330,8 @@ function localDatePlusDays(days, base = new Date()) {
   return shiftIsoDate(localDateISO(base), days);
 }
 function nowSql() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${localDateISO(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const p = zonedDateParts(new Date(), true);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 }
 
 function makeIncidentCode(id, incidentDate = nowSql()) {
@@ -417,9 +428,7 @@ function writeHistory(module, recordId, actor, actionType, oldStatus = "", newSt
 
 
 function refreshDemoTodayData() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const today = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const today = localDateISO();
   const t1 = `${today} 08:15`;
   const t2 = `${today} 09:10`;
   const t3 = `${today} 10:20`;
