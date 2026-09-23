@@ -18,7 +18,7 @@ function normalizeIncidentStatus(status, linkedRepairId){
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
 }
 function normalizeIncidentRow(r){ return { ...r, status: normalizeIncidentStatus(r.status, r.linked_repair_id) }; }
-function fillDeviceMeta(){ const d=getDevice(q("deviceId").value); q("incidentDept").value=d?(d.department_name||d.department_code||""):""; q("incidentLocation").value=d?(d.location||""):""; }
+function fillDeviceMeta(){ const d=getDevice(q("deviceId").value); q("incidentDept").value=d?(d.department_code||d.department_name||""):""; q("incidentLocation").value=d?(d.location||""):""; }
 function localDateTimeInputValue(){
   const d = new Date();
   const pad = n => String(n).padStart(2,"0");
