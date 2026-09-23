@@ -22,8 +22,7 @@ function getDevice(id) {
   return DEVICES.find(d => Number(d.id) === Number(id)) || null;
 }
 function deviceLabel(d) {
-  if (!d) return "";
-  return `${d.device_code || "TB-" + d.id} - ${d.name || ""}${d.model ? " - " + d.model : ""}`;
+  return devicePickerLabel(d);
 }
 function repairStatusClass(status) {
   const st = normalizeRepairStatus(status);
@@ -68,7 +67,7 @@ function resetRepairForm() {
   q("prefillNotice").style.display = "none";
   q("saveRepairBtn").textContent = "Lưu phiếu";
   q("cost").value = 0;
-  if (q("actionTime")) q("actionTime").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
   if (q("saveHistory")) q("saveHistory").checked = true;
 }
 function openRepairDialog(mode = "create") {
@@ -174,7 +173,7 @@ function editRepair(id) {
   q("repairDeviceSearch").value = deviceLabel(d);
   setSelectedDevice(d);
   q("repairDate").value = toDateTimeLocalValue(r.received_at || r.repair_date || "");
-  if (q("actionTime")) q("actionTime").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
   if (q("saveHistory")) q("saveHistory").checked = true;
   q("issue").value = r.issue || "";
   q("work").value = r.work || "";
@@ -297,8 +296,8 @@ function applyIncidentPrefill() {
     const d = getDevice(r.device_id) || r;
     q("repairDeviceSearch").value = deviceLabel(d);
     setSelectedDevice(d);
-    q("repairDate").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
-    if (q("actionTime")) q("actionTime").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+    q("repairDate").value = nowDateTimeLocalValue();
+    if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
     if (q("saveHistory")) q("saveHistory").checked = true;
     q("issue").value = r.description || "";
     if (q("reporter")) q("reporter").value = r.reporter || "";
@@ -368,7 +367,7 @@ function exportRepairsExcel() {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "SuaChua");
-  XLSX.writeFile(wb, `bao_cao_sua_chua_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `bao_cao_sua_chua_${todayISO()}.xlsx`);
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
