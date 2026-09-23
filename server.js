@@ -1917,8 +1917,20 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
 });
 
 app.delete("/api/maintenances/:id", (req, res) => {
-  db.prepare("DELETE FROM maintenances WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  try{
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM maintenances WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi bảo dưỡng."});
+    if(String(old.file_path||"").trim()){
+      return res.status(400).json({error:"Bản ghi bảo dưỡng đã có file hồ sơ; không được xóa để bảo toàn tài liệu lịch sử."});
+    }
+    db.prepare("DELETE FROM maintenances WHERE id=?").run(id);
+    writeAudit(requestActor(req, old.performer || "Khoa Trang bị"), "Xóa bảo dưỡng chưa có file", "maintenance", id, old.content || old.note || "");
+    res.json({ok:true});
+  }catch(e){
+    console.error("DELETE /api/maintenances/:id error:",e);
+    res.status(500).json({error:e.message});
+  }
 });
 
 app.post("/api/operation-logs", (req, res) => {
@@ -2721,10 +2733,29 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
 });
 
 app.delete("/api/incidents/:id", (req, res) => {
-  const linked = db.prepare("SELECT COUNT(*) c FROM repairs WHERE incident_id=?").get(req.params.id).c;
-  if (linked > 0) return res.status(400).json({ error: "Sự cố đã chuyển sửa chữa, không thể xóa. Vui lòng xử lý trong phiếu sửa chữa." });
-  db.prepare("DELETE FROM incidents WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM incidents WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy sự cố."});
+    const linked=db.prepare("SELECT COUNT(*) c FROM repairs WHERE incident_id=?").get(id).c;
+    if(linked>0) return res.status(400).json({error:"Sự cố đã chuyển sửa chữa, không thể xóa. Vui lòng xử lý trong phiếu sửa chữa."});
+    if(String(old.acknowledged_at||"").trim() || String(old.status||"")==="Đã tiếp nhận") {
+      return res.status(400).json({error:"Sự cố đã được tiếp nhận nên không được xóa để bảo toàn lịch sử. Hãy cập nhật trạng thái/xử lý thay vì xóa."});
+    }
+    const files=db.prepare("SELECT file_path FROM incident_files WHERE incident_id=?").all(id);
+    const tx=db.transaction(()=>{
+      db.prepare("DELETE FROM incidents WHERE id=?").run(id);
+      writeAudit(requestActor(req, old.reporter || "Khoa Trang bị"), "Xóa sự cố chưa tiếp nhận", "incident", id, `${old.incident_code || ""} | ${old.description || ""}`);
+    });
+    tx();
+    for(const row of files){
+      if(row.file_path) safeUnlink(path.join(__dirname,String(row.file_path).replace(/^\//,"")));
+    }
+    res.json({ok:true,deleted_files:files.length});
+  }catch(e){
+    console.error("DELETE /api/incidents/:id error:",e);
+    res.status(500).json({error:e.message});
+  }
 });
 
 
@@ -3015,12 +3046,20 @@ app.put("/api/inspections/:id", (req, res) => {
 });
 
 app.delete("/api/inspections/:id", (req, res) => {
-  const id=Number(req.params.id);
-  const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
-  if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
-  db.prepare("DELETE FROM inspections WHERE id=?").run(id);
-  writeAudit(requestActor(req), "Xóa kiểm định/hiệu chuẩn", "inspection", id, `${old.type || ""} | ${old.certificate_no || ""}`);
-  res.json({ ok: true });
+  try{
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
+    if(String(old.file_note||"").trim().startsWith("/uploads/")){
+      return res.status(400).json({error:"Hồ sơ kiểm định/hiệu chuẩn đã có file chứng nhận; không được xóa để bảo toàn hồ sơ."});
+    }
+    db.prepare("DELETE FROM inspections WHERE id=?").run(id);
+    writeAudit(requestActor(req), "Xóa kiểm định/hiệu chuẩn chưa có file", "inspection", id, `${old.type || ""} | ${old.certificate_no || ""}`);
+    res.json({ok:true});
+  }catch(e){
+    console.error("DELETE /api/inspections/:id error:",e);
+    res.status(500).json({error:e.message});
+  }
 });
 
 app.get("/api/quality-ratings", (req, res) => {
