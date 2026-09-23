@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Đăng nhập - Quản lý TTBYT</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main style="min-height:100vh;display:grid;place-items:center;padding:20px;background:#f5f7fb">
+    <section class="card" style="width:min(440px,100%);margin:0">
+      <div style="text-align:center;margin-bottom:20px">
+        <img src="/assets/BVQY4.jpg" alt="Logo Bệnh viện Quân y 4" style="width:72px;height:72px;object-fit:contain;border-radius:12px" />
+        <h1 style="margin:12px 0 4px">QUẢN LÝ TTBYT</h1>
+        <div class="small">Bệnh viện Quân y 4</div>
+      </div>
+      <div id="authOff" class="muted-note" style="display:none;margin-bottom:14px">
+        Xác thực đang tắt. Có thể vào phần mềm trực tiếp trong chế độ thử nghiệm/nội bộ.
+      </div>
+      <form id="loginForm">
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <input id="username" autocomplete="username" placeholder="Tài khoản" required />
+          <input id="password" type="password" autocomplete="current-password" placeholder="Mật khẩu" required />
+        </div>
+        <div id="loginError" style="min-height:22px;margin-top:10px;color:#b42318"></div>
+        <div class="form-actions" style="margin-top:8px">
+          <button class="btn btn-primary" id="loginBtn" type="submit">Đăng nhập</button>
+          <a class="btn" id="continueBtn" href="/dashboard.html" style="display:none">Vào phần mềm</a>
+        </div>
+      </form>
+      <div class="small" style="margin-top:16px">KHOA TRANG BỊ · © 2026 BVQY4 · Version 5.0.0</div>
+    </section>
+  </main>
+  <script src="/login.js"></script>
+</body>
+</html>
