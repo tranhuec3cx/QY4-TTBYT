@@ -199,6 +199,7 @@ function renderSettingsTabs(active) {
       <a class="${active==='device_code'?'active':''}" href="/settings-code.html">Cấu hình mã thiết bị</a>
       <a class="${active==='reminders'?'active':''}" href="/settings-reminders.html">Nhắc hạn</a>
       <a class="${active==='reports'?'active':''}" href="/settings-reports.html">Báo cáo / tích hợp</a>
+      <a class="${active==='system'?'active':''}" href="/settings-system.html">Hệ thống</a>
     </div>
   `;
 }
