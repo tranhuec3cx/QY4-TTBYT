@@ -142,12 +142,38 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/vendor", express.static(path.join(__dirname, "node_modules", "xlsx", "dist")));
+function departmentUserCanAccessUpload(user, relativePath) {
+  if (!user || user.role !== "Người dùng khoa") return true;
+  const departmentCode = String(user.department_code || "").trim();
+  if (!departmentCode) return false;
+  const filePath = "/uploads" + String(relativePath || "");
+  const params = [filePath, departmentCode];
+  const allowed = db.prepare(`
+    SELECT 1 AS ok
+    FROM documents x JOIN devices d ON d.id=x.device_id
+    WHERE x.file_path=? AND d.department_code=?
+    UNION ALL
+    SELECT 1 AS ok
+    FROM maintenances x JOIN devices d ON d.id=x.device_id
+    WHERE x.file_path=? AND d.department_code=?
+    UNION ALL
+    SELECT 1 AS ok
+    FROM incident_files x JOIN devices d ON d.id=x.device_id
+    WHERE x.file_path=? AND d.department_code=?
+    LIMIT 1
+  `).get(...params, ...params, ...params);
+  return Boolean(allowed?.ok);
+}
 app.use("/uploads", (req, res, next) => {
   if (!AUTH_REQUIRED) return next();
   const user = readAuthenticatedUser(req);
   if (!user) return res.status(401).send("Cần đăng nhập để xem tệp đính kèm.");
+  if (!departmentUserCanAccessUpload(user, req.path)) {
+    return res.status(403).send("Tài khoản khoa không được xem tệp của khoa khác.");
+  }
   req.authUser = user;
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
   next();
 }, express.static(path.join(__dirname, "uploads")));
 
