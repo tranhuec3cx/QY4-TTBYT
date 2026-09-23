@@ -1793,7 +1793,11 @@ app.put("/api/accessories/:id", (req, res) => {
 });
 
 app.delete("/api/accessories/:id", (req, res) => {
-  db.prepare("DELETE FROM accessories WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM accessories WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy phụ kiện."});
+  db.prepare("DELETE FROM accessories WHERE id=?").run(id);
+  writeAudit(requestActor(req), "Xóa phụ kiện", "accessory", id, `${old.name || ""} | ${old.serial || old.code || ""}`);
   res.json({ ok: true });
 });
 
@@ -2039,7 +2043,11 @@ app.put("/api/operation-logs/:id", (req, res) => {
 });
 
 app.delete("/api/operation-logs/:id", (req, res) => {
-  db.prepare("DELETE FROM operation_logs WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM operation_logs WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy nhật ký vận hành."});
+  db.prepare("DELETE FROM operation_logs WHERE id=?").run(id);
+  writeAudit(requestActor(req, old.user_name || "Khoa Trang bị"), "Xóa nhật ký vận hành", "operation_log", id, `${old.log_datetime || ""} | ${old.note || ""}`);
   res.json({ ok: true });
 });
 
@@ -3179,7 +3187,11 @@ app.post("/api/quality-ratings", (req, res) => {
 });
 
 app.delete("/api/quality-ratings/:id", (req, res) => {
-  db.prepare("DELETE FROM quality_ratings WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM quality_ratings WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy đánh giá chất lượng."});
+  db.prepare("DELETE FROM quality_ratings WHERE id=?").run(id);
+  writeAudit(requestActor(req, old.evaluator || "Khoa Trang bị"), "Xóa đánh giá chất lượng", "quality_rating", id, `Thiết bị #${old.device_id} | ${old.rating_date || ""} | ${old.grade || ""}`);
   res.json({ ok: true });
 });
 
@@ -3202,7 +3214,11 @@ app.post("/api/usage-reports", (req, res) => {
 });
 
 app.delete("/api/usage-reports/:id", (req, res) => {
-  db.prepare("DELETE FROM usage_reports WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM usage_reports WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy báo cáo sử dụng."});
+  db.prepare("DELETE FROM usage_reports WHERE id=?").run(id);
+  writeAudit(requestActor(req), "Xóa báo cáo sử dụng", "usage_report", id, `Thiết bị #${old.device_id} | ${old.month || ""}/${old.year || ""} | ${old.indicator || ""}`);
   res.json({ ok: true });
 });
 
