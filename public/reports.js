@@ -134,7 +134,9 @@ function renderKpi(){
   const s=KPI.summary||{}, p=KPI.period||{};
   const cards=[
     ["Tổng sự cố",s.total_incidents||0,"Sự cố phát sinh trong kỳ"],
-    ["Báo qua QR",`${s.qr_share_percent||0}%`,`${s.qr_incidents||0}/${s.total_incidents||0} sự cố`],
+    ["Báo sự cố qua QR",`${s.qr_share_percent||0}%`,`${s.qr_incidents||0}/${s.total_incidents||0} sự cố`],
+    ["Lượt kiểm tra QR",s.qr_checks||0,`${s.qr_check_unique_devices||0} thiết bị duy nhất`],
+    ["QR phát hiện vấn đề",s.qr_check_issue_count||0,`Bình thường: ${s.qr_check_normal_count||0} lượt`],
     ["Phản hồi trung bình",fmtMinutesKpi(s.avg_response_minutes),`${s.responded_incidents||0} sự cố có mốc tiếp nhận`],
     ["Phản hồi trung vị",fmtMinutesKpi(s.median_response_minutes),"Ít bị ảnh hưởng bởi ca xử lý quá dài"],
     [`≤ ${p.response_target_minutes||30} phút`,`${s.response_within_target_percent||0}%`,`${s.response_within_target||0}/${s.responded_incidents||0} sự cố đã tiếp nhận`],
@@ -149,8 +151,8 @@ function renderKpi(){
     ? KPI.by_source.map(x=>`<tr><td><b>${esc(x.source)}</b></td><td>${Number(x.count||0)}</td><td>${(Number(x.count||0)*100/total).toFixed(1)}%</td></tr>`).join("")
     : '<tr><td colspan="3" class="center-empty">Chưa có dữ liệu.</td></tr>';
   q("kpiMonthRows").innerHTML=(KPI.by_month||[]).length
-    ? KPI.by_month.map(x=>`<tr><td>${esc(String(x.month||"").split("-").reverse().join("/"))}</td><td>${Number(x.count||0)}</td><td>${Number(x.qr_count||0)}</td><td>${Number(x.count||0)?(Number(x.qr_count||0)*100/Number(x.count)).toFixed(1):"0.0"}%</td></tr>`).join("")
-    : '<tr><td colspan="4" class="center-empty">Chưa có dữ liệu.</td></tr>';
+    ? KPI.by_month.map(x=>`<tr><td>${esc(String(x.month||"").split("-").reverse().join("/"))}</td><td>${Number(x.count||0)}</td><td>${Number(x.qr_count||0)}</td><td>${Number(x.count||0)?(Number(x.qr_count||0)*100/Number(x.count)).toFixed(1):"0.0"}%</td><td>${Number(x.qr_checks||0)}</td></tr>`).join("")
+    : '<tr><td colspan="5" class="center-empty">Chưa có dữ liệu.</td></tr>';
 
   const unknown=Number(s.unknown_source_incidents||0);
   q("kpiQualityNote").textContent = unknown
@@ -169,6 +171,10 @@ function exportKpiExcel(){
     ["Tổng sự cố",s.total_incidents||0,""],
     ["Sự cố báo qua QR",s.qr_incidents||0,""],
     ["Tỷ lệ báo qua QR (%)",s.qr_share_percent||0,""],
+    ["Lượt kiểm tra thiết bị qua QR",s.qr_checks||0,"Hoạt động kiểm tra, không đồng nghĩa với sự cố"],
+    ["Số thiết bị duy nhất được kiểm tra QR",s.qr_check_unique_devices||0,""],
+    ["Lượt QR phát hiện vấn đề",s.qr_check_issue_count||0,""],
+    ["Lượt QR bình thường",s.qr_check_normal_count||0,""],
     ["Sự cố đã có mốc tiếp nhận",s.responded_incidents||0,""],
     ["Độ đầy đủ mốc tiếp nhận (%)",s.response_data_completeness_percent||0,""],
     ["Phản hồi trung bình (phút)",s.avg_response_minutes??"",""],
@@ -181,6 +187,12 @@ function exportKpiExcel(){
     ["Nguồn báo chưa xác định",s.unknown_source_incidents||0,"Không suy diễn là QR hay nhập trực tiếp"]
   ];
   const source=(KPI.by_source||[]).map(x=>({"Nguồn báo":x.source,"Số sự cố":x.count,"Tỷ lệ (%)":s.total_incidents?Number((x.count*100/s.total_incidents).toFixed(1)):0}));
+  const qrChecks=(KPI.check_records||[]).map((r,i)=>({
+    "STT":i+1,"Thời gian quét":r.check_datetime||"","Mã thiết bị":r.device_code||"",
+    "Tên thiết bị":r.device_name||"","Khoa tại thời điểm quét":r.department_code_snapshot||"",
+    "Vị trí tại thời điểm quét":r.location_snapshot||"","Người kiểm tra":r.inspector||"",
+    "Kết quả":r.result||"","Nguồn":r.source_channel||""
+  }));
   const details=(KPI.records||[]).map((r,i)=>({
     "STT":i+1,"Mã sự cố":r.incident_code||"","Thời gian báo":r.incident_datetime||"",
     "Mã thiết bị":r.device_code||"","Tên thiết bị":r.device_name||"","Khoa/phòng":r.department_name||r.department_code||"",
@@ -192,6 +204,7 @@ function exportKpiExcel(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(summary),"TongHopKPI");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(source),"NguonBao");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(qrChecks),"KiemTraQR");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(details),"ChiTietSuCo");
   XLSX.writeFile(wb,`KPI_su_co_QR_${p.from_date||""}_${p.to_date||""}.xlsx`);
 }
