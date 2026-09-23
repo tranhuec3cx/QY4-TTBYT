@@ -186,6 +186,7 @@ try { db.prepare('ALTER TABLE activity_history ADD COLUMN entry_type TEXT DEFAUL
 try { db.prepare('ALTER TABLE repairs ADD COLUMN received_at TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN updated_at TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN completed_at TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN status_before TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN local_resolution_note TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN reporter_phone TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN incident_code TEXT').run(); } catch (e) {}
@@ -541,6 +542,7 @@ function initDb() {
       cost INTEGER DEFAULT 0,
       result TEXT,
       status_after TEXT,
+      status_before TEXT,
       processing_status TEXT DEFAULT "Đang xử lý",
       incident_id INTEGER,
       received_at TEXT,
@@ -1643,7 +1645,11 @@ app.get("/api/repairs", (req, res) => {
 app.post("/api/repairs", (req, res) => {
   try {
     const p = req.body || {};
-    if (!p.device_id) return res.status(400).json({ error: "device_id is required" });
+    if (!p.device_id) return res.status(400).json({ error: "Vui lòng chọn thiết bị." });
+    const device = db.prepare("SELECT id,status FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(p.device_id));
+    if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    const existingOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(p.device_id));
+    if (existingOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${existingOpen.id} chưa hoàn thành.` });
     const payload = {
       device_id: Number(p.device_id),
       repair_date: normalizeDateTime(p.repair_date || ""),
@@ -1654,6 +1660,7 @@ app.post("/api/repairs", (req, res) => {
       cost: Number(p.cost || 0),
       result: p.result || "",
       status_after: statusAfterFromRepairStatus(p.processing_status || "Đang xử lý", p.status_after || "Đang hoạt động"),
+      status_before: device.status || "Đang hoạt động",
       processing_status: normalizeRepairStatus(p.processing_status || "Đang xử lý"),
       incident_id: p.incident_id ? Number(p.incident_id) : null,
       received_at: normalizeDateTime(p.received_at || p.repair_date || nowSql()),
@@ -1661,8 +1668,8 @@ app.post("/api/repairs", (req, res) => {
       completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || "Đang xử lý")) ? nowSql() : ""
     };
     const info = db.prepare(`
-      INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, processing_status, incident_id, received_at, updated_at, completed_at)
-      VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+      INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
+      VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
     `).run(payload);
     db.prepare(`UPDATE devices SET status=? WHERE id=?`).run(payload.status_after, payload.device_id);
     if (!p.skip_history) {
@@ -1705,9 +1712,13 @@ app.delete("/api/accessories/:id", (req, res) => {
 
 app.put("/api/repairs/:id", (req, res) => {
   try {
-    const p = req.body;
-    if (!p.device_id) return res.status(400).json({ error: "device_id is required" });
-    const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(req.params.id) || {};
+    const p = req.body || {};
+    if (!p.device_id) return res.status(400).json({ error: "Vui lòng chọn thiết bị." });
+    const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(req.params.id);
+    if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
+    if (Number(old.device_id) !== Number(p.device_id)) {
+      return res.status(400).json({ error: "Không thể đổi thiết bị của phiếu sửa chữa đã tạo. Nếu là phiếu độc lập tạo nhầm, hãy xóa phiếu khi còn đủ điều kiện và tạo lại." });
+    }
     const payload = {
       device_id: Number(p.device_id),
       repair_date: normalizeDateTime(p.repair_date || ""),
@@ -1758,16 +1769,33 @@ app.put("/api/repairs/:id", (req, res) => {
 });
 
 app.delete("/api/repairs/:id", (req, res) => {
-  const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(req.params.id);
-  if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
-  const status = normalizeRepairStatus(old.processing_status || "Đang xử lý");
-  const historyCount = db.prepare("SELECT COUNT(*) c FROM activity_history WHERE module='repair' AND record_id=?").get(req.params.id).c;
-  if (status !== "Đang xử lý" || historyCount > 1) {
-    return res.status(400).json({ error: "Chỉ được xóa phiếu sửa chữa khi chưa có lịch sử xử lý quan trọng." });
+  try {
+    const id=Number(req.params.id);
+    const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(id);
+    if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
+    if (old.incident_id) {
+      return res.status(400).json({ error: "Phiếu sửa chữa được tạo từ sự cố nên không được xóa để bảo toàn chuỗi hồ sơ. Hãy cập nhật kết quả xử lý trên phiếu." });
+    }
+    const status = normalizeRepairStatus(old.processing_status || "Đang xử lý");
+    const historyCount = db.prepare("SELECT COUNT(*) c FROM activity_history WHERE module='repair' AND record_id=?").get(id).c;
+    if (status !== "Đang xử lý" || historyCount > 1) {
+      return res.status(400).json({ error: "Chỉ được xóa phiếu sửa chữa độc lập khi đang xử lý và chưa có lịch sử xử lý quan trọng." });
+    }
+    if (!String(old.status_before || "").trim()) {
+      return res.status(400).json({ error: "Phiếu cũ chưa lưu trạng thái thiết bị trước sửa chữa; không xóa tự động để tránh khôi phục sai trạng thái." });
+    }
+    const tx=db.transaction(()=>{
+      writeHistory("repair", id, old.person || "Khoa Trang bị", "Xóa", old.processing_status || "", "", old.issue || old.work || "Xóa phiếu sửa chữa", old.cost || 0, "Cập nhật");
+      db.prepare("DELETE FROM repairs WHERE id=?").run(id);
+      db.prepare("UPDATE devices SET status=? WHERE id=?").run(old.status_before, old.device_id);
+      writeAudit(requestActor(req, old.person || "Khoa Trang bị"), "Xóa phiếu sửa chữa", "repair", id, `Khôi phục trạng thái thiết bị: ${old.status_before}`);
+    });
+    tx();
+    res.json({ ok: true, restored_device_status: old.status_before });
+  } catch(e) {
+    console.error("DELETE /api/repairs/:id error:",e);
+    res.status(500).json({error:e.message});
   }
-  writeHistory("repair", Number(req.params.id), old.person, "Xóa", old.processing_status || "", "", old.issue || old.work || "Xóa phiếu sửa chữa", old.cost || 0, "Cập nhật");
-  db.prepare("DELETE FROM repairs WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
 });
 
 app.get("/api/repairs/:id/history", (req, res) => {
@@ -2651,6 +2679,10 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     if (incident.status === "Đã xử lý tại chỗ") return res.status(400).json({ error: "Sự cố đã xử lý tại chỗ, không chuyển sửa chữa." });
     const existed = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(incident.id);
     if (existed) return res.json({ ok: true, repair_id: existed.id, existed: true });
+    const device = db.prepare("SELECT id,status FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(incident.device_id));
+    if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    const otherOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(incident.device_id));
+    if (otherOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${otherOpen.id} chưa hoàn thành. Hãy xử lý trên phiếu hiện có.` });
     const actor = req.authUser?.full_name || req.body?.actor || "Khoa Trang bị";
     const payload = {
       device_id: Number(incident.device_id),
@@ -2662,6 +2694,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
       cost: 0,
       result: "",
       status_after: "Chờ sửa chữa",
+      status_before: device.status || "Đang hoạt động",
       processing_status: "Đang xử lý",
       incident_id: Number(incident.id),
       received_at: normalizeDateTime(req.body?.repair_date || nowSql()),
@@ -2670,8 +2703,8 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     };
     const tx = db.transaction(() => {
       const info = db.prepare(`
-        INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, processing_status, incident_id, received_at, updated_at, completed_at)
-        VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+        INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
+        VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
       `).run(payload);
       db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Khoa Trang bị"), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
