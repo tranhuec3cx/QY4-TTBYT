@@ -37,11 +37,48 @@ jobs:
           exit 1
       - name: Smoke test core APIs
         run: |
-          curl -fsS http://127.0.0.1:5000/api/dashboard/operations >/tmp/dashboard.json
-          curl -fsS http://127.0.0.1:5000/api/inventory-sessions >/tmp/inventory.json
-          curl -fsS http://127.0.0.1:5000/api/system/backups >/tmp/backups.json
-          curl -fsS "http://127.0.0.1:5000/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
+          BASE=http://127.0.0.1:5000
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard.json
+          curl -fsS "$BASE/api/inventory-sessions" >/tmp/inventory.json
+          curl -fsS "$BASE/api/system/backups" >/tmp/backups.json
+          curl -fsS "$BASE/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
           node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); console.log("Core API smoke test passed")'
+
+      - name: Smoke test QR incident repair lifecycle
+        run: |
+          BASE=http://127.0.0.1:5000
+          curl -fsS -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Khoa kiểm thử"}' >/tmp/dept.json
+          curl -fsS -X POST "$BASE/api/device-groups" -H 'Content-Type: application/json' --data '{"code":"TST","name":"Nhóm kiểm thử"}' >/tmp/group.json
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-BEFORE","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí A","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/device-create.json
+          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
+          QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
+          test -n "$DEVICE_ID"
+          test -n "$QR_UID"
+          curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-before.json
+          NOW=$(date '+%Y-%m-%d %H:%M')
+          curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Sự cố kiểm thử CI\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/incident-create.json
+          INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/incident-create.json","utf8")).id')
+          curl -fsS -X POST "$BASE/api/incidents/$INCIDENT_ID/acknowledge" -H 'Content-Type: application/json' --data '{"actor":"Khoa Trang bị - CI"}' >/tmp/ack.json
+          curl -fsS -X POST "$BASE/api/incidents/$INCIDENT_ID/transfer-repair" -H 'Content-Type: application/json' --data '{"actor":"Khoa Trang bị - CI"}' >/tmp/transfer.json
+          REPAIR_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/transfer.json","utf8")).repair_id')
+          curl -fsS -X PUT "$BASE/api/repairs/$REPAIR_ID" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$NOW\",\"issue\":\"Sự cố kiểm thử CI\",\"work\":\"Khắc phục hoàn tất\",\"person\":\"Khoa Trang bị - CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\"}" >/tmp/repair-complete.json
+          curl -fsS -X PUT "$BASE/api/devices/$DEVICE_ID" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-AFTER","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí B","note":"","device_code":"TST.TST.0001","insurance_code":"","actor":"CI"}' >/tmp/device-update.json
+          curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-after.json
+          curl -fsS "$BASE/api/incidents" >/tmp/incidents-after.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const before=JSON.parse(fs.readFileSync("/tmp/qr-before.json","utf8"));
+          const after=JSON.parse(fs.readFileSync("/tmp/qr-after.json","utf8"));
+          const incidentId=Number(JSON.parse(fs.readFileSync("/tmp/incident-create.json","utf8")).id);
+          const incidents=JSON.parse(fs.readFileSync("/tmp/incidents-after.json","utf8"));
+          const row=incidents.find(x=>Number(x.id)===incidentId);
+          if (!row) throw new Error("Incident not found after lifecycle");
+          if (!row.acknowledged_at) throw new Error("acknowledged_at missing");
+          if (!row.linked_repair_completed_at) throw new Error("repair completion timestamp missing");
+          if (String(before.qr_uid)!==String(after.qr_uid)) throw new Error("QR UID changed after device edit");
+          if (String(after.serial)!=="SERIAL-AFTER") throw new Error("QR did not resolve current device data");
+          console.log("QR -> incident -> acknowledge -> repair -> complete lifecycle passed");
+          NODE
       - name: Show server log on failure
         if: failure()
         run: cat /tmp/qy4-server.log || true
