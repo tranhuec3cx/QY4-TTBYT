@@ -25,7 +25,7 @@ async function deleteMaint(id){
 }
 async function saveMaint(e){ e.preventDefault(); if(!q("deviceId").value) return alert("Vui lòng chọn thiết bị."); if(!q("date").value) return alert("Vui lòng nhập thời gian bảo dưỡng."); if(!q("content").value.trim()) return alert("Vui lòng nhập nội dung bảo dưỡng."); const fd=new FormData(); fd.append("device_id", q("deviceId").value); fd.append("maintenance_date", fromDateTimeLocalValue(q("date").value)); fd.append("type", q("type").value); fd.append("content", q("content").value.trim()); fd.append("result", q("result").value); fd.append("performer", q("performer").value.trim()); fd.append("user_confirm", q("userConfirm").value.trim()); fd.append("vendor", q("vendor").value.trim()); fd.append("next_date", q("nextDate").value); fd.append("note", q("note").value.trim()); if(q("file").files[0]) fd.append("file", q("file").files[0]); const id=q("maintId").value; const res=await fetch(id?`/api/maintenances/${id}`:"/api/maintenances", {method:id?"PUT":"POST", body:fd}); if(!res.ok) return alert(await res.text()); resetForm(); await loadData(); }
 
-function exportMaintExcel(){
+async function exportMaintExcel(){
   const rows = (FILTERED_MAINTS || []).map((r,i)=>({
     "STT": i+1,
     "Thời gian": formatDateTimeVN(r.maintenance_date),
@@ -42,10 +42,7 @@ function exportMaintExcel(){
     "Ghi chú": r.note || ""
   }));
   if(!rows.length) return alert("Không có dữ liệu để xuất Excel.");
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Bao duong");
-  XLSX.writeFile(wb, `bao_duong_${todayISO()}.xlsx`);
+  await exportXlsx(`bao_duong_${todayISO()}.xlsx`,[{name:"Bao duong",rows}]);
 }
 
 async function loadData(){ DEVICES=await api("/api/devices"); ROWS=await api("/api/maintenances"); q("deviceFilter").innerHTML=`<option value="ALL">Tất cả thiết bị</option>`+DEVICES.map(d=>`<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join(""); bindDevicePicker("deviceSearch","deviceId","maintenanceDeviceOptions",DEVICES,()=>fillMaintDeviceInfo()); const vendors=[...new Set(ROWS.map(r=>r.vendor).filter(Boolean))].sort(); q("vendorFilter").innerHTML=`<option value="ALL">Tất cả đơn vị</option>`+vendors.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); fillMaintDeviceInfo(); applyFilter(); }
