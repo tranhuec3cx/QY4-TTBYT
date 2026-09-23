@@ -18,33 +18,75 @@ function editRow(id){const r=ROWS.find(x=>x.id===id); if(!r)return; q('recordId'
 async function delRow(id){ if(!confirm('Xóa hồ sơ này?'))return; await api(`/api/inspections/${id}`,{method:'DELETE'}); await load();}
 async function load(){DEVICES=await api('/api/devices'); ROWS=await api('/api/inspections'); q('deviceFilter').innerHTML='<option value="ALL">Tất cả thiết bị</option>'+DEVICES.map(d=>`<option value="${d.id}">${d.device_code} - ${d.name}</option>`).join(''); bindDevicePicker('deviceSearch','deviceId','inspectionDeviceOptions',DEVICES,()=>fillInfo()); if(q('orgFilter')){const orgs=[...new Set(ROWS.map(r=>r.organization).filter(Boolean))].sort(); q('orgFilter').innerHTML='<option value="ALL">Tất cả đơn vị</option>'+orgs.map(v=>`<option value="${v}">${v}</option>`).join('');} fillInfo(); applyFilter();}
 function exportExcel(){const rows=FILTERED.map(r=>({'Mã thiết bị':r.device_code,'Tên thiết bị':r.device_name,'Khoa':r.department_code,'Loại':r.type,'Ngày thực hiện':r.inspection_date,'Đơn vị':r.organization,'Số chứng nhận':r.certificate_no,'Kết quả':r.result,'Hạn tiếp theo':r.next_date,'Ghi chú':r.note})); const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'KiemDinh'); XLSX.writeFile(wb,`kiem_dinh_hieu_chuan_${reportFileStamp()}.xlsx`);}
-document.addEventListener('DOMContentLoaded',async()=>{setLayout('inspections','Kiểm định','Theo dõi kiểm định, hiệu chuẩn, kiểm xạ và an toàn bức xạ'); setDefaultDateRange(); applyFieldLabels('form',{deviceSearch:'Thiết bị',dept:'Khoa',location:'Vị trí',type:'Loại thực hiện',inspectionDate:'Thời gian thực hiện',organization:'Đơn vị thực hiện',certificateNo:'Số giấy chứng nhận',result:'Kết quả',nextDate:'Hạn tiếp theo',fileNote:'Tên/nội dung file đính kèm',fileUpload:'Tải file đính kèm',note:'Ghi chú'}); await load(); const editId = new URLSearchParams(window.location.search).get('edit_id'); if(editId) editRow(Number(editId)); q('filterBtn').onclick=applyFilter; q('searchInput').oninput=applyFilter; q('deviceFilter').onchange=applyFilter; q('typeFilter').onchange=applyFilter; if(q('orgFilter')) q('orgFilter').onchange=applyFilter; if(q('fromDate')) q('fromDate').onchange=applyFilter; if(q('toDate')) q('toDate').onchange=applyFilter; q('resetBtn').onclick=resetForm; q('exportBtn').onclick=exportExcel; q('form').onsubmit=async e=>{
-  e.preventDefault();
-  let uploadedPath = "";
-  const fileInput = q('fileUpload');
-  if (fileInput && fileInput.files && fileInput.files[0]) {
-    const fd = new FormData();
-    fd.append('device_id', q('deviceId').value);
-    fd.append('name', q('certificateNo').value || `Hồ sơ ${q('type').value}`);
-    fd.append('type', q('type').value);
-    fd.append('doc_date', q('inspectionDate').value);
-    fd.append('updated_by', 'Quản trị viên');
-    fd.append('note', q('note').value || '');
-    fd.append('file', fileInput.files[0]);
-    const res = await fetch('/api/documents', { method:'POST', body: fd });
-    if (!res.ok) throw new Error(await res.text());
-    const doc = await res.json();
-    uploadedPath = doc.file_path || '';
-  }
-  const p={device_id:Number(q('deviceId').value),inspection_date:fromDateTimeLocalValue(q('inspectionDate').value),type:q('type').value,organization:q('organization').value,certificate_no:q('certificateNo').value,result:q('result').value,next_date:q('nextDate').value,file_note: uploadedPath || CURRENT_INSPECTION_FILE_PATH || q('fileNote').value,note:q('note').value};
-  const id=q('recordId').value;
-  if(id) await api(`/api/inspections/${id}`,{method:'PUT',body:JSON.stringify(p)});
-  else await api('/api/inspections',{method:'POST',body:JSON.stringify(p)});
-  resetForm();
-  if (fileInput) fileInput.value = '';
+document.addEventListener('DOMContentLoaded',async()=>{
+  setLayout('inspections','Kiểm định','Theo dõi kiểm định, hiệu chuẩn, kiểm xạ và an toàn bức xạ');
+  setDefaultDateRange();
+  applyFieldLabels('form',{deviceSearch:'Thiết bị',dept:'Khoa',location:'Vị trí',type:'Loại thực hiện',inspectionDate:'Thời gian thực hiện',organization:'Đơn vị thực hiện',certificateNo:'Số giấy chứng nhận',result:'Kết quả',nextDate:'Hạn tiếp theo',fileNote:'Tên/nội dung file đính kèm',fileUpload:'Tải file đính kèm',note:'Ghi chú'});
   await load();
-};});
+  const editId = new URLSearchParams(window.location.search).get('edit_id');
+  if(editId) editRow(Number(editId));
+  q('filterBtn').onclick=applyFilter;
+  q('searchInput').oninput=applyFilter;
+  q('deviceFilter').onchange=applyFilter;
+  q('typeFilter').onchange=applyFilter;
+  if(q('orgFilter')) q('orgFilter').onchange=applyFilter;
+  if(q('fromDate')) q('fromDate').onchange=applyFilter;
+  if(q('toDate')) q('toDate').onchange=applyFilter;
+  q('resetBtn').onclick=resetForm;
+  q('exportBtn').onclick=exportExcel;
+  q('form').onsubmit=async e=>{
+    e.preventDefault();
+    const deviceId=Number(q('deviceId').value||0);
+    if(!deviceId) return alert('Vui lòng chọn đúng thiết bị từ danh sách gợi ý.');
+    if(!q('inspectionDate').value) return alert('Vui lòng nhập thời gian thực hiện.');
 
+    let uploadedPath='';
+    let uploadedDocId=0;
+    const fileInput=q('fileUpload');
+    try{
+      if(fileInput?.files?.[0]){
+        const fd=new FormData();
+        fd.append('device_id',String(deviceId));
+        fd.append('name',q('certificateNo').value.trim() || `Hồ sơ ${q('type').value}`);
+        fd.append('type',q('type').value);
+        fd.append('doc_date',q('inspectionDate').value.slice(0,10));
+        fd.append('updated_by',window.QY4_AUTH_USER?.full_name || 'Khoa Trang bị');
+        fd.append('note',q('note').value.trim());
+        fd.append('file',fileInput.files[0]);
+        const res=await fetch('/api/documents',{method:'POST',body:fd});
+        if(!res.ok) throw new Error(await res.text());
+        const doc=await res.json();
+        uploadedDocId=Number(doc.id||0);
+        uploadedPath=doc.file_path||'';
+      }
+
+      const p={
+        device_id:deviceId,
+        inspection_date:fromDateTimeLocalValue(q('inspectionDate').value),
+        type:q('type').value,
+        organization:q('organization').value.trim(),
+        certificate_no:q('certificateNo').value.trim(),
+        result:q('result').value,
+        next_date:q('nextDate').value,
+        file_note:uploadedPath || CURRENT_INSPECTION_FILE_PATH || q('fileNote').value.trim(),
+        note:q('note').value.trim()
+      };
+      const id=q('recordId').value;
+      if(id) await api(`/api/inspections/${id}`,{method:'PUT',body:JSON.stringify(p)});
+      else await api('/api/inspections',{method:'POST',body:JSON.stringify(p)});
+
+      uploadedDocId=0;
+      resetForm();
+      if(fileInput) fileInput.value='';
+      await load();
+    }catch(err){
+      if(uploadedDocId){
+        try{ await api(`/api/documents/${uploadedDocId}`,{method:'DELETE'}); }catch(_cleanupError){}
+      }
+      alert('Không lưu được hồ sơ kiểm định/hiệu chuẩn: '+(err.message||err));
+    }
+  };
+});
 function reportFileStamp(){const d=new Date();const pad=n=>String(n).padStart(2,'0');return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;}
 
 function openDeviceProfile(deviceId){ window.location.href = `/device-detail.html?id=${deviceId}`; }
