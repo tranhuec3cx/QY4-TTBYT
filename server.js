@@ -4115,6 +4115,10 @@ app.post("/api/reset-seed", (req, res) => {
     });
     tx();
 
+    ensureCoreManagementSchema();
+    ensureDeviceCodeColumnsAndData();
+    normalizeIncidentStatusesInDb();
+
     fs.rmSync(uploadsDir,{recursive:true,force:true});
     fs.rmSync(qrUploadsDir,{recursive:true,force:true});
     fs.mkdirSync(uploadsDir,{recursive:true});
