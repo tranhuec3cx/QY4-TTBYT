@@ -1384,3 +1384,6 @@ dialog#repairDetailDialog{
 .repair-history-toggle input{width:16px;height:16px;accent-color:#0b64b4}
 .timeline-head .tag{min-height:28px;padding:6px 10px;font-size:12px;font-weight:900;text-transform:uppercase}
 .timeline-actor{font-weight:700}
+
+/* Legacy hard-coded identity is intentionally hidden until real authentication is enabled. */
+.user-box{display:none!important}
