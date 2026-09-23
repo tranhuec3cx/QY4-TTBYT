@@ -829,7 +829,7 @@ function seedData() {
   const tx = db.transaction(() => {
     devices.forEach(device => {
       // Bảo đảm chế độ demo cũng có đủ mọi named parameter của câu INSERT.
-      const info = insertDevice.run({ quality_level: 3, device_code: "", insurance_code: "", ...device });
+      const info = insertDevice.run({ quality_level: 3, device_code: null, insurance_code: "", ...device });
       const deviceId = info.lastInsertRowid;
       device.accessories.forEach(x => insertAccessory.run(deviceId, ...x));
       device.repairs.forEach(x => {
