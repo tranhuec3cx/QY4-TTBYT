@@ -32,6 +32,7 @@ Nguyên tắc quản lý: **Một thiết bị – một QR cố định – m�
 - Danh mục thiết bị theo khoa/phòng.
 - Tìm theo mã, tên, model, Serial.
 - Cảnh báo Serial trùng và thiết bị nghi trùng.
+- Serial có ý nghĩa bị trùng được **backend chặn mặc định**; chỉ lưu khi người dùng xác nhận rõ đây là thiết bị khác. Các giá trị tạm như `NN`, `N/A`, `UNKNOWN`, `-` không bị coi là Serial thật.
 - Serial Number và mã bảo hiểm/mã quản lý là hai trường độc lập; server không tự chuyển hoặc xóa Serial.
 - Báo cáo chất lượng dữ liệu: thiếu Serial/Model/hãng/vị trí/năm sử dụng, nhóm Serial trùng và các dòng cần rà soát.
 - Lưu trữ hồ sơ thay cho xóa cứng.
@@ -67,17 +68,15 @@ Hệ thống lưu:
 - Snapshot mã khoa, tên khoa, vị trí và thiết bị tại thời điểm xảy ra sự cố; dữ liệu này không đổi khi thiết bị điều chuyển sau đó.
 - Nội dung và kết quả xử lý.
 
-### Công việc kỹ thuật
+### Hồ sơ thiết bị và công việc kỹ thuật
 
-Hồ sơ thiết bị tổng hợp:
+Giao diện hồ sơ thiết bị được tối giản còn **03 tab chính**:
 
-- Sự cố.
-- Sửa chữa.
-- Bảo dưỡng.
-- Kiểm định/hiệu chuẩn/ATBX.
-- Lịch sử điều chuyển.
+- **Thông tin chung**.
+- **Công việc kỹ thuật**: tổng hợp Sự cố, Sửa chữa, Bảo dưỡng, Kiểm định/Hiệu chuẩn/ATBX; có lọc theo khoảng thời gian và loại công việc.
+- **Điều chuyển**: xem lịch sử và thực hiện điều chuyển có kiểm soát.
 
-Có lọc theo khoảng thời gian và loại công việc.
+Các màn nghiệp vụ Sự cố, Sửa chữa, Bảo dưỡng và Kiểm định vẫn là nơi nhập/cập nhật hồ sơ chi tiết; trang hồ sơ máy chỉ đóng vai trò tổng hợp để tránh giao diện rối.
 
 ### Kiểm kê – Điều chuyển
 
@@ -340,12 +339,13 @@ Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** để xem m�
 
 - dữ liệu mẫu đã tắt hay chưa;
 - xác thực và Quản trị viên có sẵn sàng hay không;
-- có bản sao lưu SQLite hay chưa;
+- có gói sao lưu hoàn chỉnh gồm **SQLite + snapshot ảnh/video/tài liệu đính kèm** hay chưa;
 - địa chỉ QR nội bộ đề xuất và cảnh báo trước khi in QR hàng loạt;
 - múi giờ/ngày giờ ứng dụng;
 - quyền ghi thư mục ảnh/video;
 - độ đầy đủ Serial, Model, vị trí và năm sử dụng;
 - QR UID cố định;
+- endpoint QR cũ theo ID/mã thiết bị đã tắt hay chưa;
 - nhóm Serial trùng;
 - sự cố mới chưa có mốc tiếp nhận.
 
@@ -380,7 +380,11 @@ GitHub Actions hiện kiểm tra:
 - File upload bị chặn khi chưa đăng nhập trong chế độ xác thực.
 - Chế độ đăng nhập bắt buộc.
 - Phân quyền Quản trị viên/Kỹ sư/Người dùng khoa.
-- Backup khi bật xác thực.
+- Tài khoản khoa chỉ đọc file đính kèm của thiết bị thuộc chính khoa mình.
+- Backup bundle gồm SQLite đã `PRAGMA quick_check` và snapshot toàn bộ thư mục uploads.
+- Serial thật trùng bị backend chặn; chỉ ghi khi có xác nhận override rõ ràng.
+- Sự cố đã tiếp nhận, Bảo dưỡng có file và Kiểm định có chứng nhận được bảo vệ khỏi xóa cứng.
+- QR công khai mặc định chỉ chấp nhận UID ngẫu nhiên; endpoint legacy theo ID/mã trả 410.
 - Checklist sẵn sàng triển khai hoạt động ở chế độ thử và chế độ xác thực.
 
 ## 12. Nội dung chưa nên tuyên bố là đã hoàn thiện
@@ -400,9 +404,10 @@ Các nội dung có thể phát triển sau:
 ## 13. Checklist trước khi đưa vào dùng thật
 
 - [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý**.
-- [ ] Backup database hiện tại.
+- [ ] Tạo **gói backup** và kiểm tra có cả file `.sqlite` và thư mục `.files` đi kèm.
 - [ ] Tắt demo seed: `QY4_DEMO_SEED=0`.
 - [ ] Đặt `QY4_TIME_ZONE=Asia/Bangkok` hoặc múi giờ +07 phù hợp.
+- [ ] Giữ `QY4_ALLOW_LEGACY_QR` **tắt**. Chỉ bật tạm `QY4_ALLOW_LEGACY_QR=1` nếu thật sự còn tem QR cũ cần chuyển đổi.
 - [ ] Bật đăng nhập: `QY4_AUTH_REQUIRED=1`.
 - [ ] Đặt mật khẩu quản trị mạnh.
 - [ ] Tạo tài khoản Kỹ sư và tài khoản khoa.
@@ -414,5 +419,6 @@ Các nội dung có thể phát triển sau:
 - [ ] Mở Báo cáo → Chất lượng dữ liệu và rà các dòng thiếu Serial/Model/vị trí.
 - [ ] Mở Báo cáo → KPI sự cố & QR, chọn đúng khoảng thời gian thu thập số liệu.
 - [ ] Theo dõi bảng QR theo ngày để phát hiện ngày/khoa chưa phát sinh lượt quét thay vì bổ sung dữ liệu giả.
-- [ ] Kiểm tra backup được tạo.
+- [ ] Kiểm tra backup bundle mở được database và có snapshot file đính kèm.
+- [ ] Đăng nhập thử bằng tài khoản khoa, xác nhận không xem được thiết bị/file của khoa khác.
 - [ ] Chỉ sau đó mới in QR hàng loạt.
