@@ -875,14 +875,21 @@ function seedData() {
     }
   });
 
-  insertCheck.run(2, "2026-04-11 08:15", "Nguyễn Hữu Hoàng", "Kiểm tra nhiệt độ hệ thống và quạt làm mát", "Đạt có lưu ý", "Theo dõi tiếng ồn quạt");
-  insertCheck.run(4, "2026-04-11 09:05", "Phạm Đức Hùng", "Kiểm tra dây ECG, cảm biến SpO2, pin monitor", "Đạt", "");
-  insertCheck.run(7, "2026-04-11 09:40", "Lê Thị Mai", "Kiểm tra hệ thống hút mẫu và quang học", "Đạt", "");
-  insertCheck.run(20, "2026-04-11 10:10", "Tổ TTBYT", "Kiểm tra cảm biến oxy và nguồn nuôi", "Không đạt", "Chờ thay cảm biến");
+  const seedDeviceId = (serial) => Number(db.prepare("SELECT id FROM devices WHERE serial=? ORDER BY id DESC LIMIT 1").get(serial)?.id || 0);
+  const ctId = seedDeviceId("CT64002");
+  const monitorId = seedDeviceId("MON-A12-001");
+  const biochemId = seedDeviceId("SH-C2-001");
+  const hematologyId = seedDeviceId("HH-C2-001");
+  const fieldVentilatorId = seedDeviceId("VENT-C15-001");
 
-  insertIncident.run(20, "2026-04-11 08:50", "Sai lệch chỉ số oxy khi vận hành", "Cao", "Điều dưỡng Cấp cứu", "Mới ghi nhận", "Đã báo Tổ TTBYT");
-  insertIncident.run(8, "2026-04-11 09:15", "Báo lỗi hút mẫu không ổn định", "Trung bình", "KTV Xét nghiệm", "Mới ghi nhận", "Máy vẫn vận hành hạn chế");
-  insertIncident.run(2, "2026-04-10 14:30", "Quạt làm mát phát tiếng ồn", "Thấp", "KTV CĐHA", "Mới ghi nhận", "Đang theo dõi");
+  if (ctId) insertCheck.run(ctId, "2026-04-11 08:15", "Nguyễn Hữu Hoàng", "Kiểm tra nhiệt độ hệ thống và quạt làm mát", "Đạt có lưu ý", "Theo dõi tiếng ồn quạt");
+  if (monitorId) insertCheck.run(monitorId, "2026-04-11 09:05", "Phạm Đức Hùng", "Kiểm tra dây ECG, cảm biến SpO2, pin monitor", "Đạt", "");
+  if (biochemId) insertCheck.run(biochemId, "2026-04-11 09:40", "Lê Thị Mai", "Kiểm tra hệ thống hút mẫu và quang học", "Đạt", "");
+  if (fieldVentilatorId) insertCheck.run(fieldVentilatorId, "2026-04-11 10:10", "Tổ TTBYT", "Kiểm tra cảm biến oxy và nguồn nuôi", "Không đạt", "Chờ thay cảm biến");
+
+  if (fieldVentilatorId) insertIncident.run(fieldVentilatorId, "2026-04-11 08:50", "Sai lệch chỉ số oxy khi vận hành", "Cao", "Điều dưỡng Cấp cứu", "Mới ghi nhận", "Đã báo Tổ TTBYT");
+  if (hematologyId) insertIncident.run(hematologyId, "2026-04-11 09:15", "Báo lỗi hút mẫu không ổn định", "Trung bình", "KTV Xét nghiệm", "Mới ghi nhận", "Máy vẫn vận hành hạn chế");
+  if (ctId) insertIncident.run(ctId, "2026-04-10 14:30", "Quạt làm mát phát tiếng ồn", "Thấp", "KTV CĐHA", "Mới ghi nhận", "Đang theo dõi");
 }
 
 
