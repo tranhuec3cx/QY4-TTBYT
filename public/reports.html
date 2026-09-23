@@ -32,6 +32,17 @@
     <div id="kpiQualityNote" class="muted-note" style="margin-top:12px"></div>
   </section>
 
+  <section class="card">
+    <div class="section-head">
+      <div><h3 class="section-title">Chất lượng dữ liệu thiết bị</h3><div class="small">Rà soát dữ liệu cốt lõi trước khi dùng cho thống kê, QR và hồ sơ kỹ thuật. Hệ thống chỉ cảnh báo, không tự suy đoán hoặc tự sửa Serial.</div></div>
+      <button class="btn" id="exportDataQualityBtn">Xuất danh sách rà soát</button>
+    </div>
+    <section class="reports-summary-grid" id="dataQualityCards"></section>
+    <div class="table-wrap scroll-area" style="margin-top:14px">
+      <table><thead><tr><th>STT</th><th>Mã thiết bị</th><th>Tên thiết bị</th><th>Khoa</th><th>Serial</th><th>Mã bảo hiểm</th><th>Nội dung cần rà soát</th></tr></thead><tbody id="dataQualityRows"></tbody></table>
+    </div>
+  </section>
+
   <section class="card compact-card">
     <div class="filters" style="grid-template-columns:220px 180px 180px 1.2fr auto auto">
       <label class="field"><span class="field-label">Loại báo cáo</span><select id="reportType">
