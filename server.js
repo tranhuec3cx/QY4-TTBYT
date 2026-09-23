@@ -1505,34 +1505,91 @@ app.get("/api/devices/:id", (req, res) => {
   res.json(data);
 });
 
+function buildDevicePayload(input = {}, current = null) {
+  const src = input || {};
+  const old = current || {};
+  const num = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : Number(fallback || 0);
+  };
+  const text = (value, fallback = "") => String(value ?? fallback ?? "").trim();
+  const quality = Math.max(1, Math.min(5, Math.round(num(src.quality_level, old.quality_level || 3) || 3)));
+  return {
+    department_code:text(src.department_code, old.department_code),
+    group_code:text(src.group_code, old.group_code),
+    name:text(src.name, old.name),
+    manufacturer:text(src.manufacturer, old.manufacturer),
+    model:text(src.model, old.model),
+    year_in_use:num(src.year_in_use, old.year_in_use),
+    warranty_end:text(src.warranty_end, old.warranty_end),
+    status:text(src.status, old.status || "Đang hoạt động") || "Đang hoạt động",
+    quality_level:quality,
+    serial:text(src.serial, old.serial),
+    country:text(src.country, old.country),
+    year_manufactured:num(src.year_manufactured, old.year_manufactured),
+    cost:Math.max(0, num(src.cost, old.cost)),
+    funding:text(src.funding, old.funding),
+    location:text(src.location, old.location),
+    note:text(src.note, old.note),
+    device_code:text(src.device_code, old.device_code),
+    insurance_code:text(src.insurance_code, old.insurance_code)
+  };
+}
+function validateDevicePayload(payload) {
+  const missing=[];
+  if(!payload.department_code) missing.push("Khoa sử dụng");
+  if(!payload.group_code) missing.push("Nhóm thiết bị");
+  if(!payload.name) missing.push("Tên thiết bị");
+  if(missing.length) return `Thiếu thông tin bắt buộc: ${missing.join(", ")}`;
+  if(!db.prepare("SELECT code FROM departments WHERE code=?").get(payload.department_code)) return "Khoa sử dụng không tồn tại trong danh mục.";
+  if(!db.prepare("SELECT code FROM device_groups WHERE code=?").get(payload.group_code)) return "Nhóm thiết bị không tồn tại trong danh mục.";
+  if(!["Đang hoạt động","Chờ sửa chữa","Ngừng hoạt động"].includes(payload.status)) return "Tình trạng thiết bị không hợp lệ.";
+  if(payload.year_in_use && (payload.year_in_use < 1900 || payload.year_in_use > 2100)) return "Năm sử dụng không hợp lệ.";
+  if(payload.year_manufactured && (payload.year_manufactured < 1900 || payload.year_manufactured > 2100)) return "Năm sản xuất không hợp lệ.";
+  return "";
+}
+
 app.post("/api/devices", (req, res) => {
-  const payload = { ...req.body, quality_level: Number(req.body.quality_level || 3) };
-  payload.device_code = payload.device_code || generateDeviceCode(payload.department_code, payload.group_code);
-  payload.insurance_code = payload.insurance_code || "";
-  const info = db.prepare(`
-    INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
-    VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
-  `).run(payload);
-  const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
-  writeAudit(requestActor(req), "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
-  res.json({ id: info.lastInsertRowid, qr_uid: qrUid });
+  try {
+    const payload = buildDevicePayload(req.body || {});
+    const error = validateDevicePayload(payload);
+    if (error) return res.status(400).json({ error });
+    payload.device_code = payload.device_code || generateDeviceCode(payload.department_code, payload.group_code);
+    const info = db.prepare(`
+      INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
+      VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
+    `).run(payload);
+    const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
+    writeAudit(requestActor(req), "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
+    res.json({ id: info.lastInsertRowid, qr_uid: qrUid });
+  } catch (e) {
+    console.error("POST /api/devices error:", e);
+    res.status(400).json({ error:e.message || "Không thể tạo thiết bị." });
+  }
 });
 
 app.put("/api/devices/:id", (req, res) => {
-  const old = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(req.params.id));
-  if (!old) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
-  const payload = { ...req.body, quality_level: Number(req.body.quality_level || 3), device_code: req.body.device_code || "", insurance_code: req.body.insurance_code || "" };
-  db.prepare(`
-    UPDATE devices SET
-      department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
-      model=@model, year_in_use=@year_in_use, warranty_end=@warranty_end, status=@status, quality_level=@quality_level, serial=@serial,
-      country=@country, year_manufactured=@year_manufactured, cost=@cost, funding=@funding, location=@location, note=@note,
-      device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code
-    WHERE id=@id
-  `).run({ ...payload, id: Number(req.params.id) });
-  ensureDeviceQrUid(req.params.id);
-  writeAudit(requestActor(req), "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
-  res.json({ ok: true, qr_uid: ensureDeviceQrUid(req.params.id) });
+  try {
+    const old = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(req.params.id));
+    if (!old) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+    const payload = buildDevicePayload(req.body || {}, old);
+    const error = validateDevicePayload(payload);
+    if (error) return res.status(400).json({ error });
+    db.prepare(`
+      UPDATE devices SET
+        department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
+        model=@model, year_in_use=@year_in_use, warranty_end=@warranty_end, status=@status, quality_level=@quality_level, serial=@serial,
+        country=@country, year_manufactured=@year_manufactured, cost=@cost, funding=@funding, location=@location, note=@note,
+        device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code
+      WHERE id=@id
+    `).run({ ...payload, id: Number(req.params.id) });
+    ensureDeviceQrUid(req.params.id);
+    writeAudit(requestActor(req), "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
+    res.json({ ok: true, qr_uid: ensureDeviceQrUid(req.params.id) });
+  } catch (e) {
+    console.error("PUT /api/devices/:id error:", e);
+    res.status(400).json({ error:e.message || "Không thể cập nhật thiết bị." });
+  }
 });
 
 app.delete("/api/devices/:id", (req, res) => {
