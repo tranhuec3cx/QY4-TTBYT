@@ -322,7 +322,7 @@ function openRepairFromUrl() {
   editRepair(Number(repairId));
 }
 
-function exportRepairsExcel() {
+async function exportRepairsExcel() {
   const rows = FILTERED_REPAIRS.map((r, i) => ({
     "STT": i + 1,
     "Thời gian tiếp nhận": r.received_at || r.repair_date || "",
@@ -339,10 +339,7 @@ function exportRepairsExcel() {
     "Kết quả": r.result || "",
     "TTTB sau sửa": r.status_after || ""
   }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "SuaChua");
-  XLSX.writeFile(wb, `bao_cao_sua_chua_${todayISO()}.xlsx`);
+  await exportXlsx(`bao_cao_sua_chua_${todayISO()}.xlsx`,[{name:"SuaChua",rows}]);
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
