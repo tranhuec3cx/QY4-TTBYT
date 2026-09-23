@@ -265,8 +265,12 @@ function getQrBaseUrl() {
   return normalizeQrBaseUrl(localStorage.getItem(QR_BASE_STORAGE_KEY) || QR_DEFAULT_PUBLIC_BASE);
 }
 function buildQrCheckUrl(device, baseUrl = getQrBaseUrl()) {
+  const base = normalizeQrBaseUrl(baseUrl);
+  if (device && typeof device === "object" && device.qr_uid) {
+    return `${base}/q/${encodeURIComponent(device.qr_uid)}`;
+  }
   const id = typeof device === "object" ? device.id : device;
-  return `${normalizeQrBaseUrl(baseUrl)}/inspect.html?id=${encodeURIComponent(id)}`;
+  return `${base}/inspect.html?id=${encodeURIComponent(id)}`;
 }
 function qrImageUrl(data, size = 240) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=12&data=${encodeURIComponent(data)}`;
@@ -308,7 +312,7 @@ function saveQrBaseUrl(device) {
   localStorage.setItem(QR_BASE_STORAGE_KEY, baseUrl);
   input.value = baseUrl;
   updateQrPreview(device);
-  alert("Đã lưu địa chỉ QR cho điện thoại. Hãy in/quét lại mã QR mới.");
+  alert("Đã lưu địa chỉ truy cập. Mã định danh QR của thiết bị vẫn giữ nguyên; chỉ cần in lại tem nếu chính địa chỉ máy chủ/tên miền triển khai thay đổi.");
 }
 async function loadQrOriginSuggestions(device) {
   const input = document.getElementById("qrBaseUrlInput");
@@ -324,7 +328,7 @@ async function loadQrOriginSuggestions(device) {
       datalist.innerHTML = publicOptions.map(x => `<option value="${qrModalEsc(x)}"></option>`).join("");
     }
     if (hint) {
-      hint.innerHTML = `Dùng <b>tên miền công khai HTTPS</b> để điện thoại 4G/5G mở được QR. Demo nội bộ có thể dùng IP LAN, nhưng bản VCAS nên dùng domain cố định.`;
+      hint.innerHTML = `UID trên QR là cố định. Chọn <b>một địa chỉ máy chủ ổn định</b> (tên miền hoặc IP nội bộ cố định) để tem đã in tiếp tục dùng lâu dài.`;
     }
   } catch (e) {
     if (hint) hint.innerHTML = "Nhập tên miền công khai, ví dụ https://qy4.benhvien.vn";
@@ -370,7 +374,7 @@ function showDeviceQrModal(device) {
           <datalist id="qrBaseUrlOptions"></datalist>
           <button class="btn" type="button" id="qrApplyBaseBtn">Áp dụng</button>
         </div>
-        <div id="qrBaseHint" class="qr-base-hint">QR kiểu VCAS dùng link công khai HTTPS. Khi triển khai thật, đổi thành tên miền bệnh viện, ví dụ <b>https://qy4.benhvien.vn</b>. Điện thoại chỉ cần Internet là mở được.</div>
+        <div id="qrBaseHint" class="qr-base-hint">Mỗi thiết bị dùng <b>QR UID cố định</b>, không phụ thuộc Serial, mã thiết bị hay khoa sử dụng. Khi triển khai chính thức nên dùng một tên miền/IP nội bộ cố định để đường dẫn trên tem không thay đổi.</div>
       </div>
       <div class="qr-actions">
         <button class="btn" type="button" onclick="closeQrModal()">Đóng</button>
