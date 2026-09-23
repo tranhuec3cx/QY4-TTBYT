@@ -110,6 +110,8 @@ jobs:
           curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Sự cố kiểm thử CI\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/incident-create.json
           INCIDENT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/incident-create.json","utf8")).id')
           curl -fsS -X POST "$BASE/api/incidents/$INCIDENT_ID/acknowledge" -H 'Content-Type: application/json' --data '{"actor":"Khoa Trang bị - CI"}' >/tmp/ack.json
+          CODE=$(curl -s -o /tmp/acknowledged-delete-reject.json -w '%{http_code}' -X DELETE "$BASE/api/incidents/$INCIDENT_ID")
+          test "$CODE" = "400"
           curl -fsS -X POST "$BASE/api/incidents/$INCIDENT_ID/transfer-repair" -H 'Content-Type: application/json' --data '{"actor":"Khoa Trang bị - CI"}' >/tmp/transfer.json
           REPAIR_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/transfer.json","utf8")).repair_id')
           curl -fsS -X PUT "$BASE/api/repairs/$REPAIR_ID" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$NOW\",\"issue\":\"Sự cố kiểm thử CI\",\"work\":\"Khắc phục hoàn tất\",\"person\":\"Khoa Trang bị - CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\"}" >/tmp/repair-complete.json
@@ -222,7 +224,14 @@ jobs:
           MAINT_NEW_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-update.json","utf8")).file_path')
           test -f ".$MAINT_OLD_PATH"
           test -f ".$MAINT_NEW_PATH"
-          echo "Attachment file integrity passed"
+          CODE=$(curl -s -o /tmp/maintenance-evidence-delete.json -w '%{http_code}' -X DELETE "$BASE/api/maintenances/$MAINT_ID")
+          test "$CODE" = "400"
+
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 16:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"CERT-CI\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$MAINT_NEW_PATH\",\"note\":\"Kiểm tra bảo toàn chứng nhận\"}" >/tmp/inspection-evidence.json
+          INSPECTION_EVIDENCE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-evidence.json","utf8")).id')
+          CODE=$(curl -s -o /tmp/inspection-evidence-delete.json -w '%{http_code}' -X DELETE "$BASE/api/inspections/$INSPECTION_EVIDENCE_ID")
+          test "$CODE" = "400"
+          echo "Attachment and evidence-backed delete integrity passed"
 
       - name: Smoke test incident snapshot correction rules
         run: |
