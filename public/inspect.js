@@ -9,9 +9,6 @@ function publicEsc(value) {
 function publicCondition() {
   return document.querySelector('input[name="publicCondition"]:checked')?.value || "Bình thường";
 }
-function publicSeverity() {
-  return document.querySelector('input[name="publicSeverity"]:checked')?.value || "Thấp";
-}
 function renderPublicDevice() {
   const d = PUBLIC_DEVICE;
   q("publicDeviceCard").innerHTML = `
@@ -93,7 +90,7 @@ async function postPublicCheck(e) {
     fd.append("condition", condition);
     fd.append("description", description);
     fd.append("note", q("publicNote").value.trim());
-    fd.append("severity", condition === "Có vấn đề" ? publicSeverity() : "Thấp");
+    fd.append("severity", "Trung bình");
     fd.append("create_incident", condition === "Có vấn đề" ? "1" : "0");
     Array.from(q("publicMedia")?.files || []).forEach(f => fd.append("media", f));
 
