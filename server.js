@@ -3154,22 +3154,48 @@ app.get("/api/reports/kpi", (req, res) => {
   const bySource = Array.from(sourceMap.entries()).map(([source,count])=>({source,count})).sort((a,b)=>b.count-a.count);
 
   const monthMap = new Map();
+  const dayMap = new Map();
   for (const r of records) {
     const month=String(r.incident_datetime||"").slice(0,7);
-    if(!month) continue;
-    const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
-    cur.count++;
-    if(r.source_channel==="QR") cur.qr_count++;
-    monthMap.set(month,cur);
+    const day=String(r.incident_datetime||"").slice(0,10);
+    if(month) {
+      const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
+      cur.count++;
+      if(r.source_channel==="QR") cur.qr_count++;
+      monthMap.set(month,cur);
+    }
+    if(day) {
+      const cur=dayMap.get(day)||{date:day,incidents:0,qr_incidents:0,qr_checks:0,qr_check_issues:0,device_ids:new Set()};
+      cur.incidents++;
+      if(r.source_channel==="QR") cur.qr_incidents++;
+      dayMap.set(day,cur);
+    }
   }
 
   for (const r of qrChecks) {
     const month=String(r.check_datetime||"").slice(0,7);
-    if(!month) continue;
-    const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
-    cur.qr_checks=(cur.qr_checks||0)+1;
-    monthMap.set(month,cur);
+    const day=String(r.check_datetime||"").slice(0,10);
+    if(month) {
+      const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
+      cur.qr_checks=(cur.qr_checks||0)+1;
+      monthMap.set(month,cur);
+    }
+    if(day) {
+      const cur=dayMap.get(day)||{date:day,incidents:0,qr_incidents:0,qr_checks:0,qr_check_issues:0,device_ids:new Set()};
+      cur.qr_checks++;
+      if(String(r.result||"")==="Có vấn đề") cur.qr_check_issues++;
+      cur.device_ids.add(Number(r.device_id));
+      dayMap.set(day,cur);
+    }
   }
+  const byDay=Array.from(dayMap.values()).map(x=>({
+    date:x.date,
+    incidents:x.incidents,
+    qr_incidents:x.qr_incidents,
+    qr_checks:x.qr_checks,
+    qr_check_issues:x.qr_check_issues,
+    qr_unique_devices:x.device_ids.size
+  })).sort((a,b)=>a.date.localeCompare(b.date));
 
   res.json({
     period:{from_date:fromDate,to_date:toDate,department_code:departmentCode,response_target_minutes:responseTargetMinutes},
@@ -3196,6 +3222,7 @@ app.get("/api/reports/kpi", (req, res) => {
     },
     by_source:bySource,
     by_month:Array.from(monthMap.values()).sort((a,b)=>a.month.localeCompare(b.month)),
+    by_day:byDay,
     check_records:qrChecks,
     records
   });
