@@ -507,6 +507,7 @@ jobs:
 
       - name: Smoke test authenticated demo reset
         run: |
+          if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
           if [ -f /tmp/qy4-auth-server.pid ]; then kill $(cat /tmp/qy4-auth-server.pid) || true; fi
           rm -f db/qy4_ttbyt.sqlite db/qy4_ttbyt.sqlite-shm db/qy4_ttbyt.sqlite-wal
           QY4_DEMO_SEED=1 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' PORT=5002 node server.js > /tmp/qy4-demo-reset.log 2>&1 &
@@ -558,3 +559,4 @@ jobs:
         run: |
           cat /tmp/qy4-server.log || true
           cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
