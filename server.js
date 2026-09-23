@@ -154,7 +154,6 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(path.join(__dirname, "public")));
-app.use("/vendor", express.static(path.join(__dirname, "node_modules", "xlsx", "dist")));
 function departmentUserCanAccessUpload(user, relativePath) {
   if (!user || user.role !== "Người dùng khoa") return true;
   const departmentCode = String(user.department_code || "").trim();
@@ -205,6 +204,83 @@ function getLanQrOrigins(req) {
   } catch (e) {}
   return Array.from(origins);
 }
+
+function safeExcelFilename(value) {
+  const base=String(value || "bao_cao.xlsx").replace(/[\\/:*?"<>|]+/g,"_").trim() || "bao_cao.xlsx";
+  return base.toLowerCase().endsWith(".xlsx") ? base : `${base}.xlsx`;
+}
+function safeSheetName(value,index=1) {
+  const name=String(value || `Sheet${index}`).replace(/[\\/?*\[\]:]/g," ").trim().slice(0,31);
+  return name || `Sheet${index}`;
+}
+function styleExportWorksheet(ws) {
+  ws.views=[{state:"frozen",ySplit:1}];
+  const row=ws.getRow(1);
+  row.font={bold:true};
+  row.alignment={vertical:"middle",wrapText:true};
+  row.height=24;
+  ws.eachRow({includeEmpty:false},r=>{
+    r.alignment={...r.alignment,vertical:"top",wrapText:true};
+  });
+  ws.columns.forEach(col=>{
+    let width=10;
+    col.eachCell({includeEmpty:false},cell=>{
+      const len=String(cell.value ?? "").length;
+      width=Math.max(width,Math.min(45,len+2));
+    });
+    col.width=width;
+  });
+}
+
+app.post("/api/export/xlsx", async (req,res) => {
+  try{
+    const sheets=Array.isArray(req.body?.sheets) ? req.body.sheets : [];
+    if(!sheets.length || sheets.length>10) return res.status(400).json({error:"Số sheet phải từ 1 đến 10."});
+    const workbook=new ExcelJS.Workbook();
+    workbook.creator="Khoa Trang bị - Bệnh viện Quân y 4";
+    workbook.company="Bệnh viện Quân y 4";
+    workbook.created=new Date();
+
+    for(let i=0;i<sheets.length;i++){
+      const spec=sheets[i] || {};
+      const rows=Array.isArray(spec.rows) ? spec.rows : [];
+      if(rows.length>20000) return res.status(400).json({error:`Sheet ${i+1} vượt 20.000 dòng.`});
+      const ws=workbook.addWorksheet(safeSheetName(spec.name,i+1));
+      if(spec.mode==="aoa"){
+        for(const raw of rows){
+          const arr=Array.isArray(raw) ? raw.slice(0,100) : [raw];
+          ws.addRow(arr);
+        }
+      }else{
+        const objects=rows.filter(x=>x && typeof x==="object" && !Array.isArray(x));
+        const keys=[];
+        const seen=new Set();
+        for(const row of objects){
+          for(const key of Object.keys(row)){
+            if(!seen.has(key)){seen.add(key);keys.push(key);}
+            if(keys.length>=100) break;
+          }
+          if(keys.length>=100) break;
+        }
+        if(keys.length){
+          ws.addRow(keys);
+          for(const row of objects) ws.addRow(keys.map(k=>row[k] ?? ""));
+        }
+      }
+      if(ws.rowCount>0) styleExportWorksheet(ws);
+    }
+
+    const buffer=await workbook.xlsx.writeBuffer();
+    const filename=safeExcelFilename(req.body?.filename);
+    res.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition",`attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader("Cache-Control","no-store");
+    res.send(Buffer.from(buffer));
+  }catch(e){
+    console.error("POST /api/export/xlsx error:",e);
+    res.status(500).json({error:e.message || "Không thể tạo file Excel."});
+  }
+});
 
 app.get("/api/system/qr-origins", (req, res) => {
   const origins = getLanQrOrigins(req);
