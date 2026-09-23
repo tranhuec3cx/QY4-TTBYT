@@ -451,7 +451,8 @@ jobs:
           CODE=$(curl -s -o /tmp/inv-bad-location.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
           curl -fsS -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng B","note":"CI mismatch","updated_by":"CI"}' >/tmp/inv-valid.json
-          curl -fsS -X POST "$BASE/api/devices/$INV_DEVICE/transfer" -H 'Content-Type: application/json' --data "{"transfer_datetime":"$TODAY 16:00:00","to_department_code":"INV","to_location":"Phòng B","actor":"CI","reason":"Điều chuyển theo kiểm kê CI","note":"Giữ sai lệch trong biên bản kiểm kê"}" >/tmp/inv-transfer.json
+          INV_TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 16:00:00",to_department_code:"INV",to_location:"Phòng B",actor:"CI",reason:"Điều chuyển theo kiểm kê CI",note:"Giữ sai lệch trong biên bản kiểm kê"}))' "$TODAY")
+          curl -fsS -X POST "$BASE/api/devices/$INV_DEVICE/transfer" -H 'Content-Type: application/json' --data "$INV_TRANSFER_JSON" >/tmp/inv-transfer.json
           curl -fsS "$BASE/api/inventory-sessions/$INV_SESSION" >/tmp/inv-after-transfer-session.json
           curl -fsS "$BASE/api/devices/$INV_DEVICE" >/tmp/inv-after-transfer-device.json
           node - <<'NODE'
