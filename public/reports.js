@@ -1,4 +1,4 @@
-let DATA = {}, META = {departments:[], groups:[]}, CURRENT = [], KPI = null;
+let DATA = {}, META = {departments:[], groups:[]}, CURRENT = [], KPI = null, DATA_QUALITY = null;
 const REPORT_NAMES = {
   warrantySoon: "Thiết bị sắp hết bảo hành",
   maintenanceOverdue: "Thiết bị quá hạn bảo dưỡng",
@@ -74,6 +74,53 @@ function exportExcel(){
   const rows = CURRENT.map((r,i)=> type==='costByDepartment' ? {STT:i+1,'Mã khoa':r.department_code,'Khoa/phòng':r.department_name||r.department_code,'Số phiếu':r.repair_count||0,'Tổng chi phí':r.total_cost||0} : type==='statusRatio' ? {STT:i+1,'Trạng thái':r.status,'Số lượng':r.count} : {STT:i+1,'Mã thiết bị':r.device_code,'Tên thiết bị':r.name,'Khoa/phòng':r.department_name||r.department_code,'Nhóm':r.group_name||r.group_code,'Model':r.model,'Tình trạng':r.status,'Hạn bảo hành':r.warranty_end,'Hạn bảo dưỡng':r.maintenance?.next_date,'Hạn kiểm định':r.inspection?.next_date,'Số lần sửa':r.repair?.repair_count||0,'Chi phí sửa':r.repair?.total_cost||0});
   const ws=XLSX.utils.json_to_sheet(rows), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,REPORT_NAMES[type].slice(0,30)); XLSX.writeFile(wb,`${type}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
+function dataQualityReasons(r){
+  const reasons=[];
+  if(!String(r.serial||"").trim()) reasons.push("Thiếu Serial");
+  if(!String(r.model||"").trim()) reasons.push("Thiếu Model");
+  if(!String(r.manufacturer||"").trim()) reasons.push("Thiếu hãng SX");
+  if(!String(r.location||"").trim()) reasons.push("Thiếu vị trí");
+  if(!Number(r.year_in_use||0)) reasons.push("Thiếu năm sử dụng");
+  if(!String(r.serial||"").trim() && String(r.insurance_code||"").trim()) reasons.push("Serial trống nhưng mã bảo hiểm có dữ liệu – cần kiểm tra nguồn gốc");
+  return reasons;
+}
+function renderDataQuality(){
+  if(!DATA_QUALITY) return;
+  const s=DATA_QUALITY.summary||{};
+  const cards=[
+    ["Dữ liệu cốt lõi đầy đủ",`${s.core_complete_percent||0}%`,`${s.core_complete_devices||0}/${s.total_devices||0} thiết bị`],
+    ["Thiếu Serial",s.missing_serial||0,"Cần ưu tiên rà theo nhãn máy/hồ sơ"],
+    ["Thiếu Model",s.missing_model||0,"Ảnh hưởng tra cứu kỹ thuật"],
+    ["Thiếu vị trí",s.missing_location||0,"Ảnh hưởng kiểm kê và điều chuyển"],
+    ["Serial trống + mã BH có dữ liệu",s.serial_blank_with_insurance_code||0,"Chỉ cảnh báo; không tự phục hồi"],
+    ["Nhóm Serial trùng",s.duplicate_serial_groups||0,"Cần xác minh trước khi kết luận trùng máy"]
+  ];
+  q("dataQualityCards").innerHTML=cards.map(([t,v,d])=>`<div class="report-kpi-card"><span>${esc(t)}</span><strong>${esc(v)}</strong><small>${esc(d)}</small></div>`).join("");
+
+  const map=new Map();
+  (DATA_QUALITY.incomplete_devices||[]).forEach(r=>map.set(Number(r.id),{...r,reasons:dataQualityReasons(r)}));
+  (DATA_QUALITY.suspicious_serial_rows||[]).forEach(r=>{
+    const cur=map.get(Number(r.id))||{...r,reasons:[]};
+    if(!cur.reasons.some(x=>x.includes("mã bảo hiểm"))) cur.reasons.push("Serial trống nhưng mã bảo hiểm có dữ liệu – cần kiểm tra nguồn gốc");
+    map.set(Number(r.id),cur);
+  });
+  const rows=Array.from(map.values());
+  q("dataQualityRows").innerHTML=rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td class="device-code">${esc(r.device_code||"")}</td><td><b>${esc(r.name||"")}</b></td><td>${esc(r.department_code||"")}</td><td>${esc(r.serial||"")}</td><td>${esc(r.insurance_code||"")}</td><td class="wrap-text">${esc((r.reasons||[]).join("; "))}</td></tr>`).join(""):'<tr><td colspan="7" class="center-empty">Không có thiết bị thiếu dữ liệu cốt lõi.</td></tr>';
+}
+function exportDataQualityExcel(){
+  if(!DATA_QUALITY) return;
+  const rows=(DATA_QUALITY.incomplete_devices||[]).map((r,i)=>({
+    "STT":i+1,"Mã thiết bị":r.device_code||"","Tên thiết bị":r.name||"","Khoa":r.department_code||"",
+    "Hãng SX":r.manufacturer||"","Model":r.model||"","Serial":r.serial||"","Mã bảo hiểm":r.insurance_code||"",
+    "Năm sử dụng":r.year_in_use||"","Vị trí":r.location||"","Nội dung cần rà soát":dataQualityReasons(r).join("; ")
+  }));
+  const dup=(DATA_QUALITY.duplicate_serial_groups||[]).map((r,i)=>({"STT":i+1,"Serial":r.serial||"","Số bản ghi":r.count||0}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"CanRaSoat");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(dup),"SerialTrung");
+  XLSX.writeFile(wb,`chat_luong_du_lieu_${localTodayISO()}.xlsx`);
+}
+
 async function loadKpi(){
   const from=q("kpiFromDate").value||firstDayYearISO();
   const to=q("kpiToDate").value||localTodayISO();
@@ -150,13 +197,13 @@ function exportKpiExcel(){
 }
 
 async function load(){
-  META = await api('/api/meta'); DATA = await api('/api/reports/summary');
+  [META,DATA,DATA_QUALITY] = await Promise.all([api('/api/meta'),api('/api/reports/summary'),api('/api/reports/data-quality')]);
   const deptOptions='<option value="ALL">Tất cả khoa/phòng</option>'+(META.departments||[]).map(d=>`<option value="${d.code}">${d.code} - ${esc(d.name)}</option>`).join('');
   q('deptFilter').innerHTML=deptOptions;
   q('kpiDeptFilter').innerHTML=deptOptions;
   q('groupFilter').innerHTML='<option value="ALL">Tất cả nhóm</option>'+(META.groups||[]).map(g=>`<option value="${g.code}">${g.code} - ${esc(g.name)}</option>`).join('');
   q("kpiFromDate").value=firstDayYearISO();
   q("kpiToDate").value=localTodayISO();
-  renderCards(); applyFilter(); await loadKpi();
+  renderCards(); applyFilter(); renderDataQuality(); await loadKpi();
 }
-document.addEventListener('DOMContentLoaded', async()=>{setLayout('reports','Báo cáo','Hiệu quả QR, xử lý sự cố, cảnh báo hạn, sửa chữa và chi phí'); await load(); ['reportType','deptFilter','groupFilter','searchInput'].forEach(id=>{q(id).addEventListener('input',applyFilter); q(id).addEventListener('change',applyFilter);}); q('filterBtn').onclick=applyFilter; q('exportBtn').onclick=exportExcel; q('loadKpiBtn').onclick=loadKpi; q('exportKpiBtn').onclick=exportKpiExcel;});
+document.addEventListener('DOMContentLoaded', async()=>{setLayout('reports','Báo cáo','Hiệu quả QR, xử lý sự cố, cảnh báo hạn, sửa chữa và chi phí'); await load(); ['reportType','deptFilter','groupFilter','searchInput'].forEach(id=>{q(id).addEventListener('input',applyFilter); q(id).addEventListener('change',applyFilter);}); q('filterBtn').onclick=applyFilter; q('exportBtn').onclick=exportExcel; q('loadKpiBtn').onclick=loadKpi; q('exportKpiBtn').onclick=exportKpiExcel; q('exportDataQualityBtn').onclick=exportDataQualityExcel;});
