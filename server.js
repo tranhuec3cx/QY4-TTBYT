@@ -2770,52 +2770,78 @@ app.get("/api/checks", (req, res) => {
 });
 
 app.post("/api/checks", (req, res) => {
-  const p = req.body || {};
-  const deviceId = Number(p.device_id || 0);
-  const device = db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(deviceId);
-  if (!device) return res.status(400).json({ error:"Thiết bị không tồn tại." });
-  const payload = {
-    device_id:deviceId,
-    check_datetime:normalizeDateTime(p.check_datetime || nowSql()),
-    inspector:String(p.inspector || "").trim(),
-    content:String(p.content || "").trim(),
-    result:String(p.result || "").trim(),
-    note:p.note || "",
-    source_channel:"Nhập trực tiếp",
-    department_code_snapshot:device.department_code || "",
-    location_snapshot:device.location || ""
-  };
-  const info = db.prepare(`
-    INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
-    VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note,@source_channel,@department_code_snapshot,@location_snapshot)
-  `).run(payload);
-  writeHistory("check", info.lastInsertRowid, payload.inspector, "Tạo mới", "", payload.result, payload.content || payload.note || "");
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p = req.body || {};
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) return res.status(400).json({ error:"Thiết bị không tồn tại hoặc đã lưu trữ." });
+    const payload = {
+      device_id:deviceId,
+      check_datetime:normalizeDateTime(p.check_datetime || nowSql()),
+      inspector:String(p.inspector || "").trim(),
+      content:String(p.content || "").trim(),
+      result:String(p.result || "").trim(),
+      note:p.note || "",
+      source_channel:"Nhập trực tiếp",
+      department_code_snapshot:device.department_code || "",
+      location_snapshot:device.location || ""
+    };
+    if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
+    if(!["Bình thường","Có vấn đề"].includes(payload.result)) return res.status(400).json({error:"Kết quả kiểm tra không hợp lệ."});
+    const info = db.prepare(`
+      INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
+      VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note,@source_channel,@department_code_snapshot,@location_snapshot)
+    `).run(payload);
+    writeHistory("check", info.lastInsertRowid, payload.inspector, "Tạo mới", "", payload.result, payload.content || payload.note || "");
+    writeAudit(requestActor(req,payload.inspector),"Tạo kiểm tra trực tiếp","daily_check",info.lastInsertRowid,`${payload.result} | ${payload.content || payload.note || ""}`);
+    res.json({ id: info.lastInsertRowid });
+  } catch(e) {
+    console.error("POST /api/checks error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo bản ghi kiểm tra."});
+  }
 });
 
 app.put("/api/checks/:id", (req, res) => {
-  const p = req.body;
-  const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(req.params.id) || {};
-  db.prepare(`
-    UPDATE daily_checks
-    SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note
-    WHERE id=@id
-  `).run({
-    id:Number(req.params.id),
-    check_datetime:normalizeDateTime(p.check_datetime || old.check_datetime || nowSql()),
-    inspector:p.inspector || old.inspector || "",
-    content:p.content || old.content || "",
-    result:p.result || old.result || "",
-    note:p.note ?? old.note ?? ""
-  });
-  writeHistory("check", Number(req.params.id), p.inspector, "Cập nhật", old.result || "", p.result || "", p.content || p.note || "");
-  res.json({ ok: true });
+  try {
+    const p = req.body || {};
+    const id=Number(req.params.id);
+    const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi kiểm tra."});
+    const isQr=String(old.source_channel || "")==="QR";
+    const payload={
+      id,
+      check_datetime:isQr ? old.check_datetime : normalizeDateTime(p.check_datetime || old.check_datetime || nowSql()),
+      inspector:String(p.inspector ?? old.inspector ?? "").trim(),
+      content:String(p.content ?? old.content ?? "").trim(),
+      result:String(p.result ?? old.result ?? "").trim(),
+      note:p.note ?? old.note ?? ""
+    };
+    if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
+    if(!["Bình thường","Có vấn đề"].includes(payload.result)) return res.status(400).json({error:"Kết quả kiểm tra không hợp lệ."});
+    db.prepare(`
+      UPDATE daily_checks
+      SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note
+      WHERE id=@id
+    `).run(payload);
+    writeHistory("check", id, payload.inspector, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
+    writeAudit(requestActor(req,payload.inspector),isQr ? "Hiệu chỉnh nội dung kiểm tra QR" : "Cập nhật kiểm tra trực tiếp","daily_check",id,`${old.result || ""} → ${payload.result}`);
+    res.json({ ok: true, qr_timestamp_locked:isQr });
+  } catch(e) {
+    console.error("PUT /api/checks/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật bản ghi kiểm tra."});
+  }
 });
 
 app.delete("/api/checks/:id", (req, res) => {
-  const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(req.params.id);
-  if (old) writeHistory("check", Number(req.params.id), old.inspector, "Xóa", old.result || "", "", old.content || old.note || "");
-  db.prepare("DELETE FROM daily_checks WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi kiểm tra."});
+  if(String(old.source_channel || "")==="QR"){
+    return res.status(409).json({error:"Bản ghi kiểm tra phát sinh từ QR là dữ liệu sử dụng thực tế và không được xóa. Có thể cập nhật nội dung nếu cần hiệu chỉnh."});
+  }
+  writeHistory("check", id, old.inspector, "Xóa", old.result || "", "", old.content || old.note || "");
+  db.prepare("DELETE FROM daily_checks WHERE id=?").run(id);
+  writeAudit(requestActor(req,old.inspector || "Khoa Trang bị"),"Xóa kiểm tra nhập trực tiếp","daily_check",id,old.content || old.note || "");
   res.json({ ok: true });
 });
 
