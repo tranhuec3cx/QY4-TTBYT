@@ -3284,7 +3284,8 @@ function pruneDatabaseBackups() {
 async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu dữ liệu") {
   fs.mkdirSync(backupDir, { recursive: true });
   const stamp = nowSql().replace(/[-: ]/g,"").slice(0,14);
-  const filename = `qy4_ttbyt_${stamp}.sqlite`;
+  const millis = String(Date.now() % 1000).padStart(3,"0");
+  const filename = `qy4_ttbyt_${stamp}_${millis}.sqlite`;
   const target = path.join(backupDir, filename);
   const filesTarget = backupFilesDirFor(filename);
   try {
@@ -3303,7 +3304,8 @@ async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu d
 async function ensureDailyBackup() {
   try {
     const day = nowSql().slice(0,10).replace(/-/g,"");
-    if (listDatabaseBackups().some(x => x.includes(day))) return;
+    const completeToday = listDatabaseBackups().find(x => x.includes(day) && fs.existsSync(backupFilesDirFor(x)));
+    if (completeToday) return;
     await createDatabaseBackup("Hệ thống", "Sao lưu tự động hằng ngày");
   } catch (e) {
     console.error("Auto backup error:", e.message);
