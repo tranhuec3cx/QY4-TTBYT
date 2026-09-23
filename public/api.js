@@ -113,7 +113,7 @@ function renderMenu(active) {
       </div>
       <nav class="menu">${links}</nav>
       <div class="sidebar-footer">
-        <div><b>©2026 Khoa Trang bị. BVQY4</b><span>Version 5.0.0</span></div>
+        <div><b>@2026 Khoa Trang bị. BVQY4</b><span>– Version 5.0.0</span></div>
       </div>
     </aside>
   `;
@@ -159,7 +159,8 @@ async function refreshAuthUi() {
       box.style.display = "flex";
       box.style.alignItems = "center";
       box.style.gap = "10px";
-      box.innerHTML = `<span><b>${String(data.user.full_name || data.user.username || "")}</b><br><small>${String(data.user.role || "")}</small></span><button type="button" class="icon-btn" id="logoutBtn" title="Đăng xuất">↪</button>`;
+      const safeAuthText = (v) => String(v ?? "").replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[ch] || ch));
+      box.innerHTML = `<span><b>${safeAuthText(data.user.full_name || data.user.username || "")}</b><br><small>${safeAuthText(data.user.role || "")}</small></span><button type="button" class="icon-btn" id="logoutBtn" title="Đăng xuất">↪</button>`;
       const logout = document.getElementById("logoutBtn");
       if (logout) logout.onclick = async () => {
         await fetch("/api/auth/logout", { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" });
