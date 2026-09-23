@@ -2977,7 +2977,7 @@ app.get("/api/dashboard/operations", (req, res) => {
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
   `).all(monthStart);
-  res.json({ total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
+  res.json({ today, timeZone:APP_TIME_ZONE, total, active, repairing, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
 });
 
 app.get("/api/audit-logs", (req, res) => {
