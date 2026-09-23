@@ -1554,7 +1554,12 @@ app.post("/api/devices", (req, res) => {
     const payload = buildDevicePayload(req.body || {});
     const error = validateDevicePayload(payload);
     if (error) return res.status(400).json({ error });
-    payload.device_code = payload.device_code || generateDeviceCode(payload.department_code, payload.group_code);
+    payload.device_code = payload.device_code
+      ? (normalizeDeviceCode(payload.device_code, payload.department_code, payload.group_code) || payload.device_code)
+      : generateDeviceCode(payload.department_code, payload.group_code);
+    if (db.prepare("SELECT id FROM devices WHERE device_code=? LIMIT 1").get(payload.device_code)) {
+      return res.status(400).json({ error:"Mã thiết bị đã được sử dụng, kể cả trong hồ sơ đã lưu trữ." });
+    }
     const info = db.prepare(`
       INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
       VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
@@ -1575,6 +1580,11 @@ app.put("/api/devices/:id", (req, res) => {
     const payload = buildDevicePayload(req.body || {}, old);
     const error = validateDevicePayload(payload);
     if (error) return res.status(400).json({ error });
+    if (payload.device_code) {
+      payload.device_code = normalizeDeviceCode(payload.device_code, payload.department_code, payload.group_code) || payload.device_code;
+      const duplicateCode = db.prepare("SELECT id FROM devices WHERE device_code=? AND id<>? LIMIT 1").get(payload.device_code, Number(req.params.id));
+      if (duplicateCode) return res.status(400).json({ error:"Mã thiết bị đã được sử dụng, kể cả trong hồ sơ đã lưu trữ." });
+    }
     db.prepare(`
       UPDATE devices SET
         department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
