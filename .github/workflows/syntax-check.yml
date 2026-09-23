@@ -104,6 +104,27 @@ jobs:
           if (Number(kpiTst2.summary.total_incidents)!==1 || Number(kpiTst2.summary.qr_incidents)!==1) throw new Error("KPI department filter failed for TST2");
           console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
+      - name: Smoke test Serial persistence after restart
+        run: |
+          if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
+          QY4_DEMO_SEED=0 node server.js > /tmp/qy4-restart.log 2>&1 &
+          echo $! > /tmp/qy4-server.pid
+          BASE=http://127.0.0.1:5000
+          for i in {1..20}; do
+            if curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-restarted.json; then break; fi
+            sleep 1
+          done
+          curl -fsS "$BASE/api/reports/data-quality" >/tmp/data-quality.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const d=JSON.parse(fs.readFileSync("/tmp/device-restarted.json","utf8"));
+          const q=JSON.parse(fs.readFileSync("/tmp/data-quality.json","utf8"));
+          if(d.serial!=="SERIAL-AFTER") throw new Error("Serial changed/lost after server restart: "+d.serial);
+          if(String(d.insurance_code||"")!=="") throw new Error("Serial was incorrectly moved into insurance_code");
+          if(Number(q.summary.missing_serial)!==0) throw new Error("Data-quality audit unexpectedly reports missing serial");
+          console.log("Serial persistence after restart passed");
+          NODE
+
       - name: Smoke test authentication and roles
         run: |
           if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
