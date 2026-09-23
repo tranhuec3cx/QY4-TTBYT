@@ -4519,6 +4519,37 @@ app.get("/", (req, res) => {
   res.redirect("/dashboard.html");
 });
 
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  cleanupSingleUpload(req);
+  cleanupUploadedFiles(req.files);
+
+  if (err instanceof multer.MulterError) {
+    const map = {
+      LIMIT_FILE_SIZE:"File vượt quá dung lượng cho phép.",
+      LIMIT_FILE_COUNT:"Vượt quá số lượng file cho phép.",
+      LIMIT_FIELD_COUNT:"Vượt quá số trường dữ liệu cho phép.",
+      LIMIT_PART_COUNT:"Dữ liệu gửi lên có quá nhiều thành phần.",
+      LIMIT_FIELD_VALUE:"Một trường dữ liệu vượt quá kích thước cho phép.",
+      LIMIT_UNEXPECTED_FILE:"Trường file không hợp lệ hoặc vượt quá số file cho phép."
+    };
+    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    return res.status(status).json({ error:map[err.code] || "File tải lên không hợp lệ." });
+  }
+
+  const uploadValidationMessages = [
+    "Định dạng file không được hỗ trợ.",
+    "Chỉ hỗ trợ JPG, PNG, WEBP, MP4 hoặc MOV.",
+    "Chỉ hỗ trợ ảnh JPG/PNG/WEBP và video MP4/MOV."
+  ];
+  if (uploadValidationMessages.includes(String(err.message || ""))) {
+    return res.status(400).json({ error:err.message });
+  }
+
+  console.error("Unhandled request error:", err);
+  res.status(500).json({ error:"Lỗi máy chủ khi xử lý yêu cầu." });
+});
+
 app.listen(PORT, () => {
   console.log(`QY4-TTBYT 5.0.0 running at http://localhost:${PORT}`);
   console.log(`Database: ${dbPath}`);
