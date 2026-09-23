@@ -10,6 +10,9 @@ const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const AUTH_REQUIRED = process.env.QY4_AUTH_REQUIRED === "1";
+const SESSION_COOKIE = "qy4_session";
+const SESSION_HOURS = Math.max(1, Number(process.env.QY4_SESSION_HOURS || 12));
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
@@ -17,6 +20,89 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(qrUploadsDir, { recursive: true });
 
 app.use(express.json({ limit: "10mb" }));
+
+function parseCookies(header = "") {
+  const out = {};
+  String(header || "").split(";").forEach(part => {
+    const idx = part.indexOf("=");
+    if (idx <= 0) return;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    try { out[k] = decodeURIComponent(v); } catch { out[k] = v; }
+  });
+  return out;
+}
+function sessionTokenHash(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+function passwordHash(password, salt) {
+  return crypto.scryptSync(String(password || ""), String(salt || ""), 64).toString("hex");
+}
+function setUserPassword(userId, password) {
+  const value = String(password || "");
+  if (value.length < 8) throw new Error("Mật khẩu phải có ít nhất 8 ký tự.");
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = passwordHash(value, salt);
+  db.prepare("UPDATE users SET password_salt=?, password_hash=? WHERE id=?").run(salt, hash, Number(userId));
+}
+function verifyUserPassword(user, password) {
+  if (!user || !user.password_hash || !user.password_salt) return false;
+  const actual = Buffer.from(passwordHash(password, user.password_salt), "hex");
+  const expected = Buffer.from(String(user.password_hash), "hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+function readAuthenticatedUser(req) {
+  if (!AUTH_REQUIRED) return null;
+  const token = parseCookies(req.headers.cookie || "")[SESSION_COOKIE];
+  if (!token) return null;
+  const tokenHash = sessionTokenHash(token);
+  const row = db.prepare(`
+    SELECT u.id,u.full_name,u.username,u.role,u.department_code,u.status,s.expires_at
+    FROM auth_sessions s
+    JOIN users u ON u.id=s.user_id
+    WHERE s.token_hash=?
+  `).get(tokenHash);
+  if (!row || row.status !== "Hoạt động" || Number(row.expires_at || 0) <= Date.now()) {
+    if (row) db.prepare("DELETE FROM auth_sessions WHERE token_hash=?").run(tokenHash);
+    return null;
+  }
+  return row;
+}
+function isAdminOnlyApiPath(p) {
+  return p.startsWith("/api/users")
+    || p.startsWith("/api/departments")
+    || p.startsWith("/api/device-groups")
+    || p.startsWith("/api/system/")
+    || p.startsWith("/api/audit-logs")
+    || p.startsWith("/api/reset-seed");
+}
+function isDepartmentUserAllowed(req) {
+  if (!["GET","HEAD"].includes(req.method)) return false;
+  if (req.path === "/api/meta") return true;
+  if (req.path === "/api/devices" || /^\/api\/devices\/\d+$/.test(req.path)) return true;
+  return false;
+}
+function authApiGuard(req, res, next) {
+  if (!req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/api/auth/")
+      || req.path.startsWith("/api/public/")
+      || req.path.startsWith("/api/qr/")
+      || req.path === "/api/system/qr-origins") return next();
+  if (!AUTH_REQUIRED) return next();
+
+  const user = readAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." });
+  req.authUser = user;
+
+  if (isAdminOnlyApiPath(req.path) && user.role !== "Quản trị viên") {
+    return res.status(403).json({ error: "Chỉ Quản trị viên được thực hiện chức năng này." });
+  }
+  if (user.role === "Người dùng khoa" && !isDepartmentUserAllowed(req)) {
+    return res.status(403).json({ error: "Tài khoản khoa chỉ được xem thiết bị thuộc khoa mình và báo sự cố qua QR." });
+  }
+  next();
+}
+app.use(authApiGuard);
 
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -864,8 +950,48 @@ function writeAudit(actor, actionType, entityType, entityId, details = "") {
   }
 }
 
+function ensureAuthSchema() {
+  const cols = db.prepare("PRAGMA table_info(users)").all().map(x => x.name);
+  if (!cols.includes("password_hash")) db.prepare("ALTER TABLE users ADD COLUMN password_hash TEXT").run();
+  if (!cols.includes("password_salt")) db.prepare("ALTER TABLE users ADD COLUMN password_salt TEXT").run();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+  `);
+  db.prepare("DELETE FROM auth_sessions WHERE expires_at<=?").run(Date.now());
+
+  if (AUTH_REQUIRED) {
+    const bootstrapPassword = String(process.env.QY4_ADMIN_PASSWORD || "");
+    let admin = db.prepare("SELECT * FROM users WHERE role='Quản trị viên' ORDER BY id LIMIT 1").get();
+    if (!admin && bootstrapPassword) {
+      const username = String(process.env.QY4_ADMIN_USERNAME || "admin").trim() || "admin";
+      const info = db.prepare(`
+        INSERT INTO users (full_name,username,role,department_code,status,phone)
+        VALUES (?,?,?,?,?,?)
+      `).run("Quản trị viên", username, "Quản trị viên", null, "Hoạt động", "");
+      admin = db.prepare("SELECT * FROM users WHERE id=?").get(info.lastInsertRowid);
+    }
+    if (admin && !admin.password_hash && bootstrapPassword) {
+      setUserPassword(admin.id, bootstrapPassword);
+      console.log("Đã thiết lập mật khẩu quản trị ban đầu từ QY4_ADMIN_PASSWORD.");
+    }
+    const readyAdmin = db.prepare("SELECT id FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND COALESCE(password_hash,'')<>'' LIMIT 1").get();
+    if (!readyAdmin) {
+      console.warn("QY4_AUTH_REQUIRED=1 nhưng chưa có tài khoản Quản trị viên có mật khẩu. Hãy đặt QY4_ADMIN_PASSWORD khi khởi động lần đầu.");
+    }
+  }
+}
+
 initDb();
 ensureCoreManagementSchema();
+ensureAuthSchema();
 ensureDeviceCodeColumnsAndData();
 normalizeIncidentStatusesInDb();
 try {
@@ -878,6 +1004,56 @@ try {
 } catch (e) {}
 
 
+
+app.get("/api/auth/status", (req, res) => {
+  const ready = AUTH_REQUIRED
+    ? Boolean(db.prepare("SELECT id FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND COALESCE(password_hash,'')<>'' LIMIT 1").get())
+    : true;
+  res.json({ auth_required: AUTH_REQUIRED, ready });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  if (!AUTH_REQUIRED) return res.json({ auth_required: false, user: null });
+  const user = readAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: "Chưa đăng nhập." });
+  res.json({
+    auth_required: true,
+    user: {
+      id: user.id,
+      full_name: user.full_name,
+      username: user.username,
+      role: user.role,
+      department_code: user.department_code || ""
+    }
+  });
+});
+
+app.post("/api/auth/login", (req, res) => {
+  if (!AUTH_REQUIRED) return res.status(400).json({ error: "Chế độ đăng nhập chưa được bật." });
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+  const user = db.prepare("SELECT * FROM users WHERE lower(username)=lower(?) LIMIT 1").get(username);
+  if (!user || user.status !== "Hoạt động" || !verifyUserPassword(user, password)) {
+    return res.status(401).json({ error: "Tài khoản hoặc mật khẩu không đúng." });
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  const created = Date.now();
+  const expires = created + SESSION_HOURS * 3600 * 1000;
+  db.prepare("DELETE FROM auth_sessions WHERE expires_at<=?").run(created);
+  db.prepare("INSERT INTO auth_sessions (token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)")
+    .run(sessionTokenHash(token), user.id, created, expires);
+  const secure = req.secure || String(req.headers["x-forwarded-proto"] || "").toLowerCase() === "https";
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_HOURS*3600}${secure ? "; Secure" : ""}`);
+  writeAudit(user.full_name || user.username, "Đăng nhập", "auth", user.id, user.username);
+  res.json({ ok: true, user: { id:user.id, full_name:user.full_name, username:user.username, role:user.role, department_code:user.department_code || "" } });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = parseCookies(req.headers.cookie || "")[SESSION_COOKIE];
+  if (token) db.prepare("DELETE FROM auth_sessions WHERE token_hash=?").run(sessionTokenHash(token));
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+  res.json({ ok: true });
+});
 
 function initExtendedModules() {
   db.exec(`
@@ -1062,7 +1238,9 @@ app.get("/api/meta", (req, res) => {
 
 app.get("/api/users", (req, res) => {
   const rows = db.prepare(`
-    SELECT u.*, d.name AS department_name
+    SELECT u.id,u.full_name,u.username,u.role,u.department_code,u.status,u.phone,
+           CASE WHEN COALESCE(u.password_hash,'')<>'' THEN 1 ELSE 0 END AS has_password,
+           d.name AS department_name
     FROM users u
     LEFT JOIN departments d ON d.code = u.department_code
     ORDER BY u.id
@@ -1071,38 +1249,62 @@ app.get("/api/users", (req, res) => {
 });
 
 app.post("/api/users", (req, res) => {
-  const { full_name, username, role, department_code, status, phone } = req.body;
-  const info = db.prepare(`
-    INSERT INTO users (full_name, username, role, department_code, status, phone)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(full_name, username, role, department_code, status, phone || "");
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const { full_name, username, role, department_code, status, phone, password } = req.body;
+    if (!full_name || !username || !role) return res.status(400).json({ error: "Thiếu họ tên, tài khoản hoặc vai trò." });
+    if (AUTH_REQUIRED && !password) return res.status(400).json({ error: "Khi bật xác thực, người dùng mới phải có mật khẩu." });
+    const info = db.prepare(`
+      INSERT INTO users (full_name, username, role, department_code, status, phone)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(full_name, username, role, department_code || null, status || "Hoạt động", phone || "");
+    if (password) setUserPassword(info.lastInsertRowid, password);
+    writeAudit(req.authUser?.full_name || "Quản trị viên", "Tạo người dùng", "user", info.lastInsertRowid, username);
+    res.json({ id: info.lastInsertRowid });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 app.put("/api/users/:id", (req, res) => {
-  const { full_name, username, role, department_code, status, phone } = req.body;
-  db.prepare(`
-    UPDATE users SET full_name=?, username=?, role=?, department_code=?, status=?, phone=?
-    WHERE id=?
-  `).run(full_name, username, role, department_code, status, phone || "", req.params.id);
-  res.json({ ok: true });
+  try {
+    const { full_name, username, role, department_code, status, phone, password } = req.body;
+    const old = db.prepare("SELECT * FROM users WHERE id=?").get(Number(req.params.id));
+    if (!old) return res.status(404).json({ error: "Không tìm thấy người dùng." });
+    db.prepare(`
+      UPDATE users SET full_name=?, username=?, role=?, department_code=?, status=?, phone=?
+      WHERE id=?
+    `).run(full_name, username, role, department_code || null, status || "Hoạt động", phone || "", req.params.id);
+    if (password) setUserPassword(req.params.id, password);
+    if (status !== "Hoạt động") db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(Number(req.params.id));
+    writeAudit(req.authUser?.full_name || "Quản trị viên", "Cập nhật người dùng", "user", req.params.id, `${old.username} → ${username}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 app.delete("/api/users/:id", (req, res) => {
-  db.prepare("DELETE FROM users WHERE id=?").run(req.params.id);
+  const id = Number(req.params.id);
+  db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+  db.prepare("DELETE FROM users WHERE id=?").run(id);
+  writeAudit(req.authUser?.full_name || "Quản trị viên", "Xóa người dùng", "user", id, "");
   res.json({ ok: true });
 });
 
 app.get("/api/devices", (req, res) => {
   const includeArchived = String(req.query.include_archived || "") === "1";
+  const scopedDepartment = AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa"
+    ? String(req.authUser.department_code || "")
+    : "";
   const rows = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
     FROM devices dv
     LEFT JOIN departments d ON d.code = dv.department_code
     LEFT JOIN device_groups g ON g.code = dv.group_code
     WHERE (? = 1 OR COALESCE(dv.is_archived,0)=0)
+      AND (? = '' OR dv.department_code = ?)
     ORDER BY dv.id
-  `).all(includeArchived ? 1 : 0).map(enrichDevice);
+  `).all(includeArchived ? 1 : 0, scopedDepartment, scopedDepartment).map(enrichDevice);
   res.json(rows);
 });
 
@@ -1140,6 +1342,10 @@ app.get("/api/devices/:id", (req, res) => {
     WHERE dv.id = ?
   `).get(req.params.id);
   if (!device) return res.status(404).json({ error: "Not found" });
+  if (AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa"
+      && String(device.department_code || "") !== String(req.authUser.department_code || "")) {
+    return res.status(403).json({ error: "Thiết bị không thuộc khoa của tài khoản này." });
+  }
   const id = Number(req.params.id);
   const incidentRows = db.prepare(`
       SELECT i.*, lr.id AS linked_repair_id, lr.processing_status AS linked_repair_status
@@ -2607,22 +2813,45 @@ app.get("/api/audit-logs", (req, res) => {
   res.json(db.prepare("SELECT * FROM audit_logs ORDER BY action_time DESC, id DESC LIMIT ?").all(limit));
 });
 
+const backupDir = path.join(__dirname, "backups");
+function listDatabaseBackups() {
+  fs.mkdirSync(backupDir, { recursive: true });
+  return fs.readdirSync(backupDir).filter(x => /^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
+}
+function pruneDatabaseBackups() {
+  const keep = Math.max(3, Number(process.env.QY4_BACKUP_KEEP || 30));
+  const files = listDatabaseBackups();
+  files.slice(keep).forEach(name => {
+    try { fs.unlinkSync(path.join(backupDir, name)); } catch {}
+  });
+}
+async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu dữ liệu") {
+  fs.mkdirSync(backupDir, { recursive: true });
+  const stamp = nowSql().replace(/[-: ]/g,"").slice(0,14);
+  const filename = `qy4_ttbyt_${stamp}.sqlite`;
+  const target = path.join(backupDir, filename);
+  await db.backup(target);
+  pruneDatabaseBackups();
+  writeAudit(actor, reason, "system", filename, target);
+  return filename;
+}
+async function ensureDailyBackup() {
+  try {
+    const day = nowSql().slice(0,10).replace(/-/g,"");
+    if (listDatabaseBackups().some(x => x.includes(day))) return;
+    await createDatabaseBackup("Hệ thống", "Sao lưu tự động hằng ngày");
+  } catch (e) {
+    console.error("Auto backup error:", e.message);
+  }
+}
+
 app.get("/api/system/backups", (req, res) => {
-  const dir = path.join(__dirname, "backups");
-  fs.mkdirSync(dir, { recursive: true });
-  const files = fs.readdirSync(dir).filter(x => /^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
-  res.json(files);
+  res.json(listDatabaseBackups());
 });
 
 app.post("/api/system/backup", async (req, res) => {
   try {
-    const dir = path.join(__dirname, "backups");
-    fs.mkdirSync(dir, { recursive: true });
-    const stamp = nowSql().replace(/[-: ]/g,"").slice(0,14);
-    const filename = `qy4_ttbyt_${stamp}.sqlite`;
-    const target = path.join(dir, filename);
-    await db.backup(target);
-    writeAudit(req.body?.actor || "", "Sao lưu dữ liệu", "system", filename, target);
+    const filename = await createDatabaseBackup(req.body?.actor || req.authUser?.full_name || "Quản trị viên", "Sao lưu dữ liệu");
     res.json({ ok:true, filename });
   } catch (e) {
     res.status(500).json({ error:e.message });
@@ -2723,6 +2952,9 @@ app.get("/api/excel-template/:kind", async (req, res) => {
 });
 
 app.post("/api/reset-seed", (req, res) => {
+  if (process.env.QY4_DEMO_SEED !== "1") {
+    return res.status(403).json({ error: "Reset dữ liệu chỉ được phép khi chạy chế độ demo (QY4_DEMO_SEED=1)." });
+  }
   db.exec(`
     DELETE FROM accessories;
     DELETE FROM repairs;
@@ -2752,9 +2984,12 @@ app.get("/", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`QY4 TTBYT app running at http://localhost:${PORT}`);
+  console.log(`Xác thực người dùng: ${AUTH_REQUIRED ? "BẬT" : "TẮT (chế độ thử nghiệm/nội bộ)"}`);
   try {
     const lan = Object.values(os.networkInterfaces()).flat().filter(Boolean).find(net => net.family === "IPv4" && !net.internal);
     if (lan) console.log(`QR/mobile LAN URL: http://${lan.address}:${PORT}`);
   } catch (e) {}
+  ensureDailyBackup();
+  setInterval(ensureDailyBackup, 6 * 60 * 60 * 1000).unref();
 });
 
