@@ -865,6 +865,7 @@ jobs:
           if(!item || item.result!=="Sai vị trí" || item.actual_location!=="Phòng B") throw new Error("Completed inventory mismatch history was altered by later transfer");
           if(d.location!=="Phòng B") throw new Error("Device current location did not update after completed inventory");
           if(!(d.transfers||[]).some(x=>x.reason==="Điều chuyển theo kiểm kê CI")) throw new Error("Inventory transfer missing from device history");
+          if(item.current_department_code!=="INV" || item.current_location!=="Phòng B") throw new Error("Inventory detail did not expose current location after transfer");
           NODE
           CODE=$(curl -s -o /tmp/inv-after-complete.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Có","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
@@ -878,6 +879,8 @@ jobs:
           if(devices.some(x=>x.device_code==="INV.TST.0001")) throw new Error("Archived device still visible in managed list");
           if(Number(leadership.total)!==devices.length) throw new Error("Leadership total includes archived equipment");
           NODE
+          grep -q 'CURRENT.session.status!=="Đã hoàn thành"' public/inventory.js
+          grep -q 'alreadyAtRecordedPlace' public/inventory.js
           echo "Inventory and archival integrity rules passed"
 
       - name: Smoke test periodic schedules per work type
