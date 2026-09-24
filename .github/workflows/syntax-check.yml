@@ -29,6 +29,20 @@ jobs:
             echo "Legacy SheetJS vendor route remains"
             exit 1
           fi
+          node - <<'NODE'
+          const fs=require("fs");
+          const html=fs.readFileSync("public/device-detail.html","utf8");
+          const js=fs.readFileSync("public/device-detail.js","utf8");
+          for(const legacy of ["tab-accessories","tab-incidents","tab-repairs","tab-maint","tab-inspections","tab-op","tab-docs"]){
+            if(html.includes('id="'+legacy+'"')) throw new Error("Legacy device-detail tab remains: "+legacy);
+          }
+          if(!html.includes('id="generalDepartment" disabled')) throw new Error("Device department must be locked in general info");
+          if(!html.includes('id="generalLocation" placeholder="Vị trí đặt máy" readonly')) throw new Error("Device location must be locked in general info");
+          if(js.includes('department_code: q("generalDepartment").value')) throw new Error("General form can bypass transfer department history");
+          if(js.includes('location: q("generalLocation").value.trim()')) throw new Error("General form can bypass transfer location history");
+          if(!js.includes('/api/devices/${DEVICE_ID}/transfer')) throw new Error("Transfer workflow missing");
+          console.log("Device detail single-workflow guard passed");
+          NODE
       - name: Install dependencies
         run: npm ci
       - name: Dependency audit summary
