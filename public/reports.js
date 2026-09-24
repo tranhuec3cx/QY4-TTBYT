@@ -152,7 +152,7 @@ function renderKpi(){
     [`≤ ${p.response_target_minutes||30} phút`,`${s.response_within_target_percent||0}%`,`${s.response_within_target||0}/${s.responded_incidents||0} sự cố đã tiếp nhận`],
     ["Đã có kết quả xử lý",s.resolved_incidents||0,"Xử lý tại chỗ hoặc sửa chữa hoàn thành"],
     ["Thời gian xử lý TB",fmtMinutesKpi(s.avg_resolution_minutes),"Từ lúc báo đến khi có kết quả hoàn thành"],
-    ["Đủ mốc tiếp nhận",`${s.response_data_completeness_percent||0}%`,`Còn mở: ${s.open_incidents||0} sự cố`],
+    ["Đủ mốc tiếp nhận",`${s.response_data_completeness_percent||0}%`,`Chưa có mốc hoàn thành: ${s.open_incidents||0} sự cố`],
     ["Mốc thời gian lỗi",Number(s.invalid_response_timestamps||0)+Number(s.invalid_resolution_timestamps||0),`Tiếp nhận: ${s.invalid_response_timestamps||0}; hoàn thành: ${s.invalid_resolution_timestamps||0}`]
   ];
   q("kpiCards").innerHTML=cards.map(([title,value,desc])=>`<div class="report-kpi-card"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(desc)}</small></div>`).join("");
@@ -220,7 +220,7 @@ async function exportKpiExcel(){
     ["Sự cố đã có kết quả xử lý",s.resolved_incidents||0,""],
     ["Thời gian xử lý TB (phút)",s.avg_resolution_minutes??"",""],
     ["Thời gian xử lý trung vị (phút)",s.median_resolution_minutes??"",""],
-    ["Sự cố còn mở",s.open_incidents||0,""],
+    ["Sự cố chưa có mốc hoàn thành",s.open_incidents||0,""],
     ["Nguồn báo chưa xác định",s.unknown_source_incidents||0,"Không suy diễn là QR hay nhập trực tiếp"]
   ];
   const source=(KPI.by_source||[]).map(x=>({
