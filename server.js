@@ -2623,6 +2623,7 @@ app.post("/api/operation-logs", (req, res) => {
       status_after:String(p.status_after || "").trim(),
       note:String(p.note || "")
     };
+    if(!payload.log_datetime) return res.status(400).json({error:"Thời gian vận hành không hợp lệ."});
     if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
     const info=db.prepare(`
       INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,department_code_snapshot,location_snapshot,usage_count,status_before,status_after,note)
@@ -2658,6 +2659,7 @@ app.put("/api/operation-logs/:id", (req, res) => {
       status_after:String(p.status_after ?? old.status_after ?? "").trim(),
       note:String(p.note ?? old.note ?? "")
     };
+    if(!payload.log_datetime) return res.status(400).json({error:"Thời gian vận hành không hợp lệ."});
     if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
     db.prepare(`
       UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code, usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
@@ -2708,6 +2710,10 @@ app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
       department_code_snapshot: String(device.department_code || "").trim(),
       location_snapshot: String(device.location || "").trim()
     };
+    if(!isValidIsoDate(payload.doc_date)){
+      cleanupSingleUpload(req);
+      return res.status(400).json({error:"Ngày tài liệu phải là ngày hợp lệ theo YYYY-MM-DD."});
+    }
     const info = db.prepare(`
       INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
       VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
@@ -2755,6 +2761,10 @@ app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
       department_code_snapshot:String(old.department_code_snapshot || "").trim(),
       location_snapshot:String(old.location_snapshot || "").trim()
     };
+    if(!isValidIsoDate(payload.doc_date)){
+      cleanupSingleUpload(req);
+      return res.status(400).json({error:"Ngày tài liệu phải là ngày hợp lệ theo YYYY-MM-DD."});
+    }
     db.prepare(`
       UPDATE documents SET
         name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
@@ -4368,7 +4378,9 @@ app.post("/api/devices/:id/transfer", (req, res) => {
     `).get(id);
     if (openInventory) return res.status(409).json({ error: `Thiết bị đang nằm trong đợt kiểm kê #${openInventory.id}; hãy hoàn thành kiểm kê trước khi điều chuyển.` });
 
-    const at = normalizeDateTime(req.body.transfer_datetime || nowSql()) || nowSql();
+    const rawTransferDate = String(req.body.transfer_datetime || "").trim();
+    const at = rawTransferDate ? normalizeDateTime(rawTransferDate) : nowSql();
+    if (!at) return res.status(400).json({ error:"Thời gian điều chuyển không hợp lệ." });
     const actor = requestActor(req, "");
     const tx = db.transaction(() => {
       const info = db.prepare(`
