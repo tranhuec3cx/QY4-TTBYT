@@ -57,6 +57,7 @@ jobs:
           if ($content -notmatch 'QY4_ALLOW_LEGACY_QR = "0"') { throw "Production launcher must disable legacy QR" }
           if ($content -notmatch 'npm ci') { throw "Production launcher must synchronize dependencies" }
           if ($content -notmatch 'prestart_') { throw "Production launcher must create pre-migration DB backup" }
+          if ($content -notmatch 'QY4_PRESTART_KEEP') { throw "Production launcher must cap pre-start backup retention" }
           Write-Host "Windows production launcher check passed"
 
       - name: Install dependencies
