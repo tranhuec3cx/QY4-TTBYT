@@ -386,6 +386,16 @@ jobs:
           BASE=http://127.0.0.1:5000
           DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          CODE=$(curl -s -o /tmp/maintenance-missing-performer.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
+            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 13:30" -F "type=Bảo dưỡng định kỳ" \
+            -F "content=Thiếu người thực hiện" -F "result=Đạt")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/maintenance-invalid-result.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
+            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 13:40" -F "type=Bảo dưỡng định kỳ" \
+            -F "content=Kết quả sai" -F "result=OK" -F "performer=CI")
+          test "$CODE" = "400"
+          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
+          TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
           printf '%s\n' '%PDF-1.4' '%%EOF' >/tmp/attachment-a.pdf
           printf '%s\n' '%PDF-1.4' 'replacement' '%%EOF' >/tmp/attachment-b.pdf
           printf '<html>CI rejected upload</html>' >/tmp/rejected-upload.html
