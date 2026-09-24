@@ -1593,6 +1593,37 @@ initExtendedModules();
 
 
 
+function safeCount(table, whereSql, params = []) {
+  try { return Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE ${whereSql}`).get(...params)?.c || 0); }
+  catch { return 0; }
+}
+function departmentReferenceCount(code) {
+  const value=String(code || "").trim();
+  if(!value) return 0;
+  return [
+    ["devices","department_code=?"],
+    ["users","department_code=?"],
+    ["operation_logs","department_code=? OR department_code_snapshot=?"],
+    ["daily_checks","department_code_snapshot=?"],
+    ["incidents","department_code_snapshot=?"],
+    ["repairs","department_code_snapshot=?"],
+    ["maintenances","department_code_snapshot=?"],
+    ["documents","department_code_snapshot=?"],
+    ["inspections","department_code_snapshot=?"],
+    ["device_transfers","from_department_code=? OR to_department_code=?"],
+    ["inventory_sessions","department_code=?"],
+    ["inventory_items","expected_department_code=? OR actual_department_code=?"]
+  ].reduce((sum,[table,where])=>{
+    const paramCount=(where.match(/\?/g)||[]).length;
+    return sum + safeCount(table,where,Array(paramCount).fill(value));
+  },0);
+}
+function groupReferenceCount(code) {
+  const value=String(code || "").trim();
+  if(!value) return 0;
+  return safeCount("devices","group_code=?",[value]);
+}
+
 app.get("/api/departments", (req, res) => {
   const rows = db.prepare(`
     SELECT d.*,
@@ -1629,14 +1660,15 @@ app.put("/api/departments/:code", (req, res) => {
     if(oldCode!==code && db.prepare("SELECT code FROM departments WHERE code=?").get(code)) {
       return res.status(400).json({error:"Mã khoa/phòng mới đã tồn tại."});
     }
+    if(oldCode!==code){
+      const refs=departmentReferenceCount(oldCode);
+      if(refs>0) return res.status(409).json({error:`Mã khoa/phòng ${oldCode} đã được sử dụng trong ${refs} bản ghi hiện tại/lịch sử nên không được đổi mã. Có thể sửa tên khoa/phòng mà không đổi mã.`});
+    }
     const tx=db.transaction(()=>{
       if(oldCode===code){
         db.prepare("UPDATE departments SET name=? WHERE code=?").run(name,oldCode);
       } else {
         db.prepare("INSERT INTO departments (code,name) VALUES (?,?)").run(code,name);
-        db.prepare("UPDATE devices SET department_code=? WHERE department_code=?").run(code,oldCode);
-        db.prepare("UPDATE users SET department_code=? WHERE department_code=?").run(code,oldCode);
-        db.prepare("UPDATE operation_logs SET department_code=? WHERE department_code=?").run(code,oldCode);
         db.prepare("DELETE FROM departments WHERE code=?").run(oldCode);
       }
       writeAudit(requestActor(req),"Cập nhật khoa/phòng","department",code,`${oldCode} - ${old.name || ""} → ${code} - ${name}`);
@@ -1650,12 +1682,14 @@ app.put("/api/departments/:code", (req, res) => {
 });
 
 app.delete("/api/departments/:code", (req, res) => {
-  const code = req.params.code;
-  const used = db.prepare("SELECT COUNT(*) AS c FROM devices WHERE department_code = ?").get(code).c
-             + db.prepare("SELECT COUNT(*) AS c FROM users WHERE department_code = ?").get(code).c;
-  if (used > 0) return res.status(400).json({ error: "Khoa/phòng đang được sử dụng, không thể xóa." });
-  db.prepare("DELETE FROM departments WHERE code = ?").run(code);
-  res.json({ ok: true });
+  const code=String(req.params.code || "").trim().toUpperCase();
+  const old=db.prepare("SELECT * FROM departments WHERE code=?").get(code);
+  if(!old) return res.status(404).json({error:"Không tìm thấy khoa/phòng."});
+  const used=departmentReferenceCount(code);
+  if(used>0) return res.status(409).json({error:`Khoa/phòng đang được tham chiếu bởi ${used} bản ghi hiện tại/lịch sử nên không thể xóa.`});
+  db.prepare("DELETE FROM departments WHERE code=?").run(code);
+  writeAudit(requestActor(req),"Xóa khoa/phòng","department",code,old.name || "");
+  res.json({ok:true});
 });
 
 app.get("/api/device-groups", (req, res) => {
@@ -1693,12 +1727,15 @@ app.put("/api/device-groups/:code", (req, res) => {
     if(oldCode!==code && db.prepare("SELECT code FROM device_groups WHERE code=?").get(code)) {
       return res.status(400).json({error:"Mã nhóm thiết bị mới đã tồn tại."});
     }
+    if(oldCode!==code){
+      const refs=groupReferenceCount(oldCode);
+      if(refs>0) return res.status(409).json({error:`Mã nhóm ${oldCode} đã được sử dụng bởi ${refs} thiết bị/hồ sơ nên không được đổi mã. Có thể sửa tên nhóm mà không đổi mã.`});
+    }
     const tx=db.transaction(()=>{
       if(oldCode===code){
         db.prepare("UPDATE device_groups SET name=? WHERE code=?").run(name,oldCode);
       } else {
         db.prepare("INSERT INTO device_groups (code,name) VALUES (?,?)").run(code,name);
-        db.prepare("UPDATE devices SET group_code=? WHERE group_code=?").run(code,oldCode);
         db.prepare("DELETE FROM device_groups WHERE code=?").run(oldCode);
       }
       writeAudit(requestActor(req),"Cập nhật nhóm thiết bị","device_group",code,`${oldCode} - ${old.name || ""} → ${code} - ${name}`);
@@ -1712,11 +1749,14 @@ app.put("/api/device-groups/:code", (req, res) => {
 });
 
 app.delete("/api/device-groups/:code", (req, res) => {
-  const code = req.params.code;
-  const used = db.prepare("SELECT COUNT(*) AS c FROM devices WHERE group_code = ?").get(code).c;
-  if (used > 0) return res.status(400).json({ error: "Nhóm thiết bị đang được sử dụng, không thể xóa." });
-  db.prepare("DELETE FROM device_groups WHERE code = ?").run(code);
-  res.json({ ok: true });
+  const code=String(req.params.code || "").trim().toUpperCase();
+  const old=db.prepare("SELECT * FROM device_groups WHERE code=?").get(code);
+  if(!old) return res.status(404).json({error:"Không tìm thấy nhóm thiết bị."});
+  const used=groupReferenceCount(code);
+  if(used>0) return res.status(409).json({error:`Nhóm thiết bị đang được tham chiếu bởi ${used} thiết bị nên không thể xóa.`});
+  db.prepare("DELETE FROM device_groups WHERE code=?").run(code);
+  writeAudit(requestActor(req),"Xóa nhóm thiết bị","device_group",code,old.name || "");
+  res.json({ok:true});
 });
 
 app.get("/api/meta", (req, res) => {
