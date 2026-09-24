@@ -56,7 +56,7 @@ Quét QR
 
 Hệ thống lưu:
 
-- Thời điểm báo sự cố.
+- Thời điểm báo sự cố; backend chặn thời gian sai định dạng hoặc ở tương lai (cho phép tối đa 5 phút sai lệch đồng hồ).
 - Nguồn báo: QR / Nhập trực tiếp / Không xác định đối với dữ liệu lịch sử.
 - Người báo sự cố.
 - Thời điểm tiếp nhận.
@@ -67,6 +67,7 @@ Hệ thống lưu:
 - Người thực hiện kỹ thuật.
 - Snapshot mã khoa, tên khoa, vị trí và thiết bị tại thời điểm xảy ra sự cố; dữ liệu này không đổi khi thiết bị điều chuyển sau đó.
 - Nội dung và kết quả xử lý.
+- Mức độ sự cố được chuẩn hóa chỉ còn **Thấp / Trung bình / Cao**; thiết bị đã lưu trữ không thể phát sinh sự cố mới.
 - Trạng thái thiết bị được đồng bộ theo phiếu sửa chữa: đang xử lý/chờ linh kiện → Chờ sửa chữa; không sửa được → Ngừng hoạt động; hoàn thành → Đang hoạt động hoặc **Hoạt động hạn chế** do kỹ sư xác nhận.
 
 ### Hồ sơ thiết bị và công việc kỹ thuật
@@ -264,6 +265,10 @@ QY4_TIME_ZONE=Asia/Bangkok \
 npm start
 ```
 
+### Dừng server an toàn
+
+Khi cần dừng phần mềm, ưu tiên **Ctrl+C** tại cửa sổ server hoặc đóng tiến trình theo cách gửi SIGTERM. QY4-TTBYT sẽ ngừng nhận request mới, checkpoint WAL và đóng SQLite trước khi thoát. Không nên tắt nguồn máy tính đột ngột khi server đang ghi dữ liệu.
+
 ## 6. Phân quyền
 
 ### Quản trị viên
@@ -450,6 +455,7 @@ GitHub Actions hiện kiểm tra:
 - Ngày/giờ ứng dụng được kiểm tra theo `Asia/Bangkok`, độc lập timezone máy chạy CI.
 - Rate limit QR công khai trả HTTP 429 khi vượt ngưỡng.
 - File upload bị chặn khi chưa đăng nhập trong chế độ xác thực.
+- Sự cố API chặn mức độ ngoài danh mục, thời gian tương lai/sai định dạng và thiết bị đã lưu trữ.
 - Chế độ đăng nhập bắt buộc.
 - Đăng nhập sai bị rate-limit và trả Retry-After khi vượt ngưỡng.
 - Phân quyền Quản trị viên/Kỹ sư/Người dùng khoa.
