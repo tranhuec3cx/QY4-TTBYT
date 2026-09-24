@@ -188,26 +188,9 @@ app.use((req,res,next)=>{
 
 app.use(express.static(path.join(__dirname, "public")));
 function departmentUserCanAccessUpload(user, relativePath) {
-  if (!user || user.role !== "Người dùng khoa") return true;
-  const departmentCode = String(user.department_code || "").trim();
-  if (!departmentCode) return false;
-  const filePath = "/uploads" + String(relativePath || "");
-  const params = [filePath, departmentCode];
-  const allowed = db.prepare(`
-    SELECT 1 AS ok
-    FROM documents x JOIN devices d ON d.id=x.device_id
-    WHERE x.file_path=? AND d.department_code=?
-    UNION ALL
-    SELECT 1 AS ok
-    FROM maintenances x JOIN devices d ON d.id=x.device_id
-    WHERE x.file_path=? AND d.department_code=?
-    UNION ALL
-    SELECT 1 AS ok
-    FROM incident_files x JOIN devices d ON d.id=x.device_id
-    WHERE x.file_path=? AND d.department_code=?
-    LIMIT 1
-  `).get(...params, ...params, ...params);
-  return Boolean(allowed?.ok);
+  if (!user) return false;
+  if (user.role === "Người dùng khoa") return false;
+  return ["Quản trị viên","Kỹ sư TTBYT"].includes(user.role);
 }
 app.use("/uploads", (req, res, next) => {
   if (!AUTH_REQUIRED) return next();
