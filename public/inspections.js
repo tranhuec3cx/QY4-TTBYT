@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
     const deviceId=Number(q('deviceId').value||0);
     if(!deviceId) return alert('Vui lòng chọn đúng thiết bị từ danh sách gợi ý.');
     if(!q('inspectionDate').value) return alert('Vui lòng nhập thời gian thực hiện.');
+    if(!q('organization').value.trim()) return alert('Vui lòng nhập đơn vị thực hiện.');
 
     let uploadedPath='';
     let uploadedDocId=0;
