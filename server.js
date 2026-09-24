@@ -4477,6 +4477,7 @@ app.get("/api/inventory-sessions/:id", (req, res) => {
   if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
   const items = db.prepare(`
     SELECT i.*, dv.device_code, dv.name AS device_name, dv.model, dv.serial,
+           dv.department_code AS current_department_code, dv.location AS current_location,
            d.name AS actual_department_name
     FROM inventory_items i
     JOIN devices dv ON dv.id=i.device_id
