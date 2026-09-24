@@ -2686,7 +2686,9 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       stored_name: file ? file.filename : null,
       file_path: file ? `/uploads/documents/${file.filename}` : null,
       file_mime: file ? file.mimetype : null,
-      file_size: file ? file.size : 0
+      file_size: file ? file.size : 0,
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
     };
     if (!payload.maintenance_date || !payload.content) {
       cleanupSingleUpload(req);
