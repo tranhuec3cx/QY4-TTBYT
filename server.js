@@ -2496,9 +2496,10 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       department_code_snapshot:String(old.department_code_snapshot || historicalDeviceContext(deviceId, old.maintenance_date).department_code || "").trim(),
       location_snapshot:String(old.location_snapshot || historicalDeviceContext(deviceId, old.maintenance_date).location || "").trim()
     };
-    if (!payload.maintenance_date || !payload.content) {
+    const maintenanceError=validateMaintenancePayload(payload);
+    if (maintenanceError) {
       cleanupSingleUpload(req);
-      return res.status(400).json({ error: "Thiếu thời gian hoặc nội dung bảo dưỡng." });
+      return res.status(400).json({ error: maintenanceError });
     }
     const tx = db.transaction(() => {
       db.prepare(`
@@ -2942,6 +2943,21 @@ app.get("/api/maintenances", (req, res) => {
   res.json(rows);
 });
 
+function validateMaintenancePayload(payload) {
+  if (!Number(payload?.device_id || 0)) return "Vui lòng chọn thiết bị.";
+  if (!String(payload?.maintenance_date || "").trim()) return "Vui lòng nhập thời gian bảo dưỡng.";
+  if (!String(payload?.type || "").trim()) return "Vui lòng chọn loại bảo dưỡng.";
+  if (!String(payload?.content || "").trim()) return "Vui lòng nhập nội dung bảo dưỡng.";
+  if (!String(payload?.performer || "").trim()) return "Vui lòng nhập người thực hiện.";
+  if (!["Đạt","Đạt có lưu ý","Không đạt","Cần theo dõi thêm"].includes(String(payload?.result || "").trim())) {
+    return "Kết quả bảo dưỡng không hợp lệ.";
+  }
+  if (payload?.next_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(payload.next_date))) {
+    return "Ngày bảo dưỡng tiếp theo không hợp lệ.";
+  }
+  return "";
+}
+
 app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
   try {
     const p = req.body || {};
@@ -2971,9 +2987,10 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       department_code_snapshot: String(device.department_code || "").trim(),
       location_snapshot: String(device.location || "").trim()
     };
-    if (!payload.maintenance_date || !payload.content) {
+    const maintenanceError=validateMaintenancePayload(payload);
+    if (maintenanceError) {
       cleanupSingleUpload(req);
-      return res.status(400).json({ error: "Thiếu thời gian hoặc nội dung bảo dưỡng." });
+      return res.status(400).json({ error: maintenanceError });
     }
     const tx = db.transaction(() => {
       const info = db.prepare(`
