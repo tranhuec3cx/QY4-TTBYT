@@ -6,6 +6,7 @@ function fmtDate(v){ return v ? String(v).slice(0,10).split("-").reverse().join(
 function setText(id, value){ const el=q(id); if(el) el.textContent=value; }
 function fmtMinutes(v){ const n=Math.max(0,Number(v||0)); if(!n) return "—"; if(n<60) return Math.round(n)+" phút"; const h=n/60; return h<24 ? h.toFixed(h<10?1:0)+" giờ" : (h/24).toFixed(1)+" ngày"; }
 function inspectionEntryHref(deviceId,type){ return `/inspections.html?device_id=${encodeURIComponent(Number(deviceId)||"")}&type=${encodeURIComponent(type||"Kiểm định")}`; }
+function isFailedInspectionResult(value){ return String(value||"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d")==="khong dat"; }
 function scheduleTypeKey(value,defaultType="Không phân loại"){
   const raw=String(value||"").trim();
   const key=raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d");
@@ -62,6 +63,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbUnacknowledged", ops.unacknowledgedIncidents || 0);
   setText("dbDueInspection", ops.dueInspection || 0);
   setText("dbOverdueInspection", ops.overdueInspection || 0);
+  setText("dbFailedInspection", ops.failedInspection || 0);
   setText("dbMissingInspectionSchedule", ops.missingInspectionSchedule || 0);
   setText("dbWaitingParts", ops.waitingParts || 0);
   setText("dbAvgResponse", fmtMinutes(ops.avgResponseMinutes));
@@ -86,6 +88,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   q("dueInspections").innerHTML = dueIns.length
     ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <span class="tag gray">${esc(x.schedule_type||x.type||"KĐ/HC")}</span> <b>${fmtDate(x.next_date)}</b></li>`).join("")
     : "<li>Không có KĐ/HC/ATBX sắp đến hạn.</li>";
+
+  const failedIns = latestTechnicalRows(inspections,"inspection_date","Kiểm định")
+    .filter(x => !Number(x.is_archived||0) && isFailedInspectionResult(x.result))
+    .sort((a,b)=>String(b.inspection_date||"").localeCompare(String(a.inspection_date||""))).slice(0,6);
+  q("failedInspections").innerHTML = failedIns.length
+    ? failedIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <span class="tag red">${esc(x.schedule_type||x.type||"KĐ/HC")}</span> <b>Không đạt</b> <a class="btn btn-secondary btn-sm" href="${inspectionEntryHref(x.device_id,x.schedule_type||x.type)}">Ghi hồ sơ mới</a></li>`).join("")
+    : "<li>Không có kết quả KĐ/HC/ATBX mới nhất không đạt.</li>";
 
   const missingSchedules = Array.isArray(ops.missingInspectionSchedules) ? ops.missingInspectionSchedules : [];
   q("missingInspectionSchedules").innerHTML = missingSchedules.length
