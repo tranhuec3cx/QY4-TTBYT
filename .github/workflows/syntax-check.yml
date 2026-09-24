@@ -769,7 +769,7 @@ jobs:
           console.log("Periodic schedules are isolated by device + work type");
           NODE
 
-          grep -q 'scheduleTypeKey(row.type)' public/dashboard.js
+          grep -q 'scheduleTypeKey(row.type,defaultType)' public/dashboard.js
           grep -q 'obligation_type' public/reports.js
           grep -q 'KĐ/HC/ATBX' public/dashboard.html
           echo "Periodic schedule UI guards passed"
