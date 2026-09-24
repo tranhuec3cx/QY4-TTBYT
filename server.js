@@ -397,6 +397,9 @@ function normalizeRepairStatus(status) {
   if (["Hủy","Không sửa được","Không thể sửa"].includes(raw)) return "Không sửa được";
   return "Đang xử lý";
 }
+function isTerminalRepairStatus(status) {
+  return ["Đã hoàn thành","Không sửa được"].includes(normalizeRepairStatus(status));
+}
 function statusAfterFromRepairStatus(processingStatus, requested = "Đang hoạt động") {
   const st = normalizeRepairStatus(processingStatus);
   if (st === "Không sửa được") return "Ngừng hoạt động";
@@ -2219,7 +2222,7 @@ app.post("/api/repairs", (req, res) => {
       incident_id: p.incident_id ? Number(p.incident_id) : null,
       received_at: normalizeDateTime(p.received_at || p.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || "Đang xử lý")) ? nowSql() : "",
+      completed_at: isTerminalRepairStatus(p.processing_status || "Đang xử lý") ? nowSql() : "",
       department_code_snapshot: String(device.department_code || "").trim(),
       location_snapshot: String(device.location || "").trim()
     };
@@ -2333,7 +2336,7 @@ app.put("/api/repairs/:id", (req, res) => {
       incident_id: old.incident_id || null,
       received_at: normalizeDateTime(p.received_at || old.received_at || old.repair_date || p.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || old.processing_status || "Đang xử lý")) ? (old.completed_at || nowSql()) : "",
+      completed_at: isTerminalRepairStatus(p.processing_status || old.processing_status || "Đang xử lý") ? (old.completed_at || nowSql()) : "",
       id: Number(req.params.id)
     };
     db.prepare(`
@@ -5143,7 +5146,7 @@ app.get("/api/reports/kpi", (req, res) => {
   const unknownIncidents = records.filter(r=>!["QR","Nhập trực tiếp"].includes(r.source_channel)).length;
   const withinTarget = responseValues.filter(v=>v<=responseTargetMinutes).length;
   const resolved = records.filter(r=>Number.isFinite(r.resolution_minutes)).length;
-  const open = records.filter(r=>["Mới ghi nhận","Đã tiếp nhận"].includes(normalizeIncidentStatusForUi(r.status,r.repair_id))).length;
+  const open = records.filter(r=>!String(r.repair_completed_at || r.completed_at || "").trim()).length;
 
   const sourceMap = new Map();
   for (const r of records) {
