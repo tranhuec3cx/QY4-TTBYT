@@ -62,6 +62,9 @@ function editDevice(id) {
   const d = byId(id);
   q("deviceId").value = d.id;
   q("departmentInput").value = d.department_code;
+  q("departmentInput").disabled = true;
+  q("locationInput").readOnly = true;
+  if(q("transferOnlyNote")) q("transferOnlyNote").style.display = "block";
   q("groupInput").value = d.group_code;
   q("nameInput").value = d.name || "";
   q("manufacturerInput").value = d.manufacturer || "";
@@ -92,6 +95,9 @@ async function deleteDevice(id) {
 function resetForm() {
   q("deviceForm").reset();
   q("deviceId").value = "";
+  q("departmentInput").disabled = false;
+  q("locationInput").readOnly = false;
+  if(q("transferOnlyNote")) q("transferOnlyNote").style.display = "none";
 }
 async function saveDevice(e) {
   e.preventDefault();
