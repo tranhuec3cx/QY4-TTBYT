@@ -17,7 +17,7 @@
 </section>
 
 <section class="card">
-  <div class="section-head"><div><h2 class="section-title">Sao lưu dữ liệu</h2><div class="small">Mỗi gói sao lưu gồm database SQLite đã kiểm tra toàn vẹn và snapshot ảnh/video/tài liệu đính kèm. Nên tạo trước các đợt nhập dữ liệu lớn hoặc cập nhật phần mềm.</div></div><button class="btn btn-primary" id="backupBtn">Sao lưu ngay</button></div>
+  <div class="section-head"><div><h2 class="section-title">Sao lưu dữ liệu</h2><div class="small">Mỗi gói sao lưu gồm database SQLite đã kiểm tra toàn vẹn và snapshot ảnh/video/tài liệu đính kèm. Khi chạy thật nên cấu hình thêm QY4_BACKUP_MIRROR_DIR tới ổ/thư mục khác để tránh mất cả dữ liệu chính và backup khi máy chủ hỏng.</div></div><button class="btn btn-primary" id="backupBtn">Sao lưu ngay</button></div>
   <div id="backupStatus" class="muted-note"></div>
   <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Gói sao lưu</th></tr></thead><tbody id="backupRows"></tbody></table></div>
 </section>
