@@ -3,6 +3,12 @@ let META = { departments: [] };
 let USERS = [];
 let AUTH_STATUS = { auth_required:false, ready:true };
 
+function escUser(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[ch]));
+}
+
 function syncUserRoleFields() {
   const role = q("role").value;
   const dept = q("departmentCode");
@@ -28,7 +34,7 @@ function render() {
   const qText = q("searchInput").value.trim().toLowerCase();
   const data = USERS.filter(u => !qText || [u.full_name, u.username, u.role, u.department_name || "", u.phone || ""].join(" ").toLowerCase().includes(qText));
   q("countLabel").textContent = `${data.length} người dùng`;
-  q("rows").innerHTML = data.map((u,i) => `<tr><td>${i+1}</td><td>${u.full_name}</td><td>${u.username}</td><td>${u.role}</td><td>${u.department_name || ""}</td><td>${u.phone || ""}</td><td><span class="tag ${u.has_password ? 'green' : 'yellow'}">${u.has_password ? 'Đã đặt' : 'Chưa đặt'}</span></td><td><span class="tag ${u.status === 'Hoạt động' ? 'green' : 'red'}">${u.status}</span></td><td><div class="actions"><button class="icon-btn" onclick="editUser(${u.id})">✏️</button><button class="icon-btn" onclick="deleteUser(${u.id})">🗑️</button></div></td></tr>`).join("");
+  q("rows").innerHTML = data.map((u,i) => `<tr><td>${i+1}</td><td>${escUser(u.full_name)}</td><td>${escUser(u.username)}</td><td>${escUser(u.role)}</td><td>${escUser(u.department_name || "")}</td><td>${escUser(u.phone || "")}</td><td><span class="tag ${u.has_password ? 'green' : 'yellow'}">${u.has_password ? 'Đã đặt' : 'Chưa đặt'}</span></td><td><span class="tag ${u.status === 'Hoạt động' ? 'green' : 'red'}">${escUser(u.status)}</span></td><td><div class="actions"><button class="icon-btn" type="button" title="Sửa người dùng" onclick="editUser(${Number(u.id)})">✏️</button><button class="icon-btn" type="button" title="Xóa người dùng" onclick="deleteUser(${Number(u.id)})">🗑️</button></div></td></tr>`).join("");
 }
 function editUser(id) {
   const u = USERS.find(x => x.id === id);
