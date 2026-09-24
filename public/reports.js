@@ -152,7 +152,8 @@ function renderKpi(){
     [`≤ ${p.response_target_minutes||30} phút`,`${s.response_within_target_percent||0}%`,`${s.response_within_target||0}/${s.responded_incidents||0} sự cố đã tiếp nhận`],
     ["Đã có kết quả xử lý",s.resolved_incidents||0,"Xử lý tại chỗ hoặc sửa chữa hoàn thành"],
     ["Thời gian xử lý TB",fmtMinutesKpi(s.avg_resolution_minutes),"Từ lúc báo đến khi có kết quả hoàn thành"],
-    ["Đủ mốc tiếp nhận",`${s.response_data_completeness_percent||0}%`,`Còn mở: ${s.open_incidents||0} sự cố`]
+    ["Đủ mốc tiếp nhận",`${s.response_data_completeness_percent||0}%`,`Còn mở: ${s.open_incidents||0} sự cố`],
+    ["Mốc thời gian lỗi",Number(s.invalid_response_timestamps||0)+Number(s.invalid_resolution_timestamps||0),`Tiếp nhận: ${s.invalid_response_timestamps||0}; hoàn thành: ${s.invalid_resolution_timestamps||0}`]
   ];
   q("kpiCards").innerHTML=cards.map(([title,value,desc])=>`<div class="report-kpi-card"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(desc)}</small></div>`).join("");
 
@@ -185,9 +186,13 @@ function renderKpi(){
     : '<tr><td colspan="6" class="center-empty">Chưa có dữ liệu trong khoảng thời gian đã chọn.</td></tr>';
 
   const unknown=Number(s.unknown_source_incidents||0);
-  q("kpiQualityNote").textContent = unknown
-    ? `Lưu ý chất lượng dữ liệu: có ${unknown} sự cố lịch sử chưa xác định được nguồn báo. Không nên quy các bản ghi này là QR hay nhập trực tiếp khi phân tích.`
-    : `Dữ liệu nguồn báo trong kỳ đã được phân loại. Tỷ lệ đáp ứng mục tiêu phản hồi chỉ tính trên ${s.responded_incidents||0} sự cố có mốc tiếp nhận.`;
+  const badResponse=Number(s.invalid_response_timestamps||0);
+  const badResolution=Number(s.invalid_resolution_timestamps||0);
+  const notes=[];
+  if(unknown) notes.push(`Có ${unknown} sự cố lịch sử chưa xác định nguồn báo; không quy các bản ghi này là QR hay nhập trực tiếp.`);
+  if(badResponse||badResolution) notes.push(`Có ${badResponse} mốc tiếp nhận và ${badResolution} mốc hoàn thành sớm hơn thời điểm báo sự cố; các bản ghi này bị loại khỏi KPI thời gian và cần rà soát.`);
+  if(!notes.length) notes.push(`Dữ liệu nguồn báo và thứ tự thời gian trong kỳ hợp lệ. Tỷ lệ đáp ứng mục tiêu phản hồi tính trên ${s.responded_incidents||0} sự cố có mốc tiếp nhận hợp lệ.`);
+  q("kpiQualityNote").textContent = notes.join(" ");
 }
 async function exportKpiExcel(){
   if(!KPI) return;
@@ -205,8 +210,10 @@ async function exportKpiExcel(){
     ["Số thiết bị duy nhất được kiểm tra QR",s.qr_check_unique_devices||0,""],
     ["Lượt QR phát hiện vấn đề",s.qr_check_issue_count||0,""],
     ["Lượt QR bình thường",s.qr_check_normal_count||0,""],
-    ["Sự cố đã có mốc tiếp nhận",s.responded_incidents||0,""],
-    ["Độ đầy đủ mốc tiếp nhận (%)",s.response_data_completeness_percent||0,""],
+    ["Sự cố đã có mốc tiếp nhận hợp lệ",s.responded_incidents||0,"Loại bản ghi có mốc tiếp nhận sớm hơn lúc báo"],
+    ["Mốc tiếp nhận sai thứ tự thời gian",s.invalid_response_timestamps||0,"Không tính vào KPI thời gian"],
+    ["Mốc hoàn thành sai thứ tự thời gian",s.invalid_resolution_timestamps||0,"Không tính vào KPI thời gian"],
+    ["Độ đầy đủ mốc tiếp nhận hợp lệ (%)",s.response_data_completeness_percent||0,""],
     ["Phản hồi trung bình (phút)",s.avg_response_minutes??"",""],
     ["Phản hồi trung vị (phút)",s.median_response_minutes??"",""],
     ["Đáp ứng mục tiêu phản hồi (%)",s.response_within_target_percent||0,`Mẫu số = ${s.responded_incidents||0} sự cố đã có mốc tiếp nhận`],
@@ -220,8 +227,10 @@ async function exportKpiExcel(){
     "Nguồn báo":x.source,
     "Số sự cố":x.count,
     "Tỷ lệ tổng sự cố (%)":s.total_incidents?Number((x.count*100/s.total_incidents).toFixed(1)):0,
-    "Có mốc tiếp nhận":x.responded_incidents||0,
-    "Độ đầy đủ mốc tiếp nhận (%)":x.response_data_completeness_percent||0,
+    "Có mốc tiếp nhận hợp lệ":x.responded_incidents||0,
+    "Mốc tiếp nhận sai thời gian":x.invalid_response_timestamps||0,
+    "Mốc hoàn thành sai thời gian":x.invalid_resolution_timestamps||0,
+    "Độ đầy đủ mốc tiếp nhận hợp lệ (%)":x.response_data_completeness_percent||0,
     "Phản hồi TB (phút)":x.avg_response_minutes??"",
     "Phản hồi trung vị (phút)":x.median_response_minutes??"",
     "Đáp ứng mục tiêu (%)":x.response_within_target_percent||0,
@@ -244,8 +253,9 @@ async function exportKpiExcel(){
     "Mã thiết bị":r.device_code||"","Tên thiết bị":r.device_name||"","Khoa/phòng":r.department_name||r.department_code||"",
     "Nguồn báo":r.source_channel||"Không xác định","Người báo":r.reporter||"",
     "Thời điểm tiếp nhận":r.acknowledged_at||"","Người tiếp nhận":r.acknowledged_by||"",
-    "Phản hồi (phút)":r.response_minutes??"","Hoàn thành":r.repair_completed_at||r.completed_at||"",
-    "Xử lý (phút)":r.resolution_minutes??"","Trạng thái":r.status||"","Mô tả":r.description||""
+    "Phản hồi (phút)":r.response_minutes??"","Mốc tiếp nhận sai thời gian":r.invalid_response_timestamp?"Có":"",
+    "Hoàn thành":r.repair_completed_at||r.completed_at||"","Xử lý (phút)":r.resolution_minutes??"",
+    "Mốc hoàn thành sai thời gian":r.invalid_resolution_timestamp?"Có":"","Trạng thái":r.status||"","Mô tả":r.description||""
   }));
   await exportXlsx(`KPI_su_co_QR_${p.from_date||""}_${p.to_date||""}.xlsx`,[
     {name:"TongHopKPI",mode:"aoa",rows:summary},
