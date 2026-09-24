@@ -3990,7 +3990,9 @@ function validateInspectionPayload(payload) {
   if (!device) return "Thiết bị không tồn tại hoặc đã lưu trữ.";
   if (!payload.inspection_date) return "Vui lòng nhập thời gian thực hiện.";
   if (!payload.type) return "Vui lòng chọn loại kiểm định/hiệu chuẩn.";
+  if (!payload.organization) return "Vui lòng nhập đơn vị thực hiện.";
   if (!["Đạt","Đạt có lưu ý","Không đạt"].includes(payload.result)) return "Kết quả không hợp lệ.";
+  if (payload.next_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(payload.next_date))) return "Hạn tiếp theo không hợp lệ.";
   return "";
 }
 
