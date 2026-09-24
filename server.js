@@ -952,7 +952,7 @@ function seedData() {
         device_code: null,
         insurance_code: "",
         ...device,
-        inspection_required_types: serializeRequiredInspectionTypes(device.inspection_required_types || [])
+        inspection_required_types: JSON.stringify(Array.isArray(device.inspection_required_types) ? device.inspection_required_types : [])
       });
       const deviceId = info.lastInsertRowid;
       device.accessories.forEach(x => insertAccessory.run(deviceId, ...x));
