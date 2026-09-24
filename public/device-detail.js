@@ -181,7 +181,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     generalDepartment:"Khoa sử dụng", generalGroup:"Nhóm thiết bị", generalName:"Tên thiết bị",
     generalDeviceCode:"Mã thiết bị", generalInsuranceCode:"Mã bảo hiểm", generalManufacturer:"Hãng sản xuất", generalModel:"Model", generalSerial:"Serial hãng",
     generalCountry:"Nước sản xuất", generalYearManufactured:"Năm sản xuất", generalYearInUse:"Năm sử dụng",
-    generalWarranty:"Hạn bảo hành", generalStatus:"Tình trạng", generalQuality:"Cấp chất lượng",
+    generalWarranty:"Hạn bảo hành", generalStatus:"Tình trạng", generalQuality:"Cấp chất lượng hồ sơ (1–5)",
     generalCost:"Nguyên giá", generalFunding:"Nguồn kinh phí", generalLocation:"Vị trí đặt máy", generalNote:"Ghi chú / Nội dung"
   });
   if (q("techFromDate")) q("techFromDate").value = firstDayOfYearISO();
