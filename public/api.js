@@ -224,6 +224,10 @@ async function refreshAuthUi() {
       };
     }
     const role = data.user?.role || "";
+    document.body.classList.remove("role-admin","role-engineer","role-department");
+    if(role==="Quản trị viên") document.body.classList.add("role-admin");
+    else if(role==="Kỹ sư TTBYT") document.body.classList.add("role-engineer");
+    else if(role==="Người dùng khoa") document.body.classList.add("role-department");
     document.querySelectorAll(".menu a").forEach(a => {
       const href = a.getAttribute("href") || "";
       if (role === "Người dùng khoa" && !["/index.html"].includes(href)) a.remove();
