@@ -669,6 +669,7 @@ function initDb() {
       note TEXT,
       device_code TEXT,
       insurance_code TEXT,
+      inspection_required_types TEXT DEFAULT '[]',
       FOREIGN KEY (department_code) REFERENCES departments(code),
       FOREIGN KEY (group_code) REFERENCES device_groups(code)
     );
@@ -1049,7 +1050,12 @@ function getDeviceCode(id) {
 
 
 function enrichDevice(device) {
-  return { ...device, device_code: getDeviceCode(device.id), qr_uid: ensureDeviceQrUid(device.id) };
+  return {
+    ...device,
+    device_code: getDeviceCode(device.id),
+    qr_uid: ensureDeviceQrUid(device.id),
+    inspection_required_types: parseRequiredInspectionTypes(device.inspection_required_types)
+  };
 }
 
 function ensureDeviceCodeColumnsAndData() {
@@ -1132,6 +1138,8 @@ function ensureCoreManagementSchema() {
   if (!cols.includes("qr_uid")) db.prepare("ALTER TABLE devices ADD COLUMN qr_uid TEXT").run();
   if (!cols.includes("is_archived")) db.prepare("ALTER TABLE devices ADD COLUMN is_archived INTEGER DEFAULT 0").run();
   if (!cols.includes("archived_at")) db.prepare("ALTER TABLE devices ADD COLUMN archived_at TEXT").run();
+  if (!cols.includes("inspection_required_types")) db.prepare("ALTER TABLE devices ADD COLUMN inspection_required_types TEXT DEFAULT '[]'").run();
+  db.prepare("UPDATE devices SET inspection_required_types='[]' WHERE inspection_required_types IS NULL OR trim(inspection_required_types)=''").run();
 
   const checkCols = db.prepare("PRAGMA table_info(daily_checks)").all().map(c => c.name);
   if (!checkCols.includes("source_channel")) db.prepare("ALTER TABLE daily_checks ADD COLUMN source_channel TEXT").run();
@@ -1926,7 +1934,12 @@ function buildDevicePayload(input = {}, current = null) {
     location:text(src.location, old.location),
     note:text(src.note, old.note),
     device_code:text(src.device_code, old.device_code),
-    insurance_code:text(src.insurance_code, old.insurance_code)
+    insurance_code:text(src.insurance_code, old.insurance_code),
+    inspection_required_types: serializeRequiredInspectionTypes(
+      Object.prototype.hasOwnProperty.call(src, "inspection_required_types")
+        ? src.inspection_required_types
+        : old.inspection_required_types
+    )
   };
 }
 function validateDevicePayload(payload) {
@@ -1960,8 +1973,8 @@ app.post("/api/devices", (req, res) => {
       return res.status(409).json({ error:`Serial ${payload.serial} đã có ở ${serialDuplicate.device_code || "thiết bị #"+serialDuplicate.id}. Hãy kiểm tra lại trước khi lưu.` });
     }
     const info = db.prepare(`
-      INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
-      VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
+      INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code,inspection_required_types)
+      VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code,@inspection_required_types)
     `).run(payload);
     const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
     writeAudit(requestActor(req), "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
@@ -2002,7 +2015,8 @@ app.put("/api/devices/:id", (req, res) => {
         department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
         model=@model, year_in_use=@year_in_use, warranty_end=@warranty_end, status=@status, quality_level=@quality_level, serial=@serial,
         country=@country, year_manufactured=@year_manufactured, cost=@cost, funding=@funding, location=@location, note=@note,
-        device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code
+        device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code,
+        inspection_required_types=@inspection_required_types
       WHERE id=@id
     `).run({ ...payload, id: Number(req.params.id) });
     ensureDeviceQrUid(req.params.id);
@@ -2617,6 +2631,37 @@ function latestDeviceInspection(deviceId) {
 function normalizeScheduleText(value) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
 }
+const INSPECTION_REQUIREMENT_TYPES = Object.freeze([
+  "Kiểm định",
+  "Hiệu chuẩn",
+  "Kiểm xạ",
+  "Kiểm định an toàn bức xạ"
+]);
+function parseRequiredInspectionTypes(value) {
+  let items = value;
+  if (!Array.isArray(items)) {
+    const raw = String(value || "").trim();
+    if (!raw) items = [];
+    else {
+      try {
+        const parsed = JSON.parse(raw);
+        items = Array.isArray(parsed) ? parsed : [raw];
+      } catch {
+        items = raw.split(/[;,|]/g);
+      }
+    }
+  }
+  const allowed = new Set(INSPECTION_REQUIREMENT_TYPES);
+  const normalized = [];
+  for (const item of items) {
+    const type = normalizeInspectionScheduleType(item);
+    if (allowed.has(type) && !normalized.includes(type)) normalized.push(type);
+  }
+  return normalized;
+}
+function serializeRequiredInspectionTypes(value) {
+  return JSON.stringify(parseRequiredInspectionTypes(value));
+}
 function normalizeInspectionScheduleType(value) {
   const raw = String(value || "").trim();
   const key = normalizeScheduleText(raw);
@@ -2664,6 +2709,40 @@ function activeMaintenanceSchedules() {
     WHERE COALESCE(dv.is_archived,0)=0
   `).all();
   return latestScheduledRows(rows, "maintenance_date", normalizeMaintenanceScheduleType);
+}
+function requiredInspectionScheduleGaps() {
+  const schedules = activeInspectionSchedules();
+  const byKey = new Map(
+    schedules.map(row => [
+      `${Number(row.device_id)}|${normalizeInspectionScheduleType(row.schedule_type || row.type)}`,
+      row
+    ])
+  );
+  const devices = db.prepare(`
+    SELECT dv.*, d.name AS department_name, g.name AS group_name
+    FROM devices dv
+    LEFT JOIN departments d ON d.code=dv.department_code
+    LEFT JOIN device_groups g ON g.code=dv.group_code
+    WHERE COALESCE(dv.is_archived,0)=0
+      AND COALESCE(TRIM(dv.inspection_required_types),'') NOT IN ('','[]')
+    ORDER BY dv.department_code,dv.name,dv.id
+  `).all();
+  const gaps = [];
+  for (const device of devices) {
+    for (const obligationType of parseRequiredInspectionTypes(device.inspection_required_types)) {
+      const inspection = byKey.get(`${Number(device.id)}|${obligationType}`) || null;
+      const hasNextDate = Boolean(String(inspection?.next_date || "").trim());
+      if (inspection && hasNextDate) continue;
+      gaps.push({
+        ...enrichDevice(device),
+        obligation_type: obligationType,
+        schedule_issue: inspection ? "Chưa đặt hạn tiếp theo" : "Chưa có hồ sơ",
+        inspection: inspection ? { ...inspection, schedule_type: obligationType } : {},
+        last_date: String(inspection?.inspection_date || "").slice(0,10)
+      });
+    }
+  }
+  return gaps;
 }
 function latestScheduleByDate(rows, dateField) {
   let latest = null;
@@ -4128,8 +4207,12 @@ app.get("/api/dashboard/operations", (req, res) => {
     WHERE r.completed_at IS NOT NULL AND r.completed_at<>'' AND i.incident_datetime IS NOT NULL
   `).get().v || 0);
   const inspectionSchedules = activeInspectionSchedules();
+  const inspectionGaps = requiredInspectionScheduleGaps();
   const dueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
   const overdueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
+  const missingInspectionSchedule = inspectionGaps.length;
+  const missingInspectionRecord = inspectionGaps.filter(x => x.schedule_issue === "Chưa có hồ sơ").length;
+  const missingInspectionNextDate = inspectionGaps.filter(x => x.schedule_issue === "Chưa đặt hạn tiếp theo").length;
   const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs r JOIN devices d ON d.id=r.device_id WHERE COALESCE(d.is_archived,0)=0 AND r.processing_status='Chờ linh kiện'").get().c;
   const qrChecksToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=?").get(today).c;
   const qrIssuesToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=? AND result='Có vấn đề'").get(today).c;
@@ -4143,7 +4226,13 @@ app.get("/api/dashboard/operations", (req, res) => {
     GROUP BY substr(incident_datetime,1,7)
     ORDER BY month
   `).all(monthStart);
-  res.json({ today, timeZone:APP_TIME_ZONE, total, active, limited, operational, repairing, stopped, openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents });
+  res.json({
+    today, timeZone:APP_TIME_ZONE, total, active, limited, operational, repairing, stopped,
+    openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection,
+    missingInspectionSchedule, missingInspectionRecord, missingInspectionNextDate,
+    missingInspectionSchedules: inspectionGaps.slice(0,12),
+    waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents
+  });
 });
 
 app.get("/api/audit-logs", (req, res) => {
@@ -4458,6 +4547,7 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const today = localDateISO();
   const plus30 = localDatePlusDays(30);
   const inspectionSchedules = activeInspectionSchedules();
+  const inspectionGaps = requiredInspectionScheduleGaps();
   const maintenanceSchedules = activeMaintenanceSchedules();
   const dueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
   const overdueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
@@ -4465,7 +4555,7 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const overdueMaint = maintenanceSchedules.filter(x => x.next_date && x.next_date < today).length;
   const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY quality_level ORDER BY quality_level").all();
   const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code AND COALESCE(dv.is_archived,0)=0 GROUP BY d.code,d.name ORDER BY count DESC`).all();
-  res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, dueMaint, overdueMaint, quality, byDept });
+  res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, missingInspectionSchedule:inspectionGaps.length, dueMaint, overdueMaint, quality, byDept });
 });
 
 app.get("/api/reports/summary", (req, res) => {
@@ -4528,6 +4618,7 @@ app.get("/api/reports/summary", (req, res) => {
       .filter(i => i.next_date && i.next_date < today)
       .map(i => ({...d, inspection:i, obligation_type:i.schedule_type || i.type || "Kiểm định/Hiệu chuẩn"}))
   );
+  const inspectionMissingSchedule = requiredInspectionScheduleGaps();
   const frequentRepairs = enriched.filter(d => Number(d.repair.repair_count || 0) >= 2).sort((a,b)=>Number(b.repair.repair_count)-Number(a.repair.repair_count));
   const replaceList = enriched.filter(d => ["Chờ sửa chữa","Ngừng hoạt động","Hoạt động hạn chế"].includes(d.status) || Number(d.quality_level || 3) >= 4 || Number(d.repair.repair_count || 0) >= 3);
   const costByDepartment = db.prepare(`
@@ -4540,7 +4631,7 @@ app.get("/api/reports/summary", (req, res) => {
     ORDER BY total_cost DESC
   `).all();
   const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY status ORDER BY count DESC").all();
-  res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, frequentRepairs, replaceList, costByDepartment, statusRatio });
+  res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, inspectionMissingSchedule, frequentRepairs, replaceList, costByDepartment, statusRatio });
 });
 
 app.get("/api/reports/data-quality", (req, res) => {
