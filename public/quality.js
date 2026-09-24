@@ -20,14 +20,23 @@ function render(data){
   </tr>`).join(''):'<tr><td colspan="14" class="center-empty">Chưa có dữ liệu.</td></tr>';
 }
 function applyFilter(){const text=q('searchInput').value.toLowerCase(); const grade=q('gradeFilter').value; FILTERED=ROWS.filter(r=>(!text||[r.device_code,r.device_name,r.department_code,r.evaluator].join(' ').toLowerCase().includes(text))&&(grade==='ALL'||r.grade===grade)); render(FILTERED);}
+function updateScorePreview(){
+  const ids=['ageScore','performanceScore','repairScore','inspectionScore','sparepartScore'];
+  const values=ids.map(id=>q(id).value);
+  if(values.some(v=>v==='')){q('scorePreview').textContent='Nhập đủ 5 tiêu chí để xem tổng điểm và cấp dự kiến.';return;}
+  const total=values.reduce((sum,v)=>sum+Number(v||0),0);
+  const grade=total>=90?'A':total>=80?'B':total>=65?'C':'D';
+  q('scorePreview').textContent=`Tổng điểm dự kiến: ${total}/100 • Cấp ${grade}`;
+}
 function resetForm(){
   q('form').reset();
   q('ratingId').value='';
   q('deviceId').disabled=false;
   q('ratingDate').value=todayISO();
   q('evaluator').value=window.QY4_AUTH_USER?.full_name || "";
-  q('ageScore').value=25; q('performanceScore').value=25; q('repairScore').value=20; q('inspectionScore').value=15; q('sparepartScore').value=15;
+  ['ageScore','performanceScore','repairScore','inspectionScore','sparepartScore'].forEach(id=>q(id).value='');
   q('saveBtn').textContent='Lưu đánh giá mới';
+  updateScorePreview();
 }
 function editRow(id){
   const r=ROWS.find(x=>Number(x.id)===Number(id)); if(!r)return;
@@ -39,13 +48,15 @@ function editRow(id){
   q('ageScore').value=r.age_score||0; q('performanceScore').value=r.performance_score||0; q('repairScore').value=r.repair_score||0; q('inspectionScore').value=r.inspection_score||0; q('sparepartScore').value=r.sparepart_score||0;
   q('recommendation').value=r.recommendation||''; q('note').value=r.note||'';
   q('saveBtn').textContent='Cập nhật đánh giá';
+  updateScorePreview();
   q('form').scrollIntoView({behavior:'smooth'});
 }
 async function load(){DEVICES=await api('/api/devices'); ROWS=await api('/api/quality-ratings'); q('deviceId').innerHTML=DEVICES.map(d=>`<option value="${Number(d.id)}">${escQ(d.device_code)} - ${escQ(d.name)}</option>`).join(''); applyFilter();}
 async function exportExcel(){const rows=FILTERED.map(r=>({'Mã thiết bị':r.device_code,'Tên thiết bị':r.device_name,'Khoa':r.department_code,'Ngày đánh giá':r.rating_date,'Người đánh giá':r.evaluator||'','Tổng điểm':r.total_score,'Cấp':r.grade,'Mới nhất':Number(r.is_latest||0)===1?'Có':'Không','Khuyến nghị':r.recommendation,'Ghi chú':r.note})); await exportXlsx('phan_cap_chat_luong.xlsx',[{name:'PhanCap',rows}]);}
 document.addEventListener('DOMContentLoaded',async()=>{
-  setLayout('quality','Phân cấp chất lượng','Lưu từng lần đánh giá A/B/C/D để theo dõi diễn biến chất lượng thiết bị');
+  setLayout('quality','Đánh giá chất lượng A–D','Theo dõi lịch sử đánh giá nội bộ theo 5 tiêu chí; không thay thế kiểm định/hiệu chuẩn');
   await load(); resetForm();
+  ['ageScore','performanceScore','repairScore','inspectionScore','sparepartScore'].forEach(id=>q(id).addEventListener('input',updateScorePreview));
   q('filterBtn').onclick=applyFilter; q('searchInput').oninput=applyFilter; q('gradeFilter').onchange=applyFilter; q('exportBtn').onclick=exportExcel; q('resetBtn').onclick=resetForm;
   q('form').onsubmit=async e=>{
     e.preventDefault();
