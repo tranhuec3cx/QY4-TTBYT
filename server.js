@@ -154,6 +154,20 @@ app.use((req, res, next) => {
   next();
 });
 
+function roleHomePath(user){
+  return user?.role==="Người dùng khoa" ? "/index.html" : "/dashboard.html";
+}
+function roleCanAccessPage(user,page){
+  if(!user) return false;
+  if(user.role==="Quản trị viên") return true;
+  if(user.role==="Kỹ sư TTBYT"){
+    return !["/settings.html","/users.html","/settings-system.html","/departments.html","/groups.html","/categories.html"].includes(page);
+  }
+  if(user.role==="Người dùng khoa"){
+    return ["/index.html","/device-detail.html"].includes(page);
+  }
+  return false;
+}
 app.use((req,res,next)=>{
   if(!AUTH_REQUIRED || req.method!=="GET") return next();
   const page=String(req.path || "");
@@ -161,12 +175,15 @@ app.use((req,res,next)=>{
   if(!isHtmlPage) return next();
   if(["/login.html","/inspect.html","/qr-check.html"].includes(page)) return next();
   const user=readAuthenticatedUser(req);
-  if(user){
-    req.authUser=user;
-    return next();
+  if(!user){
+    const target=String(req.originalUrl || page || "/");
+    return res.redirect(302,`/login.html?next=${encodeURIComponent(target)}`);
   }
-  const target=String(req.originalUrl || page || "/");
-  return res.redirect(302,`/login.html?next=${encodeURIComponent(target)}`);
+  req.authUser=user;
+  const effectivePage=page==="/" ? roleHomePath(user) : page;
+  if(page==="/") return res.redirect(302,roleHomePath(user));
+  if(!roleCanAccessPage(user,effectivePage)) return res.redirect(302,roleHomePath(user));
+  next();
 });
 
 app.use(express.static(path.join(__dirname, "public")));
