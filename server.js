@@ -2645,6 +2645,7 @@ app.get("/api/maintenances", (req, res) => {
     SELECT
       m.*,
       dv.name AS device_name,
+      COALESCE(dv.is_archived,0) AS is_archived,
       COALESCE(NULLIF(m.department_code_snapshot,''), dv.department_code) AS department_code,
       dv.group_code,
       COALESCE(NULLIF(m.location_snapshot,''), dv.location) AS location,
@@ -3587,7 +3588,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
 
 app.get("/api/inspections", (req, res) => {
   const rows = db.prepare(`
-    SELECT i.*, dv.name AS device_name,
+    SELECT i.*, dv.name AS device_name, COALESCE(dv.is_archived,0) AS is_archived,
            COALESCE(NULLIF(i.department_code_snapshot,''), dv.department_code) AS department_code,
            dv.group_code,
            COALESCE(NULLIF(i.location_snapshot,''), dv.location) AS location,
