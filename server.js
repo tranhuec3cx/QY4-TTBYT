@@ -4382,6 +4382,7 @@ app.get("/api/audit-logs", (req, res) => {
 });
 
 const backupDir = path.join(__dirname, "backups");
+const backupMirrorDir = String(process.env.QY4_BACKUP_MIRROR_DIR || "").trim();
 function listDatabaseBackups() {
   fs.mkdirSync(backupDir, { recursive: true });
   return fs.readdirSync(backupDir).filter(x => /^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
@@ -4401,6 +4402,49 @@ function snapshotDirectoryWithHardlinks(sourceDir, targetDir) {
       try { fs.linkSync(src,dst); }
       catch { fs.copyFileSync(src,dst); }
     }
+  }
+}
+function copyDirectoryRecursive(sourceDir,targetDir){
+  fs.mkdirSync(targetDir,{recursive:true});
+  if(!fs.existsSync(sourceDir)) return;
+  for(const entry of fs.readdirSync(sourceDir,{withFileTypes:true})){
+    const src=path.join(sourceDir,entry.name);
+    const dst=path.join(targetDir,entry.name);
+    if(entry.isDirectory()) copyDirectoryRecursive(src,dst);
+    else if(entry.isFile()) fs.copyFileSync(src,dst);
+  }
+}
+function mirrorFilesDirFor(filename){
+  return backupMirrorDir ? path.join(backupMirrorDir,String(filename||"").replace(/\.sqlite$/i,".files")) : "";
+}
+function mirrorBackupBundle(filename){
+  if(!backupMirrorDir || !filename) return {configured:false,ok:false};
+  fs.mkdirSync(backupMirrorDir,{recursive:true});
+  const localDb=path.join(backupDir,filename);
+  const localFiles=backupFilesDirFor(filename);
+  const mirrorDb=path.join(backupMirrorDir,filename);
+  const mirrorFiles=mirrorFilesDirFor(filename);
+  fs.copyFileSync(localDb,mirrorDb);
+  fs.rmSync(mirrorFiles,{recursive:true,force:true});
+  copyDirectoryRecursive(localFiles,mirrorFiles);
+  return {configured:true,ok:fs.existsSync(mirrorDb)&&fs.existsSync(mirrorFiles),path:backupMirrorDir};
+}
+function inspectMirrorBackup(filename){
+  if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false};
+  return {
+    configured:true,
+    exists:fs.existsSync(path.join(backupMirrorDir,filename||"")),
+    files_exists:fs.existsSync(mirrorFilesDirFor(filename)),
+    path:backupMirrorDir
+  };
+}
+function pruneMirrorBackups(){
+  if(!backupMirrorDir || !fs.existsSync(backupMirrorDir)) return;
+  const keep=Math.max(3,Number(process.env.QY4_BACKUP_KEEP || 30));
+  const files=fs.readdirSync(backupMirrorDir).filter(x=>/^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
+  for(const name of files.slice(keep)){
+    try{fs.unlinkSync(path.join(backupMirrorDir,name));}catch{}
+    try{fs.rmSync(mirrorFilesDirFor(name),{recursive:true,force:true});}catch{}
   }
 }
 function removeBackupBundle(filename) {
@@ -4469,7 +4513,18 @@ async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu d
     fs.rmSync(filesTarget,{recursive:true,force:true});
     snapshotDirectoryWithHardlinks(path.join(__dirname,"uploads"), filesTarget);
     pruneDatabaseBackups();
-    writeAudit(actor, reason, "system", filename, `${target} + ${filesTarget}`);
+    let mirrorNote="";
+    if(backupMirrorDir){
+      try{
+        const mirrored=mirrorBackupBundle(filename);
+        pruneMirrorBackups();
+        mirrorNote=mirrored.ok ? ` + mirror ${backupMirrorDir}` : " + mirror chưa hoàn chỉnh";
+      }catch(mirrorError){
+        mirrorNote=` + mirror lỗi: ${mirrorError.message}`;
+        console.warn("Backup mirror error:",mirrorError.message);
+      }
+    }
+    writeAudit(actor, reason, "system", filename, `${target} + ${filesTarget}${mirrorNote}`);
     return filename;
   } catch (e) {
     removeBackupBundle(filename);
@@ -4491,6 +4546,7 @@ app.get("/api/system/readiness", (req, res) => {
   const backups = listDatabaseBackups();
   const latestBackup = backups[0] || "";
   const latestBackupStatus = inspectBackupBundle(latestBackup);
+  const latestMirrorStatus = inspectMirrorBackup(latestBackup);
   const origins = getLanQrOrigins(req);
   const recommendedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
   const totalDevices = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
@@ -4582,6 +4638,16 @@ app.get("/api/system/readiness", (req, res) => {
                 : (latestBackupStatus.sessions>0
                     ? `Bản backup mới nhất còn ${latestBackupStatus.sessions} session đăng nhập; hãy tạo lại backup bằng phiên bản hiện tại.`
                     : `Có ${backups.length} gói backup; mới nhất: ${latestBackup}, quick_check=ok, tuổi ${Number(latestBackupStatus.age_hours||0).toFixed(1)} giờ, kèm snapshot uploads.`)))
+    },
+    {
+      key:"backup_off_device",
+      level:!backupMirrorDir ? "Lưu ý" : (latestMirrorStatus.exists && latestMirrorStatus.files_exists ? "Đạt" : "Cần xử lý"),
+      title:"Bản sao lưu thứ cấp ngoài máy chủ",
+      detail:!backupMirrorDir
+        ? "Chưa cấu hình QY4_BACKUP_MIRROR_DIR. Backup hiện vẫn nằm trên cùng máy chủ; nên sao chép định kỳ sang USB/ổ khác/thư mục mạng được phép."
+        : (latestMirrorStatus.exists && latestMirrorStatus.files_exists
+            ? `Gói backup mới nhất đã được sao chép sang ${backupMirrorDir}.`
+            : `Đã cấu hình ${backupMirrorDir} nhưng gói backup mới nhất chưa có đủ database + file đính kèm tại vị trí thứ cấp.`)
     },
     {
       key:"qr_origin",
@@ -4677,6 +4743,9 @@ app.get("/api/system/readiness", (req, res) => {
       latest_backup:latestBackup,
       latest_backup_integrity:latestBackupStatus.integrity,
       latest_backup_age_hours:latestBackupStatus.age_hours,
+      backup_mirror_configured:Boolean(backupMirrorDir),
+      backup_mirror_dir:backupMirrorDir,
+      latest_backup_mirrored:Boolean(latestMirrorStatus.exists && latestMirrorStatus.files_exists),
       missing_inspection_schedules:inspectionScheduleGaps.length,
       missing_inspection_records:missingInspectionRecords,
       missing_inspection_next_dates:missingInspectionNextDates,
