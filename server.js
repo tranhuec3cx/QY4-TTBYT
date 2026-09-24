@@ -2147,6 +2147,17 @@ app.delete("/api/devices/:id", (req, res) => {
   res.json({ ok: true, archived: true, qr_uid: ensureDeviceQrUid(id) });
 });
 
+function repairDeletePolicy(repair) {
+  if (!repair) return { can_delete:false, reason:"Không tìm thấy phiếu sửa chữa." };
+  if (repair.incident_id) return { can_delete:false, reason:"Phiếu được tạo từ sự cố nên phải giữ để bảo toàn chuỗi hồ sơ." };
+  const status=normalizeRepairStatus(repair.processing_status || "Đang xử lý");
+  if (status !== "Đang xử lý") return { can_delete:false, reason:"Chỉ phiếu độc lập đang xử lý mới có thể xóa khi nhập nhầm." };
+  const historyCount=db.prepare("SELECT COUNT(*) c FROM activity_history WHERE module='repair' AND record_id=?").get(Number(repair.id)).c;
+  if (historyCount > 1) return { can_delete:false, reason:"Phiếu đã có lịch sử xử lý quan trọng." };
+  if (!String(repair.status_before || "").trim()) return { can_delete:false, reason:"Phiếu cũ thiếu trạng thái thiết bị trước sửa chữa nên không thể khôi phục an toàn." };
+  return { can_delete:true, reason:"Chỉ dùng khi phiếu độc lập được tạo nhầm và chưa có lịch sử xử lý quan trọng." };
+}
+
 app.get("/api/repairs", (req, res) => {
   const rows = db.prepare(`
     SELECT
@@ -2168,7 +2179,11 @@ app.get("/api/repairs", (req, res) => {
     LEFT JOIN departments d ON d.code = COALESCE(NULLIF(r.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY r.id DESC
-  `).all().map(r => ({ ...r, processing_status: normalizeRepairStatus(r.processing_status), device_code: getDeviceCode(r.device_id) }));
+  `).all().map(r => {
+    const normalized={ ...r, processing_status: normalizeRepairStatus(r.processing_status), device_code: getDeviceCode(r.device_id) };
+    const policy=repairDeletePolicy(normalized);
+    return { ...normalized, can_delete:policy.can_delete, delete_reason:policy.reason };
+  });
   res.json(rows);
 });
 
@@ -2356,17 +2371,8 @@ app.delete("/api/repairs/:id", (req, res) => {
     const id=Number(req.params.id);
     const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(id);
     if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
-    if (old.incident_id) {
-      return res.status(400).json({ error: "Phiếu sửa chữa được tạo từ sự cố nên không được xóa để bảo toàn chuỗi hồ sơ. Hãy cập nhật kết quả xử lý trên phiếu." });
-    }
-    const status = normalizeRepairStatus(old.processing_status || "Đang xử lý");
-    const historyCount = db.prepare("SELECT COUNT(*) c FROM activity_history WHERE module='repair' AND record_id=?").get(id).c;
-    if (status !== "Đang xử lý" || historyCount > 1) {
-      return res.status(400).json({ error: "Chỉ được xóa phiếu sửa chữa độc lập khi đang xử lý và chưa có lịch sử xử lý quan trọng." });
-    }
-    if (!String(old.status_before || "").trim()) {
-      return res.status(400).json({ error: "Phiếu cũ chưa lưu trạng thái thiết bị trước sửa chữa; không xóa tự động để tránh khôi phục sai trạng thái." });
-    }
+    const policy=repairDeletePolicy(old);
+    if(!policy.can_delete) return res.status(409).json({error:policy.reason});
     const tx=db.transaction(()=>{
       writeHistory("repair", id, old.person || "Khoa Trang bị", "Xóa", old.processing_status || "", "", old.issue || old.work || "Xóa phiếu sửa chữa", old.cost || 0, "Cập nhật");
       db.prepare("DELETE FROM repairs WHERE id=?").run(id);
