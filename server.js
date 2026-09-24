@@ -2671,8 +2671,14 @@ app.put("/api/operation-logs/:id", (req, res) => {
     };
     if(!payload.log_datetime) return res.status(400).json({error:"Thời gian vận hành không hợp lệ."});
     if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
+    const operationContext = historicalDeviceContext(old.device_id, payload.log_datetime);
+    payload.department_code = String(operationContext.department_code || old.department_code_snapshot || old.department_code || "").trim();
+    payload.department_code_snapshot = payload.department_code;
+    payload.location_snapshot = String(operationContext.location ?? old.location_snapshot ?? "").trim();
     db.prepare(`
-      UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code, usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
+      UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code,
+          department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot,
+          usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
       WHERE id=@id
     `).run(payload);
     writeAudit(requestActor(req,payload.user_name),"Cập nhật nhật ký vận hành","operation_log",id,`${old.log_datetime || ""} → ${payload.log_datetime}`);
@@ -2778,6 +2784,9 @@ app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
       cleanupSingleUpload(req);
       return res.status(400).json({error:"Ngày tài liệu phải là ngày hợp lệ theo YYYY-MM-DD."});
     }
+    const documentContext = historicalDeviceContext(old.device_id, payload.doc_date);
+    payload.department_code_snapshot = String(documentContext.department_code || old.department_code_snapshot || "").trim();
+    payload.location_snapshot = String(documentContext.location ?? old.location_snapshot ?? "").trim();
     db.prepare(`
       UPDATE documents SET
         name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
@@ -3387,8 +3396,12 @@ app.post("/api/checks", (req, res) => {
       department_code_snapshot:device.department_code || "",
       location_snapshot:device.location || ""
     };
+    if(!payload.check_datetime) return res.status(400).json({error:"Thời gian kiểm tra không hợp lệ."});
     if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
     if(!["Bình thường","Có vấn đề"].includes(payload.result)) return res.status(400).json({error:"Kết quả kiểm tra không hợp lệ."});
+    const checkContext = historicalDeviceContext(deviceId, payload.check_datetime);
+    payload.department_code_snapshot = String(checkContext.department_code || "").trim();
+    payload.location_snapshot = String(checkContext.location || "").trim();
     const info = db.prepare(`
       INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
       VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note,@source_channel,@department_code_snapshot,@location_snapshot)
@@ -3417,11 +3430,18 @@ app.put("/api/checks/:id", (req, res) => {
       result:isQr ? String(old.result || "").trim() : String(p.result ?? old.result ?? "").trim(),
       note:p.note ?? old.note ?? ""
     };
+    if(!payload.check_datetime) return res.status(400).json({error:"Thời gian kiểm tra không hợp lệ."});
     if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
     if(!["Bình thường","Có vấn đề"].includes(payload.result)) return res.status(400).json({error:"Kết quả kiểm tra không hợp lệ."});
+    const checkContext = isQr
+      ? {department_code:old.department_code_snapshot,location:old.location_snapshot}
+      : historicalDeviceContext(old.device_id, payload.check_datetime);
+    payload.department_code_snapshot = String(checkContext.department_code || old.department_code_snapshot || "").trim();
+    payload.location_snapshot = String(checkContext.location ?? old.location_snapshot ?? "").trim();
     db.prepare(`
       UPDATE daily_checks
-      SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note
+      SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note,
+          department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot
       WHERE id=@id
     `).run(payload);
     writeHistory("check", id, payload.inspector, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
@@ -3688,6 +3708,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       return res.status(400).json({ error:"Thiết bị không tồn tại hoặc đã lưu trữ." });
     }
     const deviceChanged = Number(old.device_id) !== Number(payload.device_id);
+    const incidentDateChanged = String(old.incident_datetime || "") !== String(payload.incident_datetime || "");
     if (deviceChanged && linkedRepair) {
       cleanupUploadedFiles(req.files);
       return res.status(400).json({ error:"Không thể đổi thiết bị sau khi sự cố đã chuyển sang sửa chữa." });
@@ -3697,7 +3718,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       SET device_id=@device_id, incident_datetime=@incident_datetime, description=@description, severity=@severity, reporter=@reporter, reporter_phone=@reporter_phone, status=@status, note=@note, local_resolution_note=@local_resolution_note
       WHERE id=@id
     `).run(payload);
-    if (deviceChanged) replaceIncidentSnapshot(Number(req.params.id), payload.device_id, payload.reporter);
+    if (deviceChanged || incidentDateChanged) replaceIncidentSnapshot(Number(req.params.id), payload.device_id, payload.reporter);
     else touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
     const receivingActor = String(req.authUser?.full_name || p.acknowledged_by || requestActor(req)).trim();
     if (payload.status === "Đã tiếp nhận" && !old.acknowledged_at) {
@@ -4140,7 +4161,10 @@ app.put("/api/inspections/:id", (req, res) => {
     }
     const error=validateInspectionPayload(payload);
     if(error) return res.status(400).json({error});
-    db.prepare(`UPDATE inspections SET inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note WHERE id=@id`).run({...payload,id});
+    const inspectionContext = historicalDeviceContext(old.device_id, payload.inspection_date);
+    payload.department_code_snapshot = String(inspectionContext.department_code || old.department_code_snapshot || "").trim();
+    payload.location_snapshot = String(inspectionContext.location ?? old.location_snapshot ?? "").trim();
+    db.prepare(`UPDATE inspections SET inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note, department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot WHERE id=@id`).run({...payload,id});
     writeAudit(requestActor(req), "Cập nhật kiểm định/hiệu chuẩn", "inspection", id, `${payload.type} | ${payload.certificate_no}`);
     res.json({ ok: true });
   } catch(e) {
