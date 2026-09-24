@@ -584,6 +584,7 @@ jobs:
         run: |
           BASE=http://127.0.0.1:5000
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          HISTORY_DAY=$(node -e 'const p=process.argv[1].split("-").map(Number);const d=new Date(Date.UTC(p[0],p[1]-1,p[2]-1,12));process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
 
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị snapshot kỹ thuật","manufacturer":"Test","model":"CTX-01","year_in_use":2026,"status":"Đang hoạt động","serial":"CTX-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"location":"Vị trí lịch sử A","actor":"CI"}' >/tmp/context-device.json
           CTX_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-device.json","utf8")).id')
@@ -593,7 +594,7 @@ jobs:
           REPAIR_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),repair_date:process.argv[2]+" 08:00",issue:"Kiểm thử snapshot sửa chữa",work:"Hoàn tất",person:"CI",method:"Nội bộ",cost:7654321,result:"Đạt",processing_status:"Đã hoàn thành",status_after:"Đang hoạt động"}))' "$CTX_DEVICE" "$TODAY")
           curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "$REPAIR_JSON" >/tmp/context-repair.json
           CTX_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-repair.json","utf8")).id')
-          curl -fsS -X POST "$BASE/api/maintenances" -F "device_id=$CTX_DEVICE" -F "maintenance_date=$TODAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Snapshot bảo dưỡng" -F "result=Đạt" -F "performer=CI" >/tmp/context-maint.json
+          curl -fsS -X POST "$BASE/api/maintenances" -F "device_id=$CTX_DEVICE" -F "maintenance_date=$HISTORY_DAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Snapshot bảo dưỡng" -F "result=Đạt" -F "performer=CI" >/tmp/context-maint.json
           CTX_MAINT=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-maint.json","utf8")).id')
           INSPECTION_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"CTX-CERT",result:"Đạt",next_date:"",file_note:"",note:"Snapshot kiểm định"}))' "$CTX_DEVICE" "$TODAY")
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$INSPECTION_JSON" >/tmp/context-inspection.json
@@ -644,7 +645,7 @@ jobs:
           if(cost(before,"TST2")!==cost(after,"TST2")) throw new Error("repair cost moved into current department after transfer");
           NODE
 
-          CODE=$(curl -s -o /tmp/context-maint-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/maintenances/$CTX_MAINT" -F "device_id=$CTX_OTHER" -F "maintenance_date=$TODAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Không được đổi máy" -F "result=Đạt" -F "performer=CI")
+          CODE=$(curl -s -o /tmp/context-maint-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/maintenances/$CTX_MAINT" -F "device_id=$CTX_OTHER" -F "maintenance_date=$HISTORY_DAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Không được đổi máy" -F "result=Đạt" -F "performer=CI")
           test "$CODE" = "409"
           INSPECTION_MOVE_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"CTX-CERT",result:"Đạt",next_date:"",file_note:"",note:"Không được đổi máy"}))' "$CTX_OTHER" "$TODAY")
           CODE=$(curl -s -o /tmp/context-inspection-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/inspections/$CTX_INSP" -H 'Content-Type: application/json' --data "$INSPECTION_MOVE_JSON")
@@ -956,7 +957,7 @@ jobs:
           CODE=$(curl -s -o /tmp/inv-bad-location.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
           curl -fsS -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng B","note":"CI mismatch","updated_by":"CI"}' >/tmp/inv-valid.json
-          INV_TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 16:00:00",to_department_code:"INV",to_location:"Phòng B",actor:"CI",reason:"Điều chuyển theo kiểm kê CI",note:"Giữ sai lệch trong biên bản kiểm kê"}))' "$TODAY")
+          INV_TRANSFER_JSON='{"to_department_code":"INV","to_location":"Phòng B","actor":"CI","reason":"Điều chuyển theo kiểm kê CI","note":"Giữ sai lệch trong biên bản kiểm kê"}'
           CODE=$(curl -s -o /tmp/inv-transfer-open.json -w '%{http_code}' -X POST "$BASE/api/devices/$INV_DEVICE/transfer" -H 'Content-Type: application/json' --data "$INV_TRANSFER_JSON")
           test "$CODE" = "409"
           curl -fsS "$BASE/api/devices/$INV_DEVICE" >/tmp/inv-device-before-complete.json
