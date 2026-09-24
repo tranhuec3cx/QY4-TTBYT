@@ -867,6 +867,12 @@ jobs:
           })().catch(e=>{console.error(e);process.exit(1);});
           NODE
 
+          grep -q "params.get('device_id')" public/inspections.js
+          grep -q "params.get('type')" public/inspections.js
+          grep -q 'inspectionEntryHref' public/dashboard.js
+          grep -q 'Lập hồ sơ' public/dashboard.js
+          echo "Missing schedule direct-action UI guards passed"
+
       - name: Smoke test public QR rate limit
         run: |
           BASE=http://127.0.0.1:5000
