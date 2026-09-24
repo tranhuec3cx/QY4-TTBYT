@@ -217,6 +217,7 @@ $env:QY4_SESSION_HOURS="12"
 $env:QY4_AUTH_LOGIN_LIMIT="8"
 $env:QY4_AUTH_LOGIN_WINDOW_MS="900000"
 $env:QY4_BACKUP_KEEP="30"
+$env:QY4_BACKUP_MIRROR_DIR="D:\\QY4_Backup_Secondary"
 $env:QY4_QR_RATE_LIMIT="20"
 $env:QY4_QR_RATE_WINDOW_MS="60000"
 $env:QY4_TIME_ZONE="Asia/Bangkok"
@@ -238,6 +239,7 @@ QY4_SESSION_HOURS=12 \
 QY4_AUTH_LOGIN_LIMIT=8 \
 QY4_AUTH_LOGIN_WINDOW_MS=900000 \
 QY4_BACKUP_KEEP=30 \
+QY4_BACKUP_MIRROR_DIR=/mnt/qy4_backup_secondary \
 QY4_QR_RATE_LIMIT=20 \
 QY4_QR_RATE_WINDOW_MS=60000 \
 QY4_TIME_ZONE=Asia/Bangkok \
@@ -334,6 +336,7 @@ backups/qy4_ttbyt_YYYYMMDDHHMMSS_mmm.files/
 - Snapshot file dùng hard-link khi filesystem hỗ trợ để hạn chế nhân đôi dung lượng; nếu không hỗ trợ sẽ copy file.
 - Server kiểm tra và tạo backup tự động trong ngày.
 - `QY4_BACKUP_KEEP` quy định số gói gần nhất giữ lại, mặc định 30.
+- Khi triển khai thật nên cấu hình `QY4_BACKUP_MIRROR_DIR` tới **ổ khác/USB/thư mục mạng được phép**. Backup trong cùng máy chỉ giúp khôi phục lỗi dữ liệu, không bảo vệ khi hỏng/mất ổ đĩa.
 - Có thể tạo backup thủ công tại **Cài đặt → Hệ thống**.
 
 **Trước mỗi lần cập nhật phiên bản trên máy đang có dữ liệu thật, phải sao lưu database.**
