@@ -490,6 +490,8 @@ Các nội dung có thể phát triển sau:
 
 ## 13. Checklist trước khi đưa vào dùng thật
 
+Checklist thao tác thực tế chi tiết đã có tại **`CHECKLIST-TEST-THUC-TE.md`**. Nên chạy checklist này với 3 thiết bị thật trước khi chuyển PR khỏi Draft.
+
 - [ ] Trên Windows, ưu tiên khởi động bằng **start-qy4-production.cmd** để tự backup trước migration và đồng bộ dependency.
 - [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai**; xác nhận **Toàn vẹn database SQLite = Đạt** và **Toàn vẹn quan hệ dữ liệu = Đạt**, sau đó xử lý hết mục **Cần xử lý**.
 - [ ] Tạo **gói backup** và kiểm tra có cả file `.sqlite` và thư mục `.files` đi kèm.
