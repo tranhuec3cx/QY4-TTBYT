@@ -2716,6 +2716,9 @@ function activeMaintenanceSchedules() {
   `).all();
   return latestScheduledRows(rows, "maintenance_date", normalizeMaintenanceScheduleType);
 }
+function failedInspectionSchedules() {
+  return activeInspectionSchedules().filter(row => normalizeScheduleText(row.result) === "khong dat");
+}
 function requiredInspectionScheduleGaps() {
   const schedules = activeInspectionSchedules();
   const byKey = new Map(
@@ -4219,6 +4222,7 @@ app.get("/api/dashboard/operations", (req, res) => {
   `).get().v || 0);
   const inspectionSchedules = activeInspectionSchedules();
   const inspectionGaps = requiredInspectionScheduleGaps();
+  const failedInspection = inspectionSchedules.filter(x => normalizeScheduleText(x.result) === "khong dat").length;
   const dueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
   const overdueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
   const missingInspectionSchedule = inspectionGaps.length;
@@ -4239,7 +4243,7 @@ app.get("/api/dashboard/operations", (req, res) => {
   `).all(monthStart);
   res.json({
     today, timeZone:APP_TIME_ZONE, total, active, limited, operational, repairing, stopped,
-    openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection,
+    openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, failedInspection,
     missingInspectionSchedule, missingInspectionRecord, missingInspectionNextDate,
     missingInspectionSchedules: inspectionGaps.slice(0,12),
     waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents
@@ -4382,6 +4386,7 @@ app.get("/api/system/readiness", (req, res) => {
   const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
   const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
   const inspectionScheduleGaps = requiredInspectionScheduleGaps();
+  const failedInspectionRows = failedInspectionSchedules();
   const missingInspectionRecords = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa có hồ sơ").length;
   const missingInspectionNextDates = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa đặt hạn tiếp theo").length;
   let qrUploadWritable = true, documentUploadWritable = true, backupWritable = true;
@@ -4515,6 +4520,14 @@ app.get("/api/system/readiness", (req, res) => {
       detail:inspectionScheduleGaps.length===0
         ? "Các nghĩa vụ KĐ/HC/ATBX đã khai báo đều có hồ sơ và hạn tiếp theo."
         : `Còn ${inspectionScheduleGaps.length} nghĩa vụ chưa hoàn chỉnh: ${missingInspectionRecords} chưa có hồ sơ; ${missingInspectionNextDates} chưa đặt hạn tiếp theo.`
+    },
+    {
+      key:"inspection_result",
+      level:failedInspectionRows.length===0 ? "Đạt" : "Cần xử lý",
+      title:"Kết quả KĐ/HC/ATBX không đạt",
+      detail:failedInspectionRows.length===0
+        ? "Không có loại KĐ/HC/ATBX nào có hồ sơ mới nhất kết luận Không đạt."
+        : `Có ${failedInspectionRows.length} nghĩa vụ có kết quả mới nhất Không đạt; cần xử lý chuyên môn và cập nhật hồ sơ sau khi thực hiện lại.`
     }
   ];
   const blocking = checks.filter(x=>x.level==="Cần xử lý").length;
@@ -4540,7 +4553,8 @@ app.get("/api/system/readiness", (req, res) => {
       latest_backup_age_hours:latestBackupStatus.age_hours,
       missing_inspection_schedules:inspectionScheduleGaps.length,
       missing_inspection_records:missingInspectionRecords,
-      missing_inspection_next_dates:missingInspectionNextDates
+      missing_inspection_next_dates:missingInspectionNextDates,
+      failed_inspection_schedules:failedInspectionRows.length
     }
   });
 });
@@ -4573,6 +4587,7 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const plus30 = localDatePlusDays(30);
   const inspectionSchedules = activeInspectionSchedules();
   const inspectionGaps = requiredInspectionScheduleGaps();
+  const failedInspections = inspectionSchedules.filter(x => normalizeScheduleText(x.result) === "khong dat").length;
   const maintenanceSchedules = activeMaintenanceSchedules();
   const dueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
   const overdueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
@@ -4580,7 +4595,7 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const overdueMaint = maintenanceSchedules.filter(x => x.next_date && x.next_date < today).length;
   const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY quality_level ORDER BY quality_level").all();
   const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code AND COALESCE(dv.is_archived,0)=0 GROUP BY d.code,d.name ORDER BY count DESC`).all();
-  res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, missingInspectionSchedule:inspectionGaps.length, dueMaint, overdueMaint, quality, byDept });
+  res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, failedInspections, missingInspectionSchedule:inspectionGaps.length, dueMaint, overdueMaint, quality, byDept });
 });
 
 app.get("/api/reports/summary", (req, res) => {
@@ -4644,6 +4659,11 @@ app.get("/api/reports/summary", (req, res) => {
       .map(i => ({...d, inspection:i, obligation_type:i.schedule_type || i.type || "Kiểm định/Hiệu chuẩn"}))
   );
   const inspectionMissingSchedule = requiredInspectionScheduleGaps();
+  const inspectionFailed = enriched.flatMap(d =>
+    (d.inspection_schedules || [])
+      .filter(i => normalizeScheduleText(i.result) === "khong dat")
+      .map(i => ({...d, inspection:i, obligation_type:i.schedule_type || i.type || "Kiểm định/Hiệu chuẩn"}))
+  );
   const frequentRepairs = enriched.filter(d => Number(d.repair.repair_count || 0) >= 2).sort((a,b)=>Number(b.repair.repair_count)-Number(a.repair.repair_count));
   const replaceList = enriched.filter(d => ["Chờ sửa chữa","Ngừng hoạt động","Hoạt động hạn chế"].includes(d.status) || Number(d.quality_level || 3) >= 4 || Number(d.repair.repair_count || 0) >= 3);
   const costByDepartment = db.prepare(`
@@ -4656,7 +4676,7 @@ app.get("/api/reports/summary", (req, res) => {
     ORDER BY total_cost DESC
   `).all();
   const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY status ORDER BY count DESC").all();
-  res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, inspectionMissingSchedule, frequentRepairs, replaceList, costByDepartment, statusRatio });
+  res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, inspectionFailed, inspectionMissingSchedule, frequentRepairs, replaceList, costByDepartment, statusRatio });
 });
 
 app.get("/api/reports/data-quality", (req, res) => {
