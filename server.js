@@ -3381,9 +3381,17 @@ app.get("/api/incidents", (req, res) => {
            lr.processing_status AS linked_repair_status,
            lr.completed_at AS linked_repair_completed_at,
            CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)>=julianday(i.incident_datetime)
              THEN ROUND((julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS response_minutes,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)<julianday(i.incident_datetime)
+             THEN 1 ELSE 0 END AS invalid_response_timestamp,
            CASE WHEN lr.completed_at IS NOT NULL AND lr.completed_at<>''
-             THEN ROUND((julianday(lr.completed_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS resolution_minutes
+                     AND julianday(lr.completed_at)>=julianday(i.incident_datetime)
+             THEN ROUND((julianday(lr.completed_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS resolution_minutes,
+           CASE WHEN lr.completed_at IS NOT NULL AND lr.completed_at<>''
+                     AND julianday(lr.completed_at)<julianday(i.incident_datetime)
+             THEN 1 ELSE 0 END AS invalid_resolution_timestamp
     FROM incidents i
     JOIN devices dv ON dv.id = i.device_id
     LEFT JOIN departments d ON d.code = dv.department_code
@@ -4408,11 +4416,13 @@ app.get("/api/dashboard/operations", (req, res) => {
     SELECT AVG((julianday(acknowledged_at)-julianday(incident_datetime))*24*60) v
     FROM incidents
     WHERE acknowledged_at IS NOT NULL AND acknowledged_at<>'' AND incident_datetime IS NOT NULL
+      AND julianday(acknowledged_at)>=julianday(incident_datetime)
   `).get().v || 0);
   const avgResolutionMinutes = Number(db.prepare(`
     SELECT AVG((julianday(r.completed_at)-julianday(i.incident_datetime))*24*60) v
     FROM repairs r JOIN incidents i ON i.id=r.incident_id
     WHERE r.completed_at IS NOT NULL AND r.completed_at<>'' AND i.incident_datetime IS NOT NULL
+      AND julianday(r.completed_at)>=julianday(i.incident_datetime)
   `).get().v || 0);
   const inspectionSchedules = activeInspectionSchedules();
   const inspectionGaps = requiredInspectionScheduleGaps();
@@ -5048,12 +5058,22 @@ app.get("/api/reports/kpi", (req, res) => {
            COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code) AS department_code,
            r.id AS repair_id,r.processing_status AS repair_status,r.completed_at AS repair_completed_at,
            CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
-             THEN MAX(0,(julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60) ELSE NULL END AS response_minutes,
+                     AND julianday(i.acknowledged_at)>=julianday(i.incident_datetime)
+             THEN (julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60 ELSE NULL END AS response_minutes,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)<julianday(i.incident_datetime)
+             THEN 1 ELSE 0 END AS invalid_response_timestamp,
            CASE
              WHEN COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')) IS NOT NULL
-             THEN MAX(0,(julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))-julianday(i.incident_datetime))*24*60)
+                  AND julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))>=julianday(i.incident_datetime)
+             THEN (julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))-julianday(i.incident_datetime))*24*60
              ELSE NULL
-           END AS resolution_minutes
+           END AS resolution_minutes,
+           CASE
+             WHEN COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')) IS NOT NULL
+                  AND julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))<julianday(i.incident_datetime)
+             THEN 1 ELSE 0
+           END AS invalid_resolution_timestamp
     FROM incidents i
     JOIN devices dv ON dv.id=i.device_id
     LEFT JOIN departments d ON d.code=COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code)
@@ -5070,7 +5090,9 @@ app.get("/api/reports/kpi", (req, res) => {
     ...r,
     source_channel: r.source_channel || "Không xác định",
     response_minutes: r.response_minutes == null ? null : Number(Number(r.response_minutes).toFixed(1)),
-    resolution_minutes: r.resolution_minutes == null ? null : Number(Number(r.resolution_minutes).toFixed(1))
+    resolution_minutes: r.resolution_minutes == null ? null : Number(Number(r.resolution_minutes).toFixed(1)),
+    invalid_response_timestamp:Number(r.invalid_response_timestamp || 0),
+    invalid_resolution_timestamp:Number(r.invalid_resolution_timestamp || 0)
   }));
 
   let checkSql = `
@@ -5101,6 +5123,8 @@ app.get("/api/reports/kpi", (req, res) => {
   const avg = values => values.length ? values.reduce((s,v)=>s+v,0)/values.length : null;
   const responseValues = records.map(r=>r.response_minutes).filter(v=>Number.isFinite(v));
   const resolutionValues = records.map(r=>r.resolution_minutes).filter(v=>Number.isFinite(v));
+  const invalidResponseTimestamps = records.filter(r=>Number(r.invalid_response_timestamp||0)===1).length;
+  const invalidResolutionTimestamps = records.filter(r=>Number(r.invalid_resolution_timestamp||0)===1).length;
   const qrIncidents = records.filter(r=>r.source_channel==="QR").length;
   const directIncidents = records.filter(r=>r.source_channel==="Nhập trực tiếp").length;
   const unknownIncidents = records.filter(r=>!["QR","Nhập trực tiếp"].includes(r.source_channel)).length;
@@ -5120,6 +5144,8 @@ app.get("/api/reports/kpi", (req, res) => {
     return {
       source,
       count:rows.length,
+      invalid_response_timestamps:rows.filter(r=>Number(r.invalid_response_timestamp||0)===1).length,
+      invalid_resolution_timestamps:rows.filter(r=>Number(r.invalid_resolution_timestamp||0)===1).length,
       responded_incidents:response.length,
       response_data_completeness_percent:rows.length ? Number((response.length*100/rows.length).toFixed(1)) : 0,
       avg_response_minutes:avg(response)==null ? null : Number(avg(response).toFixed(1)),
@@ -5189,6 +5215,8 @@ app.get("/api/reports/kpi", (req, res) => {
       qr_check_issue_count:qrCheckIssueCount,
       qr_check_normal_count:qrCheckNormalCount,
       responded_incidents:responseValues.length,
+      invalid_response_timestamps:invalidResponseTimestamps,
+      invalid_resolution_timestamps:invalidResolutionTimestamps,
       response_data_completeness_percent:records.length ? Number((responseValues.length*100/records.length).toFixed(1)) : 0,
       avg_response_minutes:avg(responseValues)==null ? null : Number(avg(responseValues).toFixed(1)),
       median_response_minutes:median(responseValues)==null ? null : Number(median(responseValues).toFixed(1)),
