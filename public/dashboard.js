@@ -5,6 +5,7 @@ function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&
 function fmtDate(v){ return v ? String(v).slice(0,10).split("-").reverse().join("/") : ""; }
 function setText(id, value){ const el=q(id); if(el) el.textContent=value; }
 function fmtMinutes(v){ const n=Math.max(0,Number(v||0)); if(!n) return "—"; if(n<60) return Math.round(n)+" phút"; const h=n/60; return h<24 ? h.toFixed(h<10?1:0)+" giờ" : (h/24).toFixed(1)+" ngày"; }
+function inspectionEntryHref(deviceId,type){ return `/inspections.html?device_id=${encodeURIComponent(Number(deviceId)||"")}&type=${encodeURIComponent(type||"Kiểm định")}`; }
 function scheduleTypeKey(value,defaultType="Không phân loại"){
   const raw=String(value||"").trim();
   const key=raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d");
@@ -88,7 +89,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const missingSchedules = Array.isArray(ops.missingInspectionSchedules) ? ops.missingInspectionSchedules : [];
   q("missingInspectionSchedules").innerHTML = missingSchedules.length
-    ? missingSchedules.slice(0,6).map(x => `<li><a href="/device-detail.html?id=${Number(x.id)}">${esc(x.device_code||"")} - ${esc(x.name||"")}</a> <span class="tag gray">${esc(x.obligation_type||"KĐ/HC")}</span> <b>${esc(x.schedule_issue||"Chưa có lịch")}</b></li>`).join("")
+    ? missingSchedules.slice(0,6).map(x => {
+        const deviceId=Number(x.id||x.device_id||0);
+        const href=inspectionEntryHref(deviceId,x.obligation_type);
+        return `<li><a href="/device-detail.html?id=${deviceId}">${esc(x.device_code||"")} - ${esc(x.name||"")}</a> <span class="tag gray">${esc(x.obligation_type||"KĐ/HC")}</span> <b>${esc(x.schedule_issue||"Chưa có lịch")}</b> <a class="btn btn-secondary btn-sm" href="${href}">Lập hồ sơ</a></li>`;
+      }).join("")
     : "<li>Không có nghĩa vụ KĐ/HC/ATBX thiếu lịch.</li>";
 
   renderMonthlyIncidents(ops.monthlyIncidents || []);
