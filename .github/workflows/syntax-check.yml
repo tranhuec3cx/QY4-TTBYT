@@ -281,8 +281,12 @@ jobs:
           if (Number(kpi.summary.unknown_source_incidents)!==0) throw new Error("Unexpected unknown incident source");
           if (!Array.isArray(kpi.records) || kpi.records.length!==2) throw new Error("KPI detail records missing");
           if (Number(kpiTst.summary.total_incidents)!==1 || Number(kpiTst.summary.direct_incidents)!==1) throw new Error("Historical KPI department filter failed for TST");
+          const historicalKpiRow=(kpiTst.records||[])[0];
+          if(!historicalKpiRow || historicalKpiRow.department_code!=="TST" || historicalKpiRow.department_name!=="Khoa kiểm thử") throw new Error("Historical KPI department code/name snapshot mismatch: "+JSON.stringify(historicalKpiRow));
           if (Number(kpiTst.summary.qr_checks)!==1) throw new Error("Historical QR check department snapshot failed for TST");
           if (Number(kpiTst2.summary.total_incidents)!==1 || Number(kpiTst2.summary.qr_incidents)!==1) throw new Error("KPI department filter failed for TST2");
+          const currentKpiRow=(kpiTst2.records||[])[0];
+          if(!currentKpiRow || currentKpiRow.department_code!=="TST2" || currentKpiRow.department_name!=="Khoa kiểm thử 2") throw new Error("Current KPI department code/name mismatch: "+JSON.stringify(currentKpiRow));
           if (Number(kpiTst2.summary.qr_checks)!==0) throw new Error("QR check incorrectly moved to new department");
           console.log("QR/source/receiver/snapshot/KPI lifecycle passed");
           NODE
