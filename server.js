@@ -442,10 +442,17 @@ function normalizeIncidentStatusForUi(status, linkedRepairId) {
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
 }
 function normalizeIncidentPayloadStatus(requestedStatus, oldStatus, linkedRepairId) {
+  const oldNormalized = normalizeIncidentStatusForUi(oldStatus, linkedRepairId);
   const normalized = normalizeIncidentStatusForUi(requestedStatus || oldStatus, linkedRepairId);
+  // Có phiếu sửa chữa liên kết thì trạng thái nguồn phải luôn phản ánh đã chuyển sửa chữa.
+  if (linkedRepairId) return "Đã chuyển sửa chữa";
+  // Hồ sơ đã xử lý tại chỗ là trạng thái kết thúc; không cho mở ngược bằng thao tác cập nhật chung.
+  if (oldNormalized === "Đã xử lý tại chỗ") return "Đã xử lý tại chỗ";
+  // Sự cố đã tiếp nhận không được hạ ngược về “Mới ghi nhận” hoặc giả lập “Đã chuyển sửa chữa”.
+  if (oldNormalized === "Đã tiếp nhận" && (normalized === "Mới ghi nhận" || normalized === "Đã chuyển sửa chữa")) return "Đã tiếp nhận";
   // Trạng thái “Đã chuyển sửa chữa” chỉ do endpoint chuyển sửa chữa sinh ra.
-  if (normalized === "Đã chuyển sửa chữa" && !linkedRepairId) return "Mới ghi nhận";
-  return normalized === "Đã chuyển sửa chữa" ? "Đã chuyển sửa chữa" : normalized;
+  if (normalized === "Đã chuyển sửa chữa") return "Mới ghi nhận";
+  return normalized;
 }
 
 function safeUnlink(filePath) {
@@ -3712,9 +3719,13 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
     }
     const deviceChanged = Number(old.device_id) !== Number(payload.device_id);
     const incidentDateChanged = String(old.incident_datetime || "") !== String(payload.incident_datetime || "");
-    if (deviceChanged && linkedRepair) {
+    if (deviceChanged && incidentTimeLocked) {
       cleanupUploadedFiles(req.files);
-      return res.status(400).json({ error:"Không thể đổi thiết bị sau khi sự cố đã chuyển sang sửa chữa." });
+      return res.status(409).json({
+        error:String(old.source_channel || "") === "QR"
+          ? "Thiết bị của sự cố phát sinh từ QR là dữ liệu gốc và không được thay đổi."
+          : "Không thể đổi thiết bị sau khi sự cố đã được tiếp nhận/chuyển sửa chữa."
+      });
     }
     db.prepare(`
       UPDATE incidents
