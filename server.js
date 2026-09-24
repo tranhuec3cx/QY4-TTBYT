@@ -2127,11 +2127,18 @@ app.put("/api/devices/:id", (req, res) => {
   try {
     const old = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(req.params.id));
     if (!old) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+    if (Number(old.is_archived || 0) === 1) {
+      return res.status(409).json({ error:"Thiết bị đã lưu trữ; không chỉnh sửa trực tiếp hồ sơ lưu trữ." });
+    }
     const payload = buildDevicePayload(req.body || {}, old);
     const error = validateDevicePayload(payload);
     if (error) return res.status(400).json({ error });
     const departmentChanged = String(payload.department_code || "") !== String(old.department_code || "");
     const locationChanged = String(payload.location || "") !== String(old.location || "");
+    const openRepair = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
+    if (openRepair && payload.status !== "Chờ sửa chữa") {
+      return res.status(409).json({ error:`Thiết bị đang có phiếu sửa chữa #${openRepair.id} chưa hoàn thành; trạng thái phải giữ “Chờ sửa chữa” cho đến khi phiếu kết thúc.` });
+    }
     if (departmentChanged || locationChanged) {
       return res.status(409).json({
         error:"Khoa sử dụng và vị trí chỉ được thay đổi bằng chức năng Điều chuyển để bảo toàn lịch sử."
