@@ -25,8 +25,8 @@
     <select id="groupFilter"></select>
     <select id="yearFilter"></select>
     <select id="statusFilter"></select>
-    <select id="qualityFilter"></select>
-    <select id="fundingFilter"></select>
+    <select id="qualityFilter" data-technical-write></select>
+    <select id="fundingFilter" data-technical-write></select>
     <button class="btn" id="filterBtn">Lọc</button>
     <button class="btn" id="resetBtn">Đặt lại</button>
     <button class="btn btn-primary" data-technical-write onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm thiết bị</button>
@@ -37,7 +37,7 @@
 <section class="card technical-card">
   <div class="table-card-header technical-table-title">
     <h3><span class="red-title">Tổng thiết bị:</span> <span id="listCount">0 thiết bị</span></h3>
-    <div class="excel-tools"><button class="btn btn-primary" id="exportExcelBtn">Xuất báo cáo</button></div>
+    <div class="excel-tools" data-technical-write><button class="btn btn-primary" id="exportExcelBtn">Xuất báo cáo</button></div>
   </div>
   <div class="table-wrap scroll-area">
     <table class="device-table">
