@@ -222,6 +222,8 @@ jobs:
           test "$CODE" = "400"
           curl -fsS -X POST "$BASE/api/incidents/$INCIDENT_ID/transfer-repair" -H 'Content-Type: application/json' --data '{"actor":"Khoa Trang bị - CI"}' >/tmp/transfer.json
           REPAIR_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/transfer.json","utf8")).repair_id')
+          curl -fsS "$BASE/api/repairs" >/tmp/repairs-policy.json
+          node -e 'const id=Number(process.argv[1]);const rows=JSON.parse(require("fs").readFileSync("/tmp/repairs-policy.json","utf8"));const r=rows.find(x=>Number(x.id)===id);if(!r||r.can_delete!==false)throw new Error("Incident-linked repair must not be deletable")' "$REPAIR_ID"
           curl -fsS -X PUT "$BASE/api/repairs/$REPAIR_ID" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$NOW\",\"issue\":\"Sự cố kiểm thử CI\",\"work\":\"Khắc phục hoàn tất\",\"person\":\"Khoa Trang bị - CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\"}" >/tmp/repair-complete.json
           curl -fsS "$BASE/api/repairs" >/tmp/repairs-after-transfer.json
           node -e 'const fs=require("fs");const id=Number(process.argv[1]);const rows=JSON.parse(fs.readFileSync("/tmp/repairs-after-transfer.json","utf8"));const r=rows.find(x=>Number(x.id)===id);if(!r)throw new Error("Transferred repair missing");if(r.priority!=="Trung bình"||r.reporter!=="CI"||r.note!=="Ghi chú sự cố CI")throw new Error("Incident metadata was not preserved in repair: "+JSON.stringify({priority:r.priority,reporter:r.reporter,note:r.note}))' "$REPAIR_ID"
