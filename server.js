@@ -186,6 +186,9 @@ app.use((req,res,next)=>{
   next();
 });
 
+app.get("/", (req,res)=>{
+  res.redirect("/dashboard.html");
+});
 app.use(express.static(path.join(__dirname, "public")));
 function departmentUserCanAccessUpload(user, relativePath) {
   if (!user) return false;
@@ -5195,10 +5198,6 @@ app.post("/api/reset-seed", (req, res) => {
 });
 
 if (process.env.QY4_DEMO_SEED === "1") refreshDemoTodayData();
-
-app.get("/", (req, res) => {
-  res.redirect("/dashboard.html");
-});
 
 app.use((err, req, res, next) => {
   if (!err) return next();
