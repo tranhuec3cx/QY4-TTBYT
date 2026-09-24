@@ -261,7 +261,7 @@ jobs:
           if (row.department_code_snapshot!=="TST") throw new Error("Historical department snapshot changed: "+row.department_code_snapshot);
           if (row.location!=="Vị trí A") throw new Error("Incident location history failed");
           if (row.department_code!=="TST") throw new Error("Incident department history failed");
-          if (row.current_location!=="Vị trí B") throw new Error("Current location context missing");
+          if (row.current_location!=="Vị trí chuyển") throw new Error("Current location context missing");
           if (row.current_department_code!=="TST2") throw new Error("Current department context missing");
           if (!row.linked_repair_completed_at) throw new Error("repair completion timestamp missing");
           if (String(before.qr_uid)!==String(after.qr_uid)) throw new Error("QR UID changed after device edit");
