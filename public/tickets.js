@@ -42,8 +42,11 @@ function incidentActions(r){
   const deviceId = Number(r.device_id);
   const actions = [`<button class="btn btn-secondary" onclick="openDeviceProfile(${deviceId})">Xem HS</button>`];
   if (r.status === "Mới ghi nhận") {
+    actions.push(`<button class="btn" onclick="editIncident(${id})">Sửa</button>`);
+    actions.push(`<button class="btn btn-danger" onclick="deleteIncident(${id})">Xóa ghi nhầm</button>`);
     actions.push(`<button class="btn btn-primary" onclick="acknowledgeIncident(${id})">Tiếp nhận</button>`);
   } else if (r.status === "Đã tiếp nhận") {
+    actions.push(`<button class="btn" onclick="editIncident(${id})">Cập nhật</button>`);
     actions.push(`<button class="btn btn-primary" onclick="transferToRepair(${id})">Chuyển sửa chữa</button>`);
     actions.push(`<button class="btn" onclick="markOnsite(${id})">Xử lý tại chỗ</button>`);
   } else if (r.status === "Đã chuyển sửa chữa") {
