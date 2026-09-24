@@ -3233,11 +3233,22 @@ app.get("/api/checks", (req, res) => {
   const { preset = "today", date, from_date, to_date } = req.query;
   const { start, end } = dateRangeFromPreset(preset, date, from_date, to_date);
   const rows = db.prepare(`
-    SELECT c.*, dv.name AS device_name, dv.department_code, dv.group_code
-    FROM daily_checks c JOIN devices dv ON dv.id = c.device_id
+    SELECT c.*,
+           dv.name AS current_device_name,
+           dv.department_code AS current_department_code,
+           dv.location AS current_location,
+           dv.group_code
+    FROM daily_checks c
+    JOIN devices dv ON dv.id = c.device_id
     WHERE substr(c.check_datetime,1,10) >= ? AND substr(c.check_datetime,1,10) <= ?
     ORDER BY c.check_datetime DESC, c.id DESC
-  `).all(start, end).map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
+  `).all(start, end).map(r => ({
+    ...r,
+    device_code:getDeviceCode(r.device_id),
+    device_name:r.current_device_name || "",
+    department_code:r.department_code_snapshot || r.current_department_code || "",
+    location:r.location_snapshot || r.current_location || ""
+  }));
   res.json(rows);
 });
 
