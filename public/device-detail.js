@@ -43,6 +43,14 @@ function fillGeneralForm() {
   q("generalNote").value = DEVICE.note || "";
 }
 function renderGeneralInfo() {
+  if (DEVICE.limited_view) {
+    q("infoGeneral").innerHTML = `
+      <div class="info-section"><h3>Định danh thiết bị</h3>${infoItem("Mã thiết bị", esc(DEVICE.device_code))}${infoItem("Tên thiết bị", esc(DEVICE.name))}${infoItem("Serial Number", esc(DEVICE.serial))}</div>
+      <div class="info-section"><h3>Thông tin kỹ thuật</h3>${infoItem("Nhóm thiết bị", esc(DEVICE.group_name))}${infoItem("Hãng sản xuất", esc(DEVICE.manufacturer))}${infoItem("Model", esc(DEVICE.model))}${infoItem("Nước sản xuất", esc(DEVICE.country))}${infoItem("Năm sản xuất", esc(DEVICE.year_manufactured))}</div>
+      <div class="info-section"><h3>Quản lý sử dụng</h3>${infoItem("Khoa/Phòng", esc(DEVICE.department_name))}${infoItem("Vị trí đặt máy", esc(DEVICE.location))}${infoItem("Năm sử dụng", esc(DEVICE.year_in_use))}${infoItem("Hạn bảo hành", esc(formatDateVN(DEVICE.warranty_end)))}${infoItem("Tình trạng", esc(DEVICE.status))}</div>
+    `;
+    return;
+  }
   q("infoGeneral").innerHTML = `
     <div class="info-section"><h3>Định danh thiết bị</h3>${infoItem("Mã thiết bị", esc(DEVICE.device_code))}${infoItem("Mã bảo hiểm", esc(DEVICE.insurance_code))}${infoItem("Tên thiết bị", esc(DEVICE.name))}${infoItem("Serial hãng", esc(DEVICE.serial))}</div>
     <div class="info-section"><h3>Thông tin kỹ thuật</h3>${infoItem("Nhóm thiết bị", esc(DEVICE.group_name))}${infoItem("Hãng sản xuất", esc(DEVICE.manufacturer))}${infoItem("Model", esc(DEVICE.model))}${infoItem("Nước sản xuất", esc(DEVICE.country))}${infoItem("Năm sản xuất", esc(DEVICE.year_manufactured))}</div>
@@ -102,6 +110,7 @@ function resetTransferForm() {
 }
 async function saveTransfer(e) {
   e.preventDefault();
+  if (DEVICE?.limited_view) return alert("Tài khoản khoa không được điều chuyển thiết bị.");
   const payload = {
     transfer_datetime: fromDateTimeLocalValue(q("transferDate").value),
     to_department_code: q("transferDepartment").value,
@@ -125,6 +134,15 @@ function renderAll() {
   q("detailName").textContent = DEVICE.name;
   q("detailMeta").innerHTML = `<b>Mã:</b> ${esc(DEVICE.device_code)} &nbsp; | &nbsp; <b>Khoa:</b> ${esc(DEVICE.department_name)} &nbsp; | &nbsp; <b>Nhóm:</b> ${esc(DEVICE.group_name)} &nbsp; | &nbsp; <b>Model:</b> ${esc(DEVICE.model || "—")}`;
   q("detailStatus").innerHTML = `<span class="tag ${statusTagClass(DEVICE.status)}">${esc(DEVICE.status||"—")}</span>`;
+  if (DEVICE.limited_view) {
+    document.querySelectorAll("[data-technical-history],[data-technical-write]").forEach(el => el.style.display="none");
+    if(q("deviceCurrentState")) q("deviceCurrentState").innerHTML = `
+      <div><span>Tình trạng</span><b><span class="tag ${statusTagClass(DEVICE.status)}">${esc(DEVICE.status||"—")}</span></b></div>
+      <div><span>Vị trí</span><b>${esc(DEVICE.location || "—")}</b></div>
+      <div><span>Hạn bảo hành</span><b>${esc(formatDateVN(DEVICE.warranty_end) || "—")}</b></div>`;
+    renderGeneralInfo();
+    return;
+  }
   if (q("detailQrBtn")) q("detailQrBtn").onclick = () => showDeviceQrModal(DEVICE);
   const latestMaint = (DEVICE.maintenances || []).slice().sort((a,b)=>String(b.maintenance_date||"").localeCompare(String(a.maintenance_date||"")))[0];
   const latestInspection = (DEVICE.inspections || []).slice().sort((a,b)=>String(b.inspection_date||"").localeCompare(String(a.inspection_date||"")))[0];
@@ -144,12 +162,15 @@ function renderAll() {
   renderTransfers();
 }
 async function loadDevice() {
-  META = await api("/api/meta");
   DEVICE = await api(`/api/devices/${DEVICE_ID}`);
+  if (!DEVICE.limited_view) META = await api("/api/meta");
+  else META = {departments:[],groups:[]};
   renderAll();
-  await loadTechnicalHistory();
+  if (!DEVICE.limited_view) await loadTechnicalHistory();
+  else TECH_HISTORY = [];
 }
 async function saveGeneral() {
+  if (DEVICE?.limited_view) return alert("Tài khoản khoa chỉ được xem thông tin thiết bị.");
   const payload = {
     department_code: DEVICE.department_code,
     group_code: q("generalGroup").value,
@@ -177,6 +198,7 @@ async function saveGeneral() {
   await loadDevice();
 }
 function toggleGeneral(editing) {
+  if (DEVICE?.limited_view) return;
   q("infoGeneral").style.display = editing ? "none" : "grid";
   q("generalForm").style.display = editing ? "block" : "none";
   q("editGeneralBtn").style.display = editing ? "none" : "inline-block";
