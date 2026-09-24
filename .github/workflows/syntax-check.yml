@@ -709,6 +709,11 @@ jobs:
           test "$CODE" = "400"
           curl -fsS -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Sai vị trí","actual_department_code":"INV","actual_location":"Phòng B","note":"CI mismatch","updated_by":"CI"}' >/tmp/inv-valid.json
           INV_TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 16:00:00",to_department_code:"INV",to_location:"Phòng B",actor:"CI",reason:"Điều chuyển theo kiểm kê CI",note:"Giữ sai lệch trong biên bản kiểm kê"}))' "$TODAY")
+          CODE=$(curl -s -o /tmp/inv-transfer-open.json -w '%{http_code}' -X POST "$BASE/api/devices/$INV_DEVICE/transfer" -H 'Content-Type: application/json' --data "$INV_TRANSFER_JSON")
+          test "$CODE" = "409"
+          curl -fsS "$BASE/api/devices/$INV_DEVICE" >/tmp/inv-device-before-complete.json
+          node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/inv-device-before-complete.json","utf8")); if(d.location!=="Phòng A") throw new Error("Device moved during open inventory")'
+          curl -fsS -X POST "$BASE/api/inventory-sessions/$INV_SESSION/complete" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/inv-complete.json
           curl -fsS -X POST "$BASE/api/devices/$INV_DEVICE/transfer" -H 'Content-Type: application/json' --data "$INV_TRANSFER_JSON" >/tmp/inv-transfer.json
           curl -fsS "$BASE/api/inventory-sessions/$INV_SESSION" >/tmp/inv-after-transfer-session.json
           curl -fsS "$BASE/api/devices/$INV_DEVICE" >/tmp/inv-after-transfer-device.json
@@ -717,11 +722,10 @@ jobs:
           const s=JSON.parse(fs.readFileSync("/tmp/inv-after-transfer-session.json","utf8"));
           const d=JSON.parse(fs.readFileSync("/tmp/inv-after-transfer-device.json","utf8"));
           const item=(s.items||[])[0];
-          if(!item || item.result!=="Sai vị trí" || item.actual_location!=="Phòng B") throw new Error("Inventory mismatch history was altered by transfer");
-          if(d.location!=="Phòng B") throw new Error("Device current location did not update after transfer");
+          if(!item || item.result!=="Sai vị trí" || item.actual_location!=="Phòng B") throw new Error("Completed inventory mismatch history was altered by later transfer");
+          if(d.location!=="Phòng B") throw new Error("Device current location did not update after completed inventory");
           if(!(d.transfers||[]).some(x=>x.reason==="Điều chuyển theo kiểm kê CI")) throw new Error("Inventory transfer missing from device history");
           NODE
-          curl -fsS -X POST "$BASE/api/inventory-sessions/$INV_SESSION/complete" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/inv-complete.json
           CODE=$(curl -s -o /tmp/inv-after-complete.json -w '%{http_code}' -X PUT "$BASE/api/inventory-items/$INV_ITEM" -H 'Content-Type: application/json' --data '{"result":"Có","actual_department_code":"INV","actual_location":"Phòng A","updated_by":"CI"}')
           test "$CODE" = "400"
           curl -fsS -X DELETE "$BASE/api/devices/$INV_DEVICE" >/tmp/inv-archive-complete.json
