@@ -123,7 +123,7 @@ function renderRows(rows) {
           <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Xem HS</button>
           <button class="btn" onclick="editRepair(${Number(r.id)})">Cập nhật</button>
           <button class="btn" onclick="showRepairHistory(${Number(r.id)})">Lịch sử</button>
-          ${!r.incident_id && normalizeRepairStatus(r.processing_status)==="Đang xử lý" ? `<button class="btn btn-danger" onclick="deleteRepair(${Number(r.id)})">Xóa</button>` : ""}
+          ${!r.incident_id && normalizeRepairStatus(r.processing_status)==="Đang xử lý" ? `<button class="btn btn-danger" onclick="deleteRepair(${Number(r.id)})">Xóa ghi nhầm</button>` : ""}
         </div>
       </td>
     </tr>`).join("");
@@ -201,7 +201,7 @@ function editRepair(id) {
 async function deleteRepair(id) {
   const r=REPAIR_ROWS.find(x=>Number(x.id)===Number(id));
   if(!r) return;
-  if (!confirm(`Xóa phiếu sửa chữa #${id}? Thiết bị sẽ được khôi phục trạng thái trước khi tạo phiếu: ${r.status_before || "chưa xác định"}.`)) return;
+  if (!confirm(`Chỉ xóa phiếu sửa chữa độc lập tạo nhầm khi chưa có lịch sử xử lý quan trọng. Phiếu #${id} sẽ bị xóa và thiết bị được khôi phục trạng thái: ${r.status_before || "chưa xác định"}. Tiếp tục?`)) return;
   try{
     await api(`/api/repairs/${id}`, { method: "DELETE" });
     await loadData();
