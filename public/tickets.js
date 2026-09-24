@@ -122,7 +122,7 @@ async function apiForm(url, options={}){
   try { return text ? JSON.parse(text) : {}; } catch { return text; }
 }
 function currentTechnicalActor(){
-  return window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
+  return window.QY4_AUTH_USER?.full_name || "";
 }
 function sourceTagClass(source){
   if(source==="QR") return "green";
