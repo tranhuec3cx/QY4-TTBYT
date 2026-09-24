@@ -153,6 +153,22 @@ app.use((req, res, next) => {
   res.setHeader("Expires", "0");
   next();
 });
+
+app.use((req,res,next)=>{
+  if(!AUTH_REQUIRED || req.method!=="GET") return next();
+  const page=String(req.path || "");
+  const isHtmlPage=page==="/" || page.toLowerCase().endsWith(".html");
+  if(!isHtmlPage) return next();
+  if(["/login.html","/inspect.html","/qr-check.html"].includes(page)) return next();
+  const user=readAuthenticatedUser(req);
+  if(user){
+    req.authUser=user;
+    return next();
+  }
+  const target=String(req.originalUrl || page || "/");
+  return res.redirect(302,`/login.html?next=${encodeURIComponent(target)}`);
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 function departmentUserCanAccessUpload(user, relativePath) {
   if (!user || user.role !== "Người dùng khoa") return true;
