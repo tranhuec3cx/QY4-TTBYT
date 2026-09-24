@@ -3477,7 +3477,10 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       return res.status(404).json({ error: "Không tìm thấy sự cố." });
     }
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
-    if (missing.length) return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    if (missing.length) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    }
     const linkedRepair = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
     const payload = {
       id: Number(req.params.id),
@@ -3603,20 +3606,50 @@ app.delete("/api/incidents/:id", (req, res) => {
     const old=db.prepare("SELECT * FROM incidents WHERE id=?").get(id);
     if(!old) return res.status(404).json({error:"Không tìm thấy sự cố."});
     const linked=db.prepare("SELECT COUNT(*) c FROM repairs WHERE incident_id=?").get(id).c;
-    if(linked>0) return res.status(400).json({error:"Sự cố đã chuyển sửa chữa, không thể xóa. Vui lòng xử lý trong phiếu sửa chữa."});
+    if(linked>0) return res.status(409).json({error:"Sự cố đã chuyển sửa chữa, không thể xóa. Vui lòng xử lý trong phiếu sửa chữa."});
     if(String(old.acknowledged_at||"").trim() || String(old.status||"")==="Đã tiếp nhận") {
-      return res.status(400).json({error:"Sự cố đã được tiếp nhận nên không được xóa để bảo toàn lịch sử. Hãy cập nhật trạng thái/xử lý thay vì xóa."});
+      return res.status(409).json({error:"Sự cố đã được tiếp nhận nên không được xóa để bảo toàn lịch sử. Hãy cập nhật trạng thái/xử lý thay vì xóa."});
     }
-    const files=db.prepare("SELECT file_path FROM incident_files WHERE incident_id=?").all(id);
+
+    const files=db.prepare("SELECT file_path FROM incident_files WHERE incident_id=?").all(id)
+      .map(x=>String(x.file_path||"").trim()).filter(Boolean);
+    const linkedChecks=db.prepare("SELECT id FROM daily_checks WHERE incident_id=?").all(id);
+    const uniqueFiles=[...new Set(files)];
+
     const tx=db.transaction(()=>{
+      // Tài liệu gương được tạo riêng bởi báo sự cố QR phải đi cùng sự cố.
+      // Tài liệu loại "Kiểm tra" được giữ vì bản ghi kiểm tra QR vẫn là lịch sử độc lập.
+      for(const filePath of uniqueFiles){
+        db.prepare("DELETE FROM documents WHERE file_path=? AND type='Sự cố QR'").run(filePath);
+      }
+      if(linkedChecks.length) db.prepare("UPDATE daily_checks SET incident_id=NULL WHERE incident_id=?").run(id);
       db.prepare("DELETE FROM incidents WHERE id=?").run(id);
-      writeAudit(requestActor(req, old.reporter || "Khoa Trang bị"), "Xóa sự cố chưa tiếp nhận", "incident", id, `${old.incident_code || ""} | ${old.description || ""}`);
+      writeAudit(
+        requestActor(req, old.reporter || "Khoa Trang bị"),
+        "Xóa sự cố chưa tiếp nhận",
+        "incident",
+        id,
+        `${old.incident_code || ""} | ${old.description || ""} | gỡ liên kết kiểm tra: ${linkedChecks.length}`
+      );
     });
     tx();
-    for(const row of files){
-      if(row.file_path) safeUnlink(path.join(__dirname,String(row.file_path).replace(/^\//,"")));
+
+    let deletedFiles=0, retainedFiles=0;
+    for(const filePath of uniqueFiles){
+      const docRefs=db.prepare("SELECT COUNT(*) c FROM documents WHERE file_path=?").get(filePath).c;
+      if(Number(docRefs)>0){
+        retainedFiles++;
+        continue;
+      }
+      safeUnlink(path.join(__dirname,filePath.replace(/^\//,"")));
+      deletedFiles++;
     }
-    res.json({ok:true,deleted_files:files.length});
+    res.json({
+      ok:true,
+      deleted_files:deletedFiles,
+      retained_files:retainedFiles,
+      unlinked_checks:linkedChecks.length
+    });
   }catch(e){
     console.error("DELETE /api/incidents/:id error:",e);
     res.status(500).json({error:e.message});
