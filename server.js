@@ -4432,13 +4432,36 @@ function mirrorBackupBundle(filename){
   copyDirectoryRecursive(localFiles,mirrorFiles);
   return {configured:true,ok:fs.existsSync(mirrorDb)&&fs.existsSync(mirrorFiles),path:backupMirrorDir};
 }
+function backupMirrorStorageStatus(){
+  if(!backupMirrorDir) return {configured:false,separate_storage:false,same_filesystem:null};
+  try{
+    fs.mkdirSync(backupMirrorDir,{recursive:true});
+    fs.mkdirSync(backupDir,{recursive:true});
+    const localRoot=path.parse(path.resolve(backupDir)).root.toLowerCase();
+    const mirrorRoot=path.parse(path.resolve(backupMirrorDir)).root.toLowerCase();
+    const localStat=fs.statSync(backupDir);
+    const mirrorStat=fs.statSync(backupMirrorDir);
+    const differentRoot=localRoot!==mirrorRoot;
+    const differentDevice=Number(localStat.dev)!==Number(mirrorStat.dev);
+    return {
+      configured:true,
+      separate_storage:Boolean(differentRoot || differentDevice),
+      same_filesystem:!(differentRoot || differentDevice),
+      local_root:localRoot,
+      mirror_root:mirrorRoot
+    };
+  }catch(e){
+    return {configured:true,separate_storage:false,same_filesystem:null,error:e.message};
+  }
+}
 function inspectMirrorBackup(filename){
-  if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false};
+  if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false,...backupMirrorStorageStatus()};
   return {
     configured:true,
     exists:fs.existsSync(path.join(backupMirrorDir,filename||"")),
     files_exists:fs.existsSync(mirrorFilesDirFor(filename)),
-    path:backupMirrorDir
+    path:backupMirrorDir,
+    ...backupMirrorStorageStatus()
   };
 }
 function pruneMirrorBackups(){
@@ -4644,13 +4667,19 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"backup_off_device",
-      level:!backupMirrorDir ? "Lưu ý" : (latestMirrorStatus.exists && latestMirrorStatus.files_exists ? "Đạt" : "Cần xử lý"),
+      level:!backupMirrorDir
+        ? "Lưu ý"
+        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists)
+            ? "Cần xử lý"
+            : (latestMirrorStatus.separate_storage ? "Đạt" : "Lưu ý")),
       title:"Bản sao lưu thứ cấp ngoài máy chủ",
       detail:!backupMirrorDir
         ? "Chưa cấu hình QY4_BACKUP_MIRROR_DIR. Backup hiện vẫn nằm trên cùng máy chủ; nên sao chép định kỳ sang USB/ổ khác/thư mục mạng được phép."
-        : (latestMirrorStatus.exists && latestMirrorStatus.files_exists
-            ? `Gói backup mới nhất đã được sao chép sang ${backupMirrorDir}.`
-            : `Đã cấu hình ${backupMirrorDir} nhưng gói backup mới nhất chưa có đủ database + file đính kèm tại vị trí thứ cấp.`)
+        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists)
+            ? `Đã cấu hình ${backupMirrorDir} nhưng gói backup mới nhất chưa có đủ database + file đính kèm tại vị trí thứ cấp.`
+            : (latestMirrorStatus.separate_storage
+                ? `Gói backup mới nhất đã được sao sang storage khác: ${backupMirrorDir}.`
+                : `Gói backup đã được sao sang ${backupMirrorDir} nhưng vị trí này vẫn cùng filesystem/ổ với backup cục bộ; chưa bảo vệ được tình huống hỏng ổ.`))
     },
     {
       key:"qr_origin",
@@ -4749,6 +4778,8 @@ app.get("/api/system/readiness", (req, res) => {
       backup_mirror_configured:Boolean(backupMirrorDir),
       backup_mirror_dir:backupMirrorDir,
       latest_backup_mirrored:Boolean(latestMirrorStatus.exists && latestMirrorStatus.files_exists),
+      backup_mirror_separate_storage:Boolean(latestMirrorStatus.separate_storage),
+      backup_mirror_same_filesystem:latestMirrorStatus.same_filesystem,
       missing_inspection_schedules:inspectionScheduleGaps.length,
       missing_inspection_records:missingInspectionRecords,
       missing_inspection_next_dates:missingInspectionNextDates,
