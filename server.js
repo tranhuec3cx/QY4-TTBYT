@@ -4421,7 +4421,6 @@ app.get("/api/reports/summary", (req, res) => {
     FROM repairs r
     JOIN devices dv ON dv.id=r.device_id
     LEFT JOIN departments d ON d.code=COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code)
-    WHERE COALESCE(dv.is_archived,0)=0
     GROUP BY COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code)
     ORDER BY total_cost DESC
   `).all();
