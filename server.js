@@ -775,6 +775,8 @@ function initDb() {
       file_path TEXT,
       file_mime TEXT,
       file_size INTEGER DEFAULT 0,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -874,6 +876,8 @@ function initDb() {
   if (!docCols.includes("file_path")) db.exec("ALTER TABLE documents ADD COLUMN file_path TEXT");
   if (!docCols.includes("file_mime")) db.exec("ALTER TABLE documents ADD COLUMN file_mime TEXT");
   if (!docCols.includes("file_size")) db.exec("ALTER TABLE documents ADD COLUMN file_size INTEGER DEFAULT 0");
+  if (!docCols.includes("department_code_snapshot")) db.exec("ALTER TABLE documents ADD COLUMN department_code_snapshot TEXT");
+  if (!docCols.includes("location_snapshot")) db.exec("ALTER TABLE documents ADD COLUMN location_snapshot TEXT");
 
   const deptCount = db.prepare("SELECT COUNT(*) AS c FROM departments").get().c;
   // Không tự chèn dữ liệu mẫu trên bản chạy thật. Chỉ seed khi chủ động bật QY4_DEMO_SEED=1.
@@ -1500,7 +1504,7 @@ function ensureTechnicalContextSnapshots() {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
     if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   };
-  for (const table of ["repairs","maintenances","operation_logs","inspections"]) {
+  for (const table of ["repairs","maintenances","operation_logs","inspections","documents"]) {
     ensureColumn(table, "department_code_snapshot");
     ensureColumn(table, "location_snapshot");
   }
@@ -1531,6 +1535,7 @@ function ensureTechnicalContextSnapshots() {
   backfill("maintenances", "maintenance_date");
   backfill("inspections", "inspection_date");
   backfill("operation_logs", "log_datetime", "department_code");
+  backfill("documents", "COALESCE(NULLIF(doc_date,''), datetime('now'))");
 }
 
 function initExtendedModules() {
@@ -2622,8 +2627,8 @@ app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
       location_snapshot: String(device.location || "").trim()
     };
     const info = db.prepare(`
-      INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-      VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+      INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+      VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
     `).run(payload);
     writeAudit(requestActor(req, payload.updated_by || "Khoa Trang bị"), "Tạo tài liệu", "document", info.lastInsertRowid, payload.name);
     res.json({ id: info.lastInsertRowid, file_path: payload.file_path, original_name: payload.original_name });
@@ -2664,12 +2669,15 @@ app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
       stored_name: file ? file.filename : old.stored_name,
       file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
       file_mime: file ? file.mimetype : old.file_mime,
-      file_size: file ? file.size : (old.file_size || 0)
+      file_size: file ? file.size : (old.file_size || 0),
+      department_code_snapshot:String(old.department_code_snapshot || "").trim(),
+      location_snapshot:String(old.location_snapshot || "").trim()
     };
     db.prepare(`
       UPDATE documents SET
         name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
-        original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
+        original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size,
+        department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot
       WHERE id=@id
     `).run(payload);
     // Chỉ xóa file vật lý cũ sau khi DB đã cập nhật thành công và
