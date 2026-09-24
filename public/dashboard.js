@@ -5,15 +5,28 @@ function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&
 function fmtDate(v){ return v ? String(v).slice(0,10).split("-").reverse().join("/") : ""; }
 function setText(id, value){ const el=q(id); if(el) el.textContent=value; }
 function fmtMinutes(v){ const n=Math.max(0,Number(v||0)); if(!n) return "—"; if(n<60) return Math.round(n)+" phút"; const h=n/60; return h<24 ? h.toFixed(h<10?1:0)+" giờ" : (h/24).toFixed(1)+" ngày"; }
+function scheduleTypeKey(value){
+  const raw=String(value||"").trim();
+  const key=raw.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d");
+  if(!key) return "Không phân loại";
+  if(key==="atbx" || key.includes("an toan buc xa")) return "Kiểm định an toàn bức xạ";
+  if(key.includes("kiem xa")) return "Kiểm xạ";
+  if(key.includes("hieu chuan")) return "Hiệu chuẩn";
+  if(key.includes("kiem dinh")) return "Kiểm định";
+  if(key==="bao duong" || key==="bao duong dinh ky") return "Bảo dưỡng định kỳ";
+  return raw;
+}
 function latestTechnicalRows(rows,dateField){
   const map=new Map();
   for(const row of (rows||[])){
-    const key=Number(row.device_id);
-    if(!key) continue;
+    const deviceId=Number(row.device_id);
+    if(!deviceId) continue;
+    const scheduleType=scheduleTypeKey(row.type);
+    const key=`${deviceId}|${scheduleType}`;
     const cur=map.get(key);
     const rowKey=`${String(row?.[dateField]||"")}|${String(Number(row.id||0)).padStart(12,"0")}`;
     const curKey=cur ? `${String(cur?.[dateField]||"")}|${String(Number(cur.id||0)).padStart(12,"0")}` : "";
-    if(!cur || rowKey>curKey) map.set(key,row);
+    if(!cur || rowKey>curKey) map.set(key,{...row,schedule_type:scheduleType});
   }
   return Array.from(map.values());
 }
@@ -62,14 +75,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     .filter(x => !Number(x.is_archived||0) && x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueMaints").innerHTML = dueMaint.length
-    ? dueMaint.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <b>${fmtDate(x.next_date)}</b></li>`).join("")
+    ? dueMaint.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <span class="tag gray">${esc(x.schedule_type||x.type||"Bảo dưỡng")}</span> <b>${fmtDate(x.next_date)}</b></li>`).join("")
     : "<li>Không có bảo dưỡng sắp đến hạn.</li>";
 
   const dueIns = latestTechnicalRows(inspections,"inspection_date")
     .filter(x => !Number(x.is_archived||0) && x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueInspections").innerHTML = dueIns.length
-    ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <b>${fmtDate(x.next_date)}</b></li>`).join("")
+    ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <span class="tag gray">${esc(x.schedule_type||x.type||"KĐ/HC")}</span> <b>${fmtDate(x.next_date)}</b></li>`).join("")
     : "<li>Không có kiểm định/hiệu chuẩn sắp đến hạn.</li>";
 
   renderMonthlyIncidents(ops.monthlyIncidents || []);
