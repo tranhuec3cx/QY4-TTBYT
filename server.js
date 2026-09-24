@@ -5421,7 +5421,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error:"Lỗi máy chủ khi xử lý yêu cầu." });
 });
 
-app.listen(PORT, () => {
+let backupInterval = null;
+let shuttingDown = false;
+const server = app.listen(PORT, () => {
   console.log(`QY4-TTBYT 5.0.0 running at http://localhost:${PORT}`);
   console.log(`Database: ${dbPath}`);
   console.log(`Múi giờ ứng dụng: ${APP_TIME_ZONE}`);
@@ -5436,6 +5438,43 @@ app.listen(PORT, () => {
   } catch (e) {}
   console.log("Kiểm tra trước chạy thật: Cài đặt → Hệ thống → Sẵn sàng triển khai.");
   ensureDailyBackup();
-  setInterval(ensureDailyBackup, 6 * 60 * 60 * 1000).unref();
+  backupInterval = setInterval(ensureDailyBackup, 6 * 60 * 60 * 1000);
+  backupInterval.unref();
 });
+
+function closeDatabaseSafely() {
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  } catch (e) {
+    console.warn("Không checkpoint được WAL khi dừng:", e.message);
+  }
+  try {
+    db.close();
+  } catch (e) {
+    if (!/closed/i.test(String(e.message || ""))) console.warn("Không đóng được SQLite:", e.message);
+  }
+}
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\nNhận ${signal}. Đang dừng QY4-TTBYT an toàn...`);
+  if (backupInterval) clearInterval(backupInterval);
+
+  const forceTimer = setTimeout(() => {
+    console.error("Dừng an toàn quá thời gian; đóng SQLite và kết thúc tiến trình.");
+    closeDatabaseSafely();
+    process.exit(1);
+  }, 10000);
+  forceTimer.unref();
+
+  server.close(() => {
+    clearTimeout(forceTimer);
+    closeDatabaseSafely();
+    console.log("Đã checkpoint WAL và đóng SQLite. Có thể tắt máy an toàn.");
+    process.exit(0);
+  });
+  if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
+}
+process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
