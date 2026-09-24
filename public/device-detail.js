@@ -52,7 +52,7 @@ function renderGeneralInfo() {
     return;
   }
   q("infoGeneral").innerHTML = `
-    <div class="info-section"><h3>Định danh thiết bị</h3>${infoItem("Mã thiết bị", esc(DEVICE.device_code))}${infoItem("Mã bảo hiểm", esc(DEVICE.insurance_code))}${infoItem("Tên thiết bị", esc(DEVICE.name))}${infoItem("Serial hãng", esc(DEVICE.serial))}</div>
+    <div class="info-section"><h3>Định danh thiết bị</h3>${infoItem("Mã thiết bị", esc(DEVICE.device_code))}${infoItem("Mã bảo hiểm", esc(DEVICE.insurance_code))}${infoItem("Tên thiết bị", esc(DEVICE.name))}${infoItem("Serial Number", esc(DEVICE.serial))}</div>
     <div class="info-section"><h3>Thông tin kỹ thuật</h3>${infoItem("Nhóm thiết bị", esc(DEVICE.group_name))}${infoItem("Hãng sản xuất", esc(DEVICE.manufacturer))}${infoItem("Model", esc(DEVICE.model))}${infoItem("Nước sản xuất", esc(DEVICE.country))}${infoItem("Năm sản xuất", esc(DEVICE.year_manufactured))}</div>
     <div class="info-section"><h3>Quản lý sử dụng</h3>${infoItem("Khoa/Phòng", esc(DEVICE.department_name))}${infoItem("Vị trí đặt máy", esc(DEVICE.location))}${infoItem("Năm sử dụng", esc(DEVICE.year_in_use))}${infoItem("Hạn bảo hành", esc(formatDateVN(DEVICE.warranty_end)))}${infoItem("Theo dõi KĐ/HC/ATBX", esc((DEVICE.inspection_required_types || []).join("; ") || "Không khai báo"))}</div>
     <div class="info-section"><h3>Tài chính / tình trạng</h3>${infoItem("Nguyên giá", esc(formatCurrency(DEVICE.cost)))}${infoItem("Nguồn kinh phí", esc(DEVICE.funding))}${infoItem("Tình trạng", esc(DEVICE.status))}${infoItem("Cấp chất lượng", DEVICE.quality_level ? `Cấp ${Number(DEVICE.quality_level)}` : "—")}${infoItem("Ghi chú", esc(DEVICE.note || "—"))}</div>
@@ -211,7 +211,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setLayout("devices","Thiết bị y tế","Thông tin thiết bị, công việc kỹ thuật và lịch sử điều chuyển");
   applyFieldLabels("generalForm", {
     generalDepartment:"Khoa sử dụng", generalGroup:"Nhóm thiết bị", generalName:"Tên thiết bị",
-    generalDeviceCode:"Mã thiết bị", generalInsuranceCode:"Mã bảo hiểm", generalManufacturer:"Hãng sản xuất", generalModel:"Model", generalSerial:"Serial hãng",
+    generalDeviceCode:"Mã thiết bị", generalInsuranceCode:"Mã bảo hiểm", generalManufacturer:"Hãng sản xuất", generalModel:"Model", generalSerial:"Serial Number",
     generalCountry:"Nước sản xuất", generalYearManufactured:"Năm sản xuất", generalYearInUse:"Năm sử dụng",
     generalWarranty:"Hạn bảo hành", generalStatus:"Tình trạng", generalQuality:"Cấp chất lượng hồ sơ (1–5)",
     generalCost:"Nguyên giá", generalFunding:"Nguồn kinh phí", generalLocation:"Vị trí đặt máy", generalNote:"Ghi chú / Nội dung"
