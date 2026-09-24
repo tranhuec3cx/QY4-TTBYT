@@ -988,7 +988,8 @@ jobs:
         run: |
           if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
           rm -f db/qy4_ttbyt.sqlite db/qy4_ttbyt.sqlite-shm db/qy4_ttbyt.sqlite-wal
-          QY4_DEMO_SEED=0 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' PORT=5001 node server.js > /tmp/qy4-auth-server.log 2>&1 &
+          rm -rf /tmp/qy4-backup-mirror
+          QY4_DEMO_SEED=0 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' QY4_BACKUP_MIRROR_DIR='/tmp/qy4-backup-mirror' PORT=5001 node server.js > /tmp/qy4-auth-server.log 2>&1 &
           echo $! > /tmp/qy4-auth-server.pid
           BASE=http://127.0.0.1:5001
           for i in {1..20}; do
@@ -1135,6 +1136,8 @@ jobs:
           BACKUP_FILES="backups/${BACKUP_NAME%.sqlite}.files"
           test -f "backups/$BACKUP_NAME"
           test -d "$BACKUP_FILES"
+          test -f "/tmp/qy4-backup-mirror/$BACKUP_NAME"
+          test -d "/tmp/qy4-backup-mirror/${BACKUP_NAME%.sqlite}.files"
           SRC_FILE_COUNT=$(find uploads -type f 2>/dev/null | wc -l | tr -d ' ')
           SNAP_FILE_COUNT=$(find "$BACKUP_FILES" -type f 2>/dev/null | wc -l | tr -d ' ')
           test "$SRC_FILE_COUNT" = "$SNAP_FILE_COUNT"
@@ -1146,9 +1149,10 @@ jobs:
           const r=JSON.parse(fs.readFileSync("/tmp/auth-readiness.json","utf8"));
           if(!b.filename) throw new Error("Backup failed under auth");
           const m=new Map((r.checks||[]).map(x=>[x.key,x]));
-          for(const key of ["database_integrity","foreign_keys","demo","auth","backup","qr_uid"]){
+          for(const key of ["database_integrity","foreign_keys","demo","auth","backup","backup_off_device","qr_uid"]){
             if(m.get(key)?.level!=="Đạt") throw new Error("Readiness failed for "+key+": "+JSON.stringify(m.get(key)));
           }
+          if(r.system?.backup_mirror_configured!==true || r.system?.latest_backup_mirrored!==true) throw new Error("Backup mirror readiness flags failed");
           console.log("Authenticated readiness checklist passed");
           NODE
           echo "Authentication and role smoke test passed"
