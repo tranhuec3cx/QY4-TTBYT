@@ -713,6 +713,67 @@ jobs:
           NODE
           echo "Inventory and archival integrity rules passed"
 
+      - name: Smoke test periodic schedules per work type
+        run: |
+          BASE=http://127.0.0.1:5000
+          TODAY=$(node -p 'new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok"}).format(new Date())')
+          PAST=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()-10);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          SOON=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+10);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          FUTURE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+60);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/schedule-ops-before.json
+          curl -fsS "$BASE/api/leadership-dashboard" >/tmp/schedule-lead-before.json
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị lịch định kỳ CI","manufacturer":"CI","model":"SCH-01","serial":"SCH-001","status":"Đang hoạt động","location":"Phòng lịch CI"}' >/tmp/schedule-device.json
+          SCHEDULE_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/schedule-device.json","utf8")).id')
+
+          DEVICE_ID="$SCHEDULE_DEVICE" RUN_DATE="$PAST" NEXT_DATE="$PAST" TYPE="Kiểm định" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 08:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"KD-OLD",result:"Đạt",next_date:process.env.NEXT_DATE,note:"Nghĩa vụ kiểm định quá hạn"}))' >/tmp/schedule-insp-kd.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/schedule-insp-kd.json >/tmp/schedule-insp-kd-out.json
+
+          DEVICE_ID="$SCHEDULE_DEVICE" RUN_DATE="$TODAY" NEXT_DATE="$FUTURE" TYPE="Hiệu chuẩn" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 09:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"HC-NEW",result:"Đạt",next_date:process.env.NEXT_DATE,note:"Hiệu chuẩn mới không được che Kiểm định"}))' >/tmp/schedule-insp-hc.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/schedule-insp-hc.json >/tmp/schedule-insp-hc-out.json
+
+          DEVICE_ID="$SCHEDULE_DEVICE" RUN_DATE="$TODAY" NEXT_DATE="$SOON" TYPE="Kiểm xạ" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 10:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"KX-SOON",result:"Đạt",next_date:process.env.NEXT_DATE,note:"Kiểm xạ sắp hạn"}))' >/tmp/schedule-insp-kx.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/schedule-insp-kx.json >/tmp/schedule-insp-kx-out.json
+
+          DEVICE_ID="$SCHEDULE_DEVICE" RUN_DATE="$PAST" NEXT_DATE="$PAST" TYPE="ATBX" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 07:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"ATBX-LEGACY",result:"Đạt",next_date:process.env.NEXT_DATE,note:"Tên loại lịch sử"}))' >/tmp/schedule-insp-atbx-old.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/schedule-insp-atbx-old.json >/tmp/schedule-insp-atbx-old-out.json
+
+          DEVICE_ID="$SCHEDULE_DEVICE" RUN_DATE="$TODAY" NEXT_DATE="$FUTURE" TYPE="Kiểm định an toàn bức xạ" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 11:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"ATBX-NEW",result:"Đạt",next_date:process.env.NEXT_DATE,note:"Phải thay thế cảnh báo ATBX tên cũ"}))' >/tmp/schedule-insp-atbx-new.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/schedule-insp-atbx-new.json >/tmp/schedule-insp-atbx-new-out.json
+
+          curl -fsS -X POST "$BASE/api/maintenances"             -F "device_id=$SCHEDULE_DEVICE" -F "maintenance_date=$PAST 07:00:00" -F "type=Bảo dưỡng"             -F "content=Bảo dưỡng tên cũ" -F "result=Đạt" -F "performer=CI" -F "next_date=$PAST" >/tmp/schedule-maint-legacy.json
+          curl -fsS -X POST "$BASE/api/maintenances"             -F "device_id=$SCHEDULE_DEVICE" -F "maintenance_date=$TODAY 07:00:00" -F "type=Bảo dưỡng định kỳ"             -F "content=Bảo dưỡng định kỳ mới" -F "result=Đạt" -F "performer=CI" -F "next_date=$FUTURE" >/tmp/schedule-maint-current.json
+          curl -fsS -X POST "$BASE/api/maintenances"             -F "device_id=$SCHEDULE_DEVICE" -F "maintenance_date=$PAST 08:00:00" -F "type=Vệ sinh thiết bị"             -F "content=Vệ sinh quá hạn" -F "result=Đạt" -F "performer=CI" -F "next_date=$PAST" >/tmp/schedule-maint-clean.json
+          curl -fsS -X POST "$BASE/api/maintenances"             -F "device_id=$SCHEDULE_DEVICE" -F "maintenance_date=$TODAY 08:00:00" -F "type=Cập nhật phần mềm"             -F "content=Cập nhật phần mềm" -F "result=Đạt" -F "performer=CI" -F "next_date=$FUTURE" >/tmp/schedule-maint-software.json
+
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/schedule-ops-after.json
+          curl -fsS "$BASE/api/leadership-dashboard" >/tmp/schedule-lead-after.json
+          curl -fsS "$BASE/api/reports/summary" >/tmp/schedule-report.json
+          SCHEDULE_DEVICE="$SCHEDULE_DEVICE" node - <<'NODE'
+          const fs=require("fs");
+          const beforeOps=JSON.parse(fs.readFileSync("/tmp/schedule-ops-before.json","utf8"));
+          const afterOps=JSON.parse(fs.readFileSync("/tmp/schedule-ops-after.json","utf8"));
+          const beforeLead=JSON.parse(fs.readFileSync("/tmp/schedule-lead-before.json","utf8"));
+          const afterLead=JSON.parse(fs.readFileSync("/tmp/schedule-lead-after.json","utf8"));
+          const report=JSON.parse(fs.readFileSync("/tmp/schedule-report.json","utf8"));
+          const id=Number(process.env.SCHEDULE_DEVICE);
+          if(Number(afterOps.overdueInspection)!==Number(beforeOps.overdueInspection)+1) throw new Error("Overdue inspection must remain visible when calibration is newer");
+          if(Number(afterOps.dueInspection)!==Number(beforeOps.dueInspection)+1) throw new Error("Due inspection schedule must count per work type");
+          if(Number(afterLead.overdueInspections)!==Number(beforeLead.overdueInspections)+1) throw new Error("Leadership overdue inspection count is not per type");
+          if(Number(afterLead.dueInspections)!==Number(beforeLead.dueInspections)+1) throw new Error("Leadership due inspection count is not per type");
+          if(Number(afterLead.overdueMaint)!==Number(beforeLead.overdueMaint)+1) throw new Error("Maintenance overdue count is not per type");
+          const insp=(report.inspectionOverdue||[]).filter(x=>Number(x.id)===id || Number(x.device_id)===id);
+          const maint=(report.maintenanceOverdue||[]).filter(x=>Number(x.id)===id || Number(x.device_id)===id);
+          if(insp.length!==1 || insp[0].obligation_type!=="Kiểm định") throw new Error("Inspection overdue report lost or duplicated obligation: "+JSON.stringify(insp.map(x=>x.obligation_type)));
+          if(maint.length!==1 || maint[0].obligation_type!=="Vệ sinh thiết bị") throw new Error("Maintenance overdue report lost or duplicated obligation: "+JSON.stringify(maint.map(x=>x.obligation_type)));
+          console.log("Periodic schedules are isolated by device + work type");
+          NODE
+
+          grep -q 'scheduleTypeKey(row.type)' public/dashboard.js
+          grep -q 'obligation_type' public/reports.js
+          grep -q 'KĐ/HC/ATBX' public/dashboard.html
+          echo "Periodic schedule UI guards passed"
+
       - name: Smoke test public QR rate limit
         run: |
           BASE=http://127.0.0.1:5000
