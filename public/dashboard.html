@@ -27,6 +27,7 @@
         <div class="card stat-card simple-card"><h3>Sự cố chưa xử lý</h3><div id="dbOpenIncidents" class="value">0</div></div>
         <div class="card stat-card simple-card"><h3>Sắp hạn KĐ/HC/ATBX</h3><div id="dbDueInspection" class="value">0</div></div>
         <div class="card stat-card simple-card"><h3>Quá hạn KĐ/HC/ATBX</h3><div id="dbOverdueInspection" class="value">0</div></div>
+        <div class="card stat-card simple-card"><h3>Chưa có lịch KĐ/HC/ATBX</h3><div id="dbMissingInspectionSchedule" class="value">0</div></div>
       </section>
 
       <section class="card dashboard-upcoming-card">
@@ -34,6 +35,7 @@
         <div class="dashboard-upcoming-grid">
           <div class="due-list-block"><h4>Bảo dưỡng sắp đến hạn</h4><ul id="dueMaints" class="task-list"></ul></div>
           <div class="due-list-block"><h4>KĐ/HC/ATBX sắp đến hạn</h4><ul id="dueInspections" class="task-list"></ul></div>
+          <div class="due-list-block"><h4>KĐ/HC/ATBX chưa có lịch</h4><ul id="missingInspectionSchedules" class="task-list"></ul></div>
         </div>
         <div class="mini-kpi-grid mini-kpi-grid-3" style="margin-top:14px">
           <div><span>Chờ linh kiện</span><b id="dbWaitingParts">0</b></div>
