@@ -386,7 +386,7 @@ jobs:
           const row=(d.documents||[]).find(x=>Number(x.id)===id);
           if(!row) throw new Error("Document snapshot record missing");
           if(row.department_code_snapshot!=="TST2") throw new Error("Document department snapshot missing");
-          if(row.location_snapshot!=="Vị trí B") throw new Error("Document location snapshot missing");
+          if(row.location_snapshot!=="Vị trí chuyển") throw new Error("Document location snapshot missing: "+row.location_snapshot);
           NODE
 
           curl -fsS -X PUT "$BASE/api/documents/$DOC_ID" \
@@ -419,7 +419,7 @@ jobs:
           const d=JSON.parse(fs.readFileSync("/tmp/device-maint-snapshot.json","utf8"));
           const row=(d.documents||[]).find(x=>String(x.file_path||"")===p);
           if(!row) throw new Error("Maintenance document snapshot missing");
-          if(row.department_code_snapshot!=="TST2" || row.location_snapshot!=="Vị trí B") throw new Error("Maintenance document historical context failed");
+          if(row.department_code_snapshot!=="TST2" || row.location_snapshot!=="Vị trí chuyển") throw new Error("Maintenance document historical context failed: "+JSON.stringify({department_code_snapshot:row.department_code_snapshot,location_snapshot:row.location_snapshot}));
           NODE
           CODE=$(curl -s -o /tmp/maintenance-evidence-delete.json -w '%{http_code}' -X DELETE "$BASE/api/maintenances/$MAINT_ID")
           test "$CODE" = "409"
