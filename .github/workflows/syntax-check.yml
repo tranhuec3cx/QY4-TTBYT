@@ -481,6 +481,7 @@ jobs:
           curl -fsS "$BASE/api/maintenances" >/tmp/context-maints-after.json
           curl -fsS "$BASE/api/inspections" >/tmp/context-inspections-after.json
           curl -fsS "$BASE/api/devices/$CTX_DEVICE" >/tmp/context-device-after.json
+          curl -fsS "$BASE/api/devices/$CTX_DEVICE/technical-history?from_date=$TODAY&to_date=$TODAY&type=ALL" >/tmp/context-technical-history.json
           curl -fsS "$BASE/api/reports/summary" >/tmp/context-summary-after.json
 
           node - "$CTX_DEVICE" "$CTX_REPAIR" "$CTX_MAINT" "$CTX_INSP" "$CTX_OP" <<'NODE'
@@ -500,6 +501,12 @@ jobs:
           if(!op) throw new Error("operation log missing");
           if(op.department_code_snapshot!=="TST" || op.location_snapshot!=="Vị trí lịch sử A") throw new Error("operation-log snapshot moved");
           if(device.department_code!=="TST2" || device.location!=="Vị trí hiện tại B") throw new Error("current device context did not transfer");
+          const technical=JSON.parse(fs.readFileSync("/tmp/context-technical-history.json","utf8"));
+          for(const type of ["Sửa chữa","Bảo dưỡng","Kiểm định"]){
+            const row=technical.find(x=>x.type===type);
+            if(!row) throw new Error("technical timeline missing "+type);
+            if(row.department_code!=="TST" || row.location!=="Vị trí lịch sử A") throw new Error("technical timeline context moved for "+type);
+          }
 
           const before=JSON.parse(fs.readFileSync("/tmp/context-summary-before.json","utf8"));
           const after=JSON.parse(fs.readFileSync("/tmp/context-summary-after.json","utf8"));
