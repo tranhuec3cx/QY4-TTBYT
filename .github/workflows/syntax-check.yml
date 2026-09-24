@@ -1092,11 +1092,28 @@ jobs:
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-index.html -w '%{http_code}' "$BASE/index.html")
           test "$CODE" = "200"
           curl -fsS -b /tmp/dept-cookie.txt "$BASE/api/devices" >/tmp/dept-devices.json
-          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/dept-devices.json","utf8")); if(x.length!==1||x[0].department_code!=="TST") throw new Error("Department scope failed")'
+          node - <<'NODE'
+          const fs=require("fs");
+          const x=JSON.parse(fs.readFileSync("/tmp/dept-devices.json","utf8"));
+          if(x.length!==1||x[0].department_code!=="TST") throw new Error("Department scope failed");
+          if(x[0].limited_view!==true) throw new Error("Department device list is not marked limited");
+          for(const key of ["cost","funding","note","insurance_code","quality_level","qr_uid"]){
+            if(Object.prototype.hasOwnProperty.call(x[0],key)) throw new Error("Sensitive list field leaked: "+key);
+          }
+          NODE
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-other-device.json -w '%{http_code}' "$BASE/api/devices/$OTHER_DEVICE_ID")
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-own-device.json -w '%{http_code}' "$BASE/api/devices/$DEVICE_ID")
           test "$CODE" = "200"
+          node - <<'NODE'
+          const fs=require("fs");
+          const d=JSON.parse(fs.readFileSync("/tmp/dept-own-device.json","utf8"));
+          if(d.limited_view!==true) throw new Error("Department detail is not limited");
+          for(const key of ["cost","funding","note","insurance_code","quality_level","qr_uid","repairs","incidents","maintenances","inspections","operation_logs","documents","transfers","accessories"]){
+            if(Object.prototype.hasOwnProperty.call(d,key)) throw new Error("Sensitive detail field leaked: "+key);
+          }
+          if(!d.device_code || !d.name || d.department_code!=="TST") throw new Error("Required department device fields missing");
+          NODE
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-write.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{}')
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/own-upload.pdf -w '%{http_code}' "$BASE$OWN_UPLOAD")
