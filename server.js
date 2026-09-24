@@ -1096,6 +1096,29 @@ function enrichDevice(device) {
     inspection_required_types: parseRequiredInspectionTypes(device.inspection_required_types)
   };
 }
+function departmentDeviceView(device) {
+  const d=enrichDevice(device);
+  return {
+    id:d.id,
+    limited_view:true,
+    device_code:d.device_code || "",
+    name:d.name || "",
+    department_code:d.department_code || "",
+    department_name:d.department_name || d.department_code || "",
+    group_code:d.group_code || "",
+    group_name:d.group_name || d.group_code || "",
+    manufacturer:d.manufacturer || "",
+    model:d.model || "",
+    serial:d.serial || "",
+    country:d.country || "",
+    year_manufactured:d.year_manufactured || 0,
+    year_in_use:d.year_in_use || 0,
+    warranty_end:d.warranty_end || "",
+    status:d.status || "",
+    location:d.location || "",
+    inspection_required_types:d.inspection_required_types || []
+  };
+}
 
 function ensureDeviceCodeColumnsAndData() {
   const cols = db.prepare("PRAGMA table_info(devices)").all().map(c => c.name);
@@ -1883,11 +1906,10 @@ app.delete("/api/users/:id", (req, res) => {
 });
 
 app.get("/api/devices", (req, res) => {
-  const includeArchived = String(req.query.include_archived || "") === "1";
-  const scopedDepartment = AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa"
-    ? String(req.authUser.department_code || "")
-    : "";
-  const rows = db.prepare(`
+  const departmentLimited = AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa";
+  const includeArchived = departmentLimited ? false : String(req.query.include_archived || "") === "1";
+  const scopedDepartment = departmentLimited ? String(req.authUser.department_code || "") : "";
+  const baseRows = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
     FROM devices dv
     LEFT JOIN departments d ON d.code = dv.department_code
@@ -1895,7 +1917,8 @@ app.get("/api/devices", (req, res) => {
     WHERE (? = 1 OR COALESCE(dv.is_archived,0)=0)
       AND (? = '' OR dv.department_code = ?)
     ORDER BY dv.id
-  `).all(includeArchived ? 1 : 0, scopedDepartment, scopedDepartment).map(enrichDevice);
+  `).all(includeArchived ? 1 : 0, scopedDepartment, scopedDepartment);
+  const rows = departmentLimited ? baseRows.map(departmentDeviceView) : baseRows.map(enrichDevice);
   res.json(rows);
 });
 
@@ -1956,6 +1979,9 @@ app.get("/api/devices/:id", (req, res) => {
   if (AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa"
       && String(device.department_code || "") !== String(req.authUser.department_code || "")) {
     return res.status(403).json({ error: "Thiết bị không thuộc khoa của tài khoản này." });
+  }
+  if (AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa") {
+    return res.json(departmentDeviceView(device));
   }
   const id = Number(req.params.id);
   const incidentRows = db.prepare(`
