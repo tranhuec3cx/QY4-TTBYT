@@ -74,7 +74,9 @@ function renderTechnicalHistory() {
       <td>${esc(x.person||"")}</td>
       <td>${href ? `<a class="btn btn-secondary btn-sm" href="${href}">Mở phiếu</a>` : "—"}</td>
     </tr>`;
-  }, 7);\n}\nasync function loadTechnicalHistory() {
+  }, 7);
+}
+async function loadTechnicalHistory() {
   if (!q("technicalRows")) return;
   const from = q("techFromDate")?.value || "";
   const to = q("techToDate")?.value || "";
