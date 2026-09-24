@@ -405,18 +405,19 @@ jobs:
       - name: Smoke test attachment file integrity
         run: |
           BASE=http://127.0.0.1:5000
-          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          ATT_DAY=$(node -e 'const p=process.argv[1].split("-").map(Number);const d=new Date(Date.UTC(p[0],p[1]-1,p[2]-1,12));process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị file CI","manufacturer":"Test","model":"FILE-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"FILE-CI-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí file CI","note":"","insurance_code":"","actor":"CI"}' >/tmp/attachment-device.json
+          ATT_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/attachment-device.json","utf8")).id')
+          ATT_QR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/attachment-device.json","utf8")).qr_uid')
           CODE=$(curl -s -o /tmp/maintenance-missing-performer.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
-            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 13:30" -F "type=Bảo dưỡng định kỳ" \
+            -F "device_id=$ATT_DEVICE" -F "maintenance_date=$ATT_DAY 13:30" -F "type=Bảo dưỡng định kỳ" \
             -F "content=Thiếu người thực hiện" -F "result=Đạt")
           test "$CODE" = "400"
           CODE=$(curl -s -o /tmp/maintenance-invalid-result.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
-            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 13:40" -F "type=Bảo dưỡng định kỳ" \
+            -F "device_id=$ATT_DEVICE" -F "maintenance_date=$ATT_DAY 13:40" -F "type=Bảo dưỡng định kỳ" \
             -F "content=Kết quả sai" -F "result=OK" -F "performer=CI")
           test "$CODE" = "400"
-          DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
-          TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
           printf '%s\n' '%PDF-1.4' '%%EOF' >/tmp/attachment-a.pdf
           printf '%s\n' '%PDF-1.4' 'replacement' '%%EOF' >/tmp/attachment-b.pdf
           printf '<html>CI rejected upload</html>' >/tmp/rejected-upload.html
@@ -424,13 +425,13 @@ jobs:
 
           BEFORE_DOC_REJECT=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           CODE=$(curl -s -o /tmp/rejected-document-type.json -w '%{http_code}' -X POST "$BASE/api/documents" \
-            -F "device_id=$DEVICE_ID" -F "name=File không hợp lệ" -F "type=Khác" \
+            -F "device_id=$ATT_DEVICE" -F "name=File không hợp lệ" -F "type=Khác" \
             -F "file=@/tmp/rejected-upload.html;type=text/html")
           test "$CODE" = "400"
           AFTER_DOC_REJECT=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           test "$BEFORE_DOC_REJECT" = "$AFTER_DOC_REJECT"
 
-          QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
+          QR_UID="$ATT_QR"
           BEFORE_QR_REJECT=$(find uploads/qr -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           CODE=$(curl -s -o /tmp/rejected-qr-media-type.json -w '%{http_code}' -X POST "$BASE/api/qr/checks" \
             -F "qr_uid=$QR_UID" -F "inspector=CI" -F "condition=Bình thường" \
@@ -441,19 +442,19 @@ jobs:
 
           BEFORE=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           CODE=$(curl -s -o /tmp/rejected-maintenance.json -w '%{http_code}' -X POST "$BASE/api/maintenances" \
-            -F "device_id=999999" -F "maintenance_date=$TODAY 14:00" -F "content=Không hợp lệ" \
+            -F "device_id=999999" -F "maintenance_date=$ATT_DAY 14:00" -F "content=Không hợp lệ" \
             -F "file=@/tmp/attachment-a.pdf;type=application/pdf")
           test "$CODE" = "400"
           AFTER=$(find uploads/documents -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           test "$BEFORE" = "$AFTER"
 
           curl -fsS -X POST "$BASE/api/documents" \
-            -F "device_id=$DEVICE_ID" -F "name=Tài liệu chung kiểm thử" -F "type=Khác" -F "doc_date=$TODAY" \
+            -F "device_id=$ATT_DEVICE" -F "name=Tài liệu chung kiểm thử" -F "type=Khác" -F "doc_date=$ATT_DAY" \
             -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/document-create.json
           DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-create.json","utf8")).id')
           OLD_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-create.json","utf8")).file_path')
           test -f ".$OLD_PATH"
-          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-document-snapshot.json
+          curl -fsS "$BASE/api/devices/$ATT_DEVICE" >/tmp/device-document-snapshot.json
           node - <<'NODE'
           const fs=require("fs");
           const id=Number(JSON.parse(fs.readFileSync("/tmp/document-create.json","utf8")).id);
@@ -461,11 +462,11 @@ jobs:
           const row=(d.documents||[]).find(x=>Number(x.id)===id);
           if(!row) throw new Error("Document snapshot record missing");
           if(row.department_code_snapshot!=="TST2") throw new Error("Document department snapshot missing");
-          if(row.location_snapshot!=="Vị trí chuyển") throw new Error("Document location snapshot missing: "+row.location_snapshot);
+          if(row.location_snapshot!=="Vị trí file CI") throw new Error("Document location snapshot missing: "+row.location_snapshot);
           NODE
 
           curl -fsS -X PUT "$BASE/api/documents/$DOC_ID" \
-            -F "name=Tài liệu chung cập nhật" -F "type=Khác" -F "doc_date=$TODAY" \
+            -F "name=Tài liệu chung cập nhật" -F "type=Khác" -F "doc_date=$ATT_DAY" \
             -F "file=@/tmp/attachment-b.pdf;type=application/pdf" >/tmp/document-update.json
           NEW_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/document-update.json","utf8")).file_path')
           test ! -f ".$OLD_PATH"
@@ -474,7 +475,7 @@ jobs:
           test ! -f ".$NEW_PATH"
 
           curl -fsS -X POST "$BASE/api/documents" \
-            -F "device_id=$DEVICE_ID" -F "name=Chứng nhận rollback chưa liên kết" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "device_id=$ATT_DEVICE" -F "name=Chứng nhận rollback chưa liên kết" -F "type=Kiểm định" -F "doc_date=$ATT_DAY" \
             -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/inspection-orphan-doc.json
           ORPHAN_DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-orphan-doc.json","utf8")).id')
           ORPHAN_DOC_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-orphan-doc.json","utf8")).file_path')
@@ -483,42 +484,42 @@ jobs:
           test ! -f ".$ORPHAN_DOC_PATH"
 
           curl -fsS -X POST "$BASE/api/documents" \
-            -F "device_id=$DEVICE_ID" -F "name=Chứng nhận đã liên kết" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "device_id=$ATT_DEVICE" -F "name=Chứng nhận đã liên kết" -F "type=Kiểm định" -F "doc_date=$ATT_DAY" \
             -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/inspection-linked-doc.json
           LINKED_DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-linked-doc.json","utf8")).id')
           LINKED_DOC_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-linked-doc.json","utf8")).file_path')
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' \
-            --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 14:30\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"LINKED-CERT\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$LINKED_DOC_PATH\",\"note\":\"Kiểm thử khóa file liên kết\"}" >/tmp/inspection-linked-record.json
+            --data "{\"device_id\":$ATT_DEVICE,\"inspection_date\":\"$ATT_DAY 14:30\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"LINKED-CERT\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$LINKED_DOC_PATH\",\"note\":\"Kiểm thử khóa file liên kết\"}" >/tmp/inspection-linked-record.json
           CODE=$(curl -s -o /tmp/inspection-linked-doc-delete.json -w '%{http_code}' -X DELETE "$BASE/api/documents/$LINKED_DOC_ID")
           test "$CODE" = "409"
           test -f ".$LINKED_DOC_PATH"
 
           curl -fsS -X POST "$BASE/api/maintenances" \
-            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 15:00" -F "type=Bảo dưỡng định kỳ" \
+            -F "device_id=$ATT_DEVICE" -F "maintenance_date=$ATT_DAY 15:00" -F "type=Bảo dưỡng định kỳ" \
             -F "content=Kiểm tra file lịch sử" -F "result=Đạt" -F "performer=CI" \
             -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/maintenance-file-create.json
           MAINT_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-create.json","utf8")).id')
           MAINT_OLD_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-create.json","utf8")).file_path')
           test -f ".$MAINT_OLD_PATH"
           curl -fsS -X PUT "$BASE/api/maintenances/$MAINT_ID" \
-            -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 15:30" -F "type=Bảo dưỡng định kỳ" \
+            -F "device_id=$ATT_DEVICE" -F "maintenance_date=$ATT_DAY 15:30" -F "type=Bảo dưỡng định kỳ" \
             -F "content=Thay file nhưng giữ lịch sử" -F "result=Đạt" -F "performer=CI" \
             -F "file=@/tmp/attachment-b.pdf;type=application/pdf" >/tmp/maintenance-file-update.json
           MAINT_NEW_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/maintenance-file-update.json","utf8")).file_path')
           test -f ".$MAINT_OLD_PATH"
           test -f ".$MAINT_NEW_PATH"
-          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-maint-snapshot.json
+          curl -fsS "$BASE/api/devices/$ATT_DEVICE" >/tmp/device-maint-snapshot.json
           node - <<'NODE'
           const fs=require("fs");
           const p=String(JSON.parse(fs.readFileSync("/tmp/maintenance-file-update.json","utf8")).file_path||"");
           const d=JSON.parse(fs.readFileSync("/tmp/device-maint-snapshot.json","utf8"));
           const row=(d.documents||[]).find(x=>String(x.file_path||"")===p);
           if(!row) throw new Error("Maintenance document snapshot missing");
-          if(row.department_code_snapshot!=="TST2" || row.location_snapshot!=="Vị trí chuyển") throw new Error("Maintenance document historical context failed: "+JSON.stringify({department_code_snapshot:row.department_code_snapshot,location_snapshot:row.location_snapshot}));
+          if(row.department_code_snapshot!=="TST2" || row.location_snapshot!=="Vị trí file CI") throw new Error("Maintenance document historical context failed: "+JSON.stringify({department_code_snapshot:row.department_code_snapshot,location_snapshot:row.location_snapshot}));
           NODE
           CODE=$(curl -s -o /tmp/maintenance-evidence-delete.json -w '%{http_code}' -X DELETE "$BASE/api/maintenances/$MAINT_ID")
           test "$CODE" = "409"
-          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-with-maint-doc.json
+          curl -fsS "$BASE/api/devices/$ATT_DEVICE" >/tmp/device-with-maint-doc.json
           MAINT_DOC_ID=$(node - <<'NODE'
           const fs=require("fs");
           const d=JSON.parse(fs.readFileSync("/tmp/device-with-maint-doc.json","utf8"));
@@ -532,15 +533,15 @@ jobs:
           test "$CODE" = "409"
           test -f ".$MAINT_NEW_PATH"
 
-          CODE=$(curl -s -o /tmp/inspection-missing-org.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 15:40\",\"type\":\"Kiểm định\",\"organization\":\"\",\"result\":\"Đạt\"}")
+          CODE=$(curl -s -o /tmp/inspection-missing-org.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$ATT_DEVICE,\"inspection_date\":\"$ATT_DAY 15:40\",\"type\":\"Kiểm định\",\"organization\":\"\",\"result\":\"Đạt\"}")
           test "$CODE" = "400"
-          CODE=$(curl -s -o /tmp/inspection-invalid-next.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 15:50\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"result\":\"Đạt\",\"next_date\":\"24/09/2027\"}")
+          CODE=$(curl -s -o /tmp/inspection-invalid-next.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$ATT_DEVICE,\"inspection_date\":\"$ATT_DAY 15:50\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"result\":\"Đạt\",\"next_date\":\"24/09/2027\"}")
           test "$CODE" = "400"
-          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 16:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"CERT-CI\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$MAINT_NEW_PATH\",\"note\":\"Kiểm tra bảo toàn chứng nhận\"}" >/tmp/inspection-evidence.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$ATT_DEVICE,\"inspection_date\":\"$ATT_DAY 16:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"CERT-CI\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$MAINT_NEW_PATH\",\"note\":\"Kiểm tra bảo toàn chứng nhận\"}" >/tmp/inspection-evidence.json
           INSPECTION_EVIDENCE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-evidence.json","utf8")).id')
           CODE=$(curl -s -o /tmp/inspection-evidence-delete.json -w '%{http_code}' -X DELETE "$BASE/api/inspections/$INSPECTION_EVIDENCE_ID")
           test "$CODE" = "409"
-          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/protected-history-after.json
+          curl -fsS "$BASE/api/devices/$ATT_DEVICE" >/tmp/protected-history-after.json
           node - <<'NODE'
           const fs=require("fs");
           const d=JSON.parse(fs.readFileSync("/tmp/protected-history-after.json","utf8"));
