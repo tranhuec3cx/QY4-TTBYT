@@ -229,7 +229,13 @@ jobs:
           EXPECTED_TODAY=$(node -p 'new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok"}).format(new Date())')
           test "$TODAY" = "$EXPECTED_TODAY"
           node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")); if(d.timeZone!=="Asia/Bangkok"||Number(d.qrChecksToday)!==1||Number(d.qrIssuesToday)!==0) throw new Error("Dashboard QR/time-zone metrics failed")'
-          NOW="$TODAY 12:00"
+          NOW=$(node - <<'NODE'
+          const d=new Date(Date.now()-60*1000);
+          const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(d);
+          const get=t=>parts.find(p=>p.type===t)?.value||"";
+          process.stdout.write(`${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`);
+          NODE
+          )
           TOMORROW=$(node -e 'const p=process.argv[1].split("-").map(Number);const d=new Date(Date.UTC(p[0],p[1]-1,p[2]+1,12));process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
           CODE=$(curl -s -o /tmp/incident-invalid-severity.json -w '%{http_code}' -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Sai mức độ\",\"severity\":\"Khẩn cấp\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}")
           test "$CODE" = "400"
@@ -652,31 +658,32 @@ jobs:
         run: |
           BASE=http://127.0.0.1:5000
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          HISTORY_DAY=$(node -e 'const p=process.argv[1].split("-").map(Number);const d=new Date(Date.UTC(p[0],p[1]-1,p[2]-1,12));process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
 
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị hồi cứu lịch sử","manufacturer":"Test","model":"BACK-01","year_in_use":2026,"status":"Đang hoạt động","serial":"BACK-CTX-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"location":"Vị trí hồi cứu A"}' >/tmp/backdated-device.json
           BACK_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-device.json","utf8")).id')
 
-          curl -fsS -X POST "$BASE/api/devices/$BACK_DEVICE/transfer" -H 'Content-Type: application/json' --data "{\"transfer_datetime\":\"$TODAY 12:00:00\",\"to_department_code\":\"TST2\",\"to_location\":\"Vị trí hiện tại B\",\"reason\":\"Kiểm thử nhập hồi cứu\",\"actor\":\"CI\"}" >/tmp/backdated-transfer.json
+          curl -fsS -X POST "$BASE/api/devices/$BACK_DEVICE/transfer" -H 'Content-Type: application/json' --data "{\"transfer_datetime\":\"$HISTORY_DAY 12:00:00\",\"to_department_code\":\"TST2\",\"to_location\":\"Vị trí hiện tại B\",\"reason\":\"Kiểm thử nhập hồi cứu\",\"actor\":\"CI\"}" >/tmp/backdated-transfer.json
 
           curl -fsS -X POST "$BASE/api/maintenances" \
-            -F "device_id=$BACK_DEVICE" -F "maintenance_date=$TODAY 08:00" -F "type=Bảo dưỡng định kỳ" \
+            -F "device_id=$BACK_DEVICE" -F "maintenance_date=$HISTORY_DAY 08:00" -F "type=Bảo dưỡng định kỳ" \
             -F "content=Hồ sơ hồi cứu bảo dưỡng" -F "result=Đạt" -F "performer=CI" >/tmp/backdated-maint.json
           BACK_MAINT=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-maint.json","utf8")).id')
 
-          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"inspection_date\":\"$TODAY 09:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"BACK-CERT\",\"result\":\"Đạt\",\"next_date\":\"\"}" >/tmp/backdated-insp.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"inspection_date\":\"$HISTORY_DAY 09:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"BACK-CERT\",\"result\":\"Đạt\",\"next_date\":\"\"}" >/tmp/backdated-insp.json
           BACK_INSP=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-insp.json","utf8")).id')
 
-          curl -fsS -X POST "$BASE/api/operation-logs" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"log_datetime\":\"$TODAY 10:00\",\"user_name\":\"CI\",\"usage_count\":\"1\",\"note\":\"Hồi cứu vận hành\"}" >/tmp/backdated-op.json
+          curl -fsS -X POST "$BASE/api/operation-logs" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"log_datetime\":\"$HISTORY_DAY 10:00\",\"user_name\":\"CI\",\"usage_count\":\"1\",\"note\":\"Hồi cứu vận hành\"}" >/tmp/backdated-op.json
           BACK_OP=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-op.json","utf8")).id')
 
           curl -fsS -X POST "$BASE/api/documents" \
-            -F "device_id=$BACK_DEVICE" -F "name=Tài liệu hồi cứu" -F "type=Khác" -F "doc_date=$TODAY" -F "updated_by=CI" >/tmp/backdated-doc.json
+            -F "device_id=$BACK_DEVICE" -F "name=Tài liệu hồi cứu" -F "type=Khác" -F "doc_date=$HISTORY_DAY" -F "updated_by=CI" >/tmp/backdated-doc.json
           BACK_DOC=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-doc.json","utf8")).id')
 
-          curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"repair_date\":\"$TODAY 07:30\",\"received_at\":\"$TODAY 07:20\",\"issue\":\"Hồi cứu sửa chữa\",\"work\":\"Đã hoàn thành\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\",\"status_after\":\"Đang hoạt động\"}" >/tmp/backdated-repair.json
+          curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"repair_date\":\"$HISTORY_DAY 07:30\",\"received_at\":\"$HISTORY_DAY 07:20\",\"issue\":\"Hồi cứu sửa chữa\",\"work\":\"Đã hoàn thành\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\",\"status_after\":\"Đang hoạt động\"}" >/tmp/backdated-repair.json
           BACK_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-repair.json","utf8")).id')
 
-          curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"incident_datetime\":\"$TODAY 07:00\",\"description\":\"Hồi cứu sự cố\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/backdated-incident.json
+          curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$BACK_DEVICE,\"incident_datetime\":\"$HISTORY_DAY 07:00\",\"description\":\"Hồi cứu sự cố\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/backdated-incident.json
           BACK_INC=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/backdated-incident.json","utf8")).id')
 
           curl -fsS "$BASE/api/incidents" >/tmp/backdated-incidents.json
