@@ -27,6 +27,10 @@ function localDateTimeInputValue(){
 function resetIncidentForm(){
   q("incidentForm").reset();
   q("incidentId").value="";
+  q("deviceSearch").readOnly=false;
+  q("deviceSearch").title="";
+  q("incidentTime").readOnly=false;
+  q("incidentTime").title="";
   q("incidentFormTitle").textContent="Ghi nhận sự cố";
   q("saveIncidentBtn").textContent="Lưu sự cố";
   q("incidentTime").value = localDateTimeInputValue();
@@ -158,7 +162,27 @@ function applyFilter(){
 }
 function clearFilters(){ q("searchInput").value=""; q("deviceFilter").value="ALL"; q("statusFilter").value="ALL"; q("sourceFilter").value="ALL"; setDefaultDateRange(); applyFilter(); }
 function openDeviceProfile(id){ if(id) window.location.href = `/device-detail.html?id=${id}&from=tickets`; }
-function editIncident(id){ const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id)); if(!r) return; q("incidentId").value=r.id; setDevicePickerSelection("deviceSearch","deviceId",DEVICES,r.device_id,()=>fillDeviceMeta()); q("incidentTime").value=String(r.incident_datetime||"").replace(" ","T").slice(0,16); q("description").value=r.description||""; q("reporter").value=r.reporter||""; q("status").value=r.status||"Mới ghi nhận"; q("localResolutionNote").value=r.local_resolution_note||""; if(q("reporterPhone")) q("reporterPhone").value=r.reporter_phone||""; q("note").value=r.note||""; q("incidentFormTitle").textContent="Cập nhật sự cố"; q("saveIncidentBtn").textContent="Cập nhật sự cố"; q("incidentForm").scrollIntoView({behavior:"smooth"}); }
+function editIncident(id){
+  const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
+  if(!r) return;
+  q("incidentId").value=r.id;
+  setDevicePickerSelection("deviceSearch","deviceId",DEVICES,r.device_id,()=>fillDeviceMeta());
+  const lockIdentity = String(r.source_channel || "") === "QR" || Boolean(String(r.acknowledged_at || "").trim()) || Boolean(r.linked_repair_id);
+  q("deviceSearch").readOnly=lockIdentity;
+  q("deviceSearch").title=lockIdentity ? "Thiết bị được khóa sau khi sự cố phát sinh từ QR hoặc đã được tiếp nhận." : "";
+  q("incidentTime").readOnly=lockIdentity;
+  q("incidentTime").title=lockIdentity ? "Thời điểm phát sinh được khóa để bảo toàn lịch sử sự cố." : "";
+  q("incidentTime").value=String(r.incident_datetime||"").replace(" ","T").slice(0,16);
+  q("description").value=r.description||"";
+  q("reporter").value=r.reporter||"";
+  q("status").value=r.status||"Mới ghi nhận";
+  q("localResolutionNote").value=r.local_resolution_note||"";
+  if(q("reporterPhone")) q("reporterPhone").value=r.reporter_phone||"";
+  q("note").value=r.note||"";
+  q("incidentFormTitle").textContent="Cập nhật sự cố";
+  q("saveIncidentBtn").textContent="Cập nhật sự cố";
+  q("incidentForm").scrollIntoView({behavior:"smooth"});
+}
 async function deleteIncident(id){
   if(!confirm("Chỉ xóa bản ghi sự cố tạo nhầm khi CHƯA tiếp nhận và CHƯA chuyển sửa chữa. Hồ sơ đã có xử lý sẽ được giữ lại. Tiếp tục xóa bản ghi nhầm này?")) return;
   try{
