@@ -22,8 +22,21 @@ document.addEventListener('DOMContentLoaded',async()=>{
   setDefaultDateRange();
   applyFieldLabels('form',{deviceSearch:'Thiết bị',dept:'Khoa',location:'Vị trí',type:'Loại thực hiện',inspectionDate:'Thời gian thực hiện',organization:'Đơn vị thực hiện',certificateNo:'Số giấy chứng nhận',result:'Kết quả',nextDate:'Hạn tiếp theo',fileNote:'Tên/nội dung file đính kèm',fileUpload:'Tải file đính kèm',note:'Ghi chú'});
   await load();
-  const editId = new URLSearchParams(window.location.search).get('edit_id');
-  if(editId) editRow(Number(editId));
+  const params = new URLSearchParams(window.location.search);
+  const editId = params.get('edit_id');
+  if(editId) {
+    editRow(Number(editId));
+  } else {
+    const requestedDeviceId = Number(params.get('device_id') || 0);
+    const requestedType = String(params.get('type') || '').trim();
+    const requestedDevice = DEVICES.find(d => Number(d.id) === requestedDeviceId);
+    if(requestedDevice) {
+      setDevicePickerSelection('deviceSearch','deviceId',DEVICES,requestedDeviceId,()=>fillInfo());
+      const allowedType = Array.from(q('type').options).some(option => option.value === requestedType);
+      if(allowedType) q('type').value = requestedType;
+      q('formCard').scrollIntoView({behavior:'smooth'});
+    }
+  }
   q('filterBtn').onclick=applyFilter;
   q('searchInput').oninput=applyFilter;
   q('deviceFilter').onchange=applyFilter;
