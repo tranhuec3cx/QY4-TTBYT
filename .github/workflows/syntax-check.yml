@@ -842,6 +842,18 @@ jobs:
 
           CODE=$(curl -s -o /tmp/bad-date-device.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị ngày sai","warranty_end":"2026-02-30"}')
           test "$CODE" = "400"
+
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị kiểm thử ngày bổ sung","status":"Đang hoạt động","location":"Phòng ngày"}' >/tmp/date-extra-device.json
+          DATE_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/date-extra-device.json","utf8")).id')
+
+          CODE=$(curl -s -o /tmp/bad-date-transfer.json -w '%{http_code}' -X POST "$BASE/api/devices/$DATE_DEVICE/transfer" -H 'Content-Type: application/json' --data '{"transfer_datetime":"2026-02-30 25:70","to_department_code":"TST","to_location":"Phòng khác","reason":"Ngày sai","actor":"CI"}')
+          test "$CODE" = "400"
+
+          CODE=$(curl -s -o /tmp/bad-date-operation.json -w '%{http_code}' -X POST "$BASE/api/operation-logs" -H 'Content-Type: application/json' --data "{\"device_id\":$DATE_DEVICE,\"log_datetime\":\"2026-02-30 08:00\",\"user_name\":\"CI\",\"usage_count\":\"1\"}")
+          test "$CODE" = "400"
+
+          CODE=$(curl -s -o /tmp/bad-date-document.json -w '%{http_code}' -X POST "$BASE/api/documents" -F "device_id=$DATE_DEVICE" -F "name=Tài liệu ngày sai" -F "doc_date=2026-02-30")
+          test "$CODE" = "400"
           echo "Strict calendar validation passed"
 
       - name: Smoke test inventory integrity rules
