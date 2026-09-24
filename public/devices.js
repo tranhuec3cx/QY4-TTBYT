@@ -4,6 +4,13 @@ let DEVICES = [];
 let FILTERED = [];
 
 function byId(id) { return DEVICES.find(x => x.id === id); }
+function selectedInspectionRequirements(){
+  return Array.from(document.querySelectorAll('input[name="inspectionRequiredType"]:checked')).map(x=>x.value);
+}
+function setInspectionRequirements(values){
+  const selected=new Set(Array.isArray(values)?values:[]);
+  document.querySelectorAll('input[name="inspectionRequiredType"]').forEach(x=>{x.checked=selected.has(x.value);});
+}
 function departmentName(code) { return META.departments.find(x => x.code === code)?.name || code; }
 function groupName(code) { return META.groups.find(x => x.code === code)?.name || code; }
 function escapeHtml(value) {
@@ -77,6 +84,7 @@ function editDevice(id) {
   q("warrantyInput").value = d.warranty_end || "";
   q("statusInput").value = d.status || "Đang hoạt động";
   q("qualityInput").value = String(d.quality_level || 3);
+  setInspectionRequirements(d.inspection_required_types || []);
   q("costInput").value = d.cost || 0;
   q("fundingInput").value = d.funding || "";
   q("locationInput").value = d.location || "";
@@ -115,6 +123,7 @@ async function saveDevice(e) {
     warranty_end: q("warrantyInput").value,
     status: q("statusInput").value,
     quality_level: Number(q("qualityInput").value || 3),
+    inspection_required_types: selectedInspectionRequirements(),
     cost: Number(q("costInput").value || 0),
     funding: q("fundingInput").value.trim(),
     location: q("locationInput").value.trim(),
@@ -129,8 +138,8 @@ async function saveDevice(e) {
   alert("Đã lưu thiết bị.");
 }
 function exportDevices() {
-  const rows = [["Mã thiết bị","Tên thiết bị","Nhóm","Khoa/Phòng","Hãng SX","Model","Serial Number","Mã bảo hiểm","Năm SD","Hạn BH","Tình trạng","Cấp chất lượng","Nước sản xuất","Năm sản xuất","Nguyên giá","Nguồn kinh phí","Vị trí","Ghi chú"]];
-  FILTERED.forEach(d => rows.push([d.device_code,d.name,d.group_name,d.department_name,d.manufacturer,d.model,d.serial,d.insurance_code,d.year_in_use,formatDateVN(d.warranty_end),d.status,d.quality_level,d.country,d.year_manufactured,d.cost,d.funding,d.location,d.note]));
+  const rows = [["Mã thiết bị","Tên thiết bị","Nhóm","Khoa/Phòng","Hãng SX","Model","Serial Number","Mã bảo hiểm","Năm SD","Hạn BH","Tình trạng","Cấp chất lượng","Nghĩa vụ KĐ/HC/ATBX","Nước sản xuất","Năm sản xuất","Nguyên giá","Nguồn kinh phí","Vị trí","Ghi chú"]];
+  FILTERED.forEach(d => rows.push([d.device_code,d.name,d.group_name,d.department_name,d.manufacturer,d.model,d.serial,d.insurance_code,d.year_in_use,formatDateVN(d.warranty_end),d.status,d.quality_level,(d.inspection_required_types||[]).join("; "),d.country,d.year_manufactured,d.cost,d.funding,d.location,d.note]));
   exportCsv("danh_sach_thiet_bi.csv", rows);
 }
 async function loadData() {
@@ -187,6 +196,7 @@ async function exportDevicesExcel() {
     "Hạn bảo hành": d.warranty_end || "",
     "Tình trạng": d.status || "",
     "Cấp chất lượng": d.quality_level || "",
+    "Nghĩa vụ KĐ/HC/ATBX": (d.inspection_required_types || []).join("; "),
     "Nguyên giá": d.cost || 0,
     "Nguồn kinh phí": d.funding || "",
     "Vị trí đặt máy": d.location || "",
