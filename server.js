@@ -410,12 +410,23 @@ function statusAfterFromRepairStatus(processingStatus, requested = "Đang hoạt
   }
   return "Chờ sửa chữa";
 }
+function isValidIsoDate(value) {
+  const m=String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return false;
+  const y=Number(m[1]),mo=Number(m[2]),d=Number(m[3]);
+  const dt=new Date(Date.UTC(y,mo-1,d,12,0,0));
+  return dt.getUTCFullYear()===y && dt.getUTCMonth()===mo-1 && dt.getUTCDate()===d;
+}
 function normalizeDateTime(value) {
   if (!value) return "";
-  let v = String(value).trim().replace("T", " ");
+  let v=String(value).trim().replace("T"," ");
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) v += " 00:00:00";
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(v)) v += ":00";
-  return v;
+  else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(v)) v += ":00";
+  const m=v.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if(!m || !isValidIsoDate(m[1])) return "";
+  const hh=Number(m[2]),mm=Number(m[3]),ss=Number(m[4]);
+  if(hh<0 || hh>23 || mm<0 || mm>59 || ss<0 || ss>59) return "";
+  return `${m[1]} ${m[2]}:${m[3]}:${m[4]}`;
 }
 function requireFields(obj, fields) {
   const missing = fields.filter(f => obj[f] === undefined || obj[f] === null || String(obj[f]).trim() === "");
@@ -2090,6 +2101,7 @@ function validateDevicePayload(payload) {
   if(!["Đang hoạt động","Hoạt động hạn chế","Chờ sửa chữa","Ngừng hoạt động"].includes(payload.status)) return "Tình trạng thiết bị không hợp lệ.";
   if(payload.year_in_use && (payload.year_in_use < 1900 || payload.year_in_use > 2100)) return "Năm sử dụng không hợp lệ.";
   if(payload.year_manufactured && (payload.year_manufactured < 1900 || payload.year_manufactured > 2100)) return "Năm sản xuất không hợp lệ.";
+  if(payload.warranty_end && !isValidIsoDate(payload.warranty_end)) return "Hạn bảo hành phải theo định dạng YYYY-MM-DD và là ngày hợp lệ.";
   return "";
 }
 
