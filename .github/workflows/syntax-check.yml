@@ -525,6 +525,56 @@ jobs:
           test "$CODE" = "409"
           echo "Frozen technical context after transfer passed"
 
+      - name: Smoke test latest maintenance and inspection schedule semantics
+        run: |
+          BASE=http://127.0.0.1:5000
+          TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          OLD_DATE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()-10);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          PAST_DUE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()-1);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          FUTURE_DUE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+60);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/latest-baseline-ops.json
+          curl -fsS "$BASE/api/leadership-dashboard" >/tmp/latest-baseline-leadership.json
+          curl -fsS "$BASE/api/reports/summary" >/tmp/latest-baseline-summary.json
+
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử lịch mới nhất","manufacturer":"Test","model":"LATEST-01","year_in_use":2026,"status":"Đang hoạt động","serial":"LATEST-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"location":"Vị trí latest","actor":"CI"}' >/tmp/latest-device.json
+          LATEST_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/latest-device.json","utf8")).id')
+
+          curl -fsS -X POST "$BASE/api/maintenances"             -F "device_id=$LATEST_DEVICE" -F "maintenance_date=$OLD_DATE 08:00" -F "type=Bảo dưỡng định kỳ"             -F "content=Phiếu cũ đã quá hạn" -F "result=Đạt" -F "performer=CI" -F "next_date=$PAST_DUE" >/tmp/latest-maint-old.json
+          curl -fsS -X POST "$BASE/api/maintenances"             -F "device_id=$LATEST_DEVICE" -F "maintenance_date=$TODAY 09:00" -F "type=Bảo dưỡng định kỳ"             -F "content=Phiếu mới còn hạn" -F "result=Đạt" -F "performer=CI" -F "next_date=$FUTURE_DUE" >/tmp/latest-maint-new.json
+
+          INSPECTION_OLD=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 08:30",type:"Kiểm định",organization:"CI",certificate_no:"LATEST-OLD",result:"Đạt",next_date:process.argv[3],file_note:"",note:"Phiếu cũ đã quá hạn"}))' "$LATEST_DEVICE" "$OLD_DATE" "$PAST_DUE")
+          INSPECTION_NEW=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"LATEST-NEW",result:"Đạt",next_date:process.argv[3],file_note:"",note:"Phiếu mới còn hạn"}))' "$LATEST_DEVICE" "$TODAY" "$FUTURE_DUE")
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$INSPECTION_OLD" >/tmp/latest-insp-old.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$INSPECTION_NEW" >/tmp/latest-insp-new.json
+
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/latest-after-ops.json
+          curl -fsS "$BASE/api/leadership-dashboard" >/tmp/latest-after-leadership.json
+          curl -fsS "$BASE/api/reports/summary" >/tmp/latest-after-summary.json
+
+          node - <<'NODE'
+          const fs=require("fs");
+          const bOps=JSON.parse(fs.readFileSync("/tmp/latest-baseline-ops.json","utf8"));
+          const aOps=JSON.parse(fs.readFileSync("/tmp/latest-after-ops.json","utf8"));
+          const bLead=JSON.parse(fs.readFileSync("/tmp/latest-baseline-leadership.json","utf8"));
+          const aLead=JSON.parse(fs.readFileSync("/tmp/latest-after-leadership.json","utf8"));
+          const bSum=JSON.parse(fs.readFileSync("/tmp/latest-baseline-summary.json","utf8"));
+          const aSum=JSON.parse(fs.readFileSync("/tmp/latest-after-summary.json","utf8"));
+
+          for(const key of ["dueInspection","overdueInspection"]){
+            if(Number(aOps[key]||0)!==Number(bOps[key]||0)) throw new Error("dashboard counted historical inspection schedule: "+key);
+          }
+          for(const key of ["dueInspections","overdueInspections","dueMaint","overdueMaint"]){
+            if(Number(aLead[key]||0)!==Number(bLead[key]||0)) throw new Error("leadership dashboard counted historical schedule: "+key);
+          }
+          if((aSum.maintenanceOverdue||[]).length!==(bSum.maintenanceOverdue||[]).length) throw new Error("reports summary counted old maintenance next_date");
+          if((aSum.inspectionOverdue||[]).length!==(bSum.inspectionOverdue||[]).length) throw new Error("reports summary counted old inspection next_date");
+          NODE
+
+          grep -F 'latestTechnicalRows(maints,"maintenance_date")' public/dashboard.js >/dev/null
+          grep -F 'latestTechnicalRows(inspections,"inspection_date")' public/dashboard.js >/dev/null
+          echo "Latest maintenance/inspection schedule semantics passed"
+
       - name: Smoke test incident snapshot correction rules
         run: |
           BASE=http://127.0.0.1:5000
