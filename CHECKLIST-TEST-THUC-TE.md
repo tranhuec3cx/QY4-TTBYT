@@ -7,7 +7,8 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 ## 1. Chuẩn bị
 
 - [ ] Đóng bản QY4-TTBYT cũ nếu đang chạy.
-- [ ] Sao lưu thư mục `db/` hiện tại sang nơi an toàn.
+- [ ] Sao lưu đầy đủ `db/` và `uploads/` hiện tại sang nơi an toàn.
+- [ ] Tạo **bản sao dữ liệu thật để test**; không chạy các thao tác thử trên bộ dữ liệu đang dùng vận hành.
 - [ ] Nếu có thể, cấu hình `QY4_BACKUP_MIRROR_DIR` sang ổ/thư mục thứ hai.
 - [ ] Double-click `start-qy4-production.cmd`.
 - [ ] Đăng nhập bằng tài khoản Quản trị viên.
@@ -15,9 +16,9 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID hoặc backup.
 - [ ] Ghi lại IP LAN server được in trong cửa sổ chạy, ví dụ `http://192.168.x.x:5000`.
 
-## 2. Kiểm tra dữ liệu thiết bị — 3 máy thật
+## 2. Kiểm tra dữ liệu thiết bị — 5–10 máy đại diện
 
-Chọn 03 máy ở 2 khoa khác nhau, ưu tiên máy có Serial rõ trên nhãn.
+Chọn **05–10 máy từ ít nhất 03 khoa**, ưu tiên đủ các tình huống: có/thiếu Serial, có hồ sơ kỹ thuật cũ, có nghĩa vụ bảo dưỡng hoặc kiểm định/hiệu chuẩn, và ít nhất 01 máy sẽ dùng để test QR.
 
 Mỗi máy kiểm:
 
@@ -50,7 +51,7 @@ Trên điện thoại cùng Wi-Fi/hotspot:
 
 ## 4. Test Sự cố → Sửa chữa
 
-Dùng một tình huống thử thực tế/được phép, không tạo sự cố giả cho máy đang hoạt động bình thường.
+Thực hiện trên **bản sao dữ liệu thật** hoặc một thiết bị test được phép. Không tạo sự cố giả vào bộ dữ liệu vận hành thật của máy đang hoạt động bình thường.
 
 - [ ] Báo sự cố bằng QR hoặc ghi nhận sự cố thật.
 - [ ] Nguồn báo hiển thị đúng QR/Nhập trực tiếp.
