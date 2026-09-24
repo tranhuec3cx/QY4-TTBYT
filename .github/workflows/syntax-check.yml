@@ -536,6 +536,7 @@ jobs:
           OLD_DATE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()-10);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
           PAST_DUE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()-1);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
           FUTURE_DUE=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+60);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          DUE_SOON=$(node -e 'const d=new Date(process.argv[1]+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+10);process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
 
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/latest-baseline-ops.json
           curl -fsS "$BASE/api/leadership-dashboard" >/tmp/latest-baseline-leadership.json
@@ -551,6 +552,15 @@ jobs:
           INSPECTION_NEW=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"LATEST-NEW",result:"Đạt",next_date:process.argv[3],file_note:"",note:"Phiếu mới còn hạn"}))' "$LATEST_DEVICE" "$TODAY" "$FUTURE_DUE")
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$INSPECTION_OLD" >/tmp/latest-insp-old.json
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$INSPECTION_NEW" >/tmp/latest-insp-new.json
+
+          curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị lưu trữ có lịch sắp hạn","manufacturer":"Test","model":"ARCH-DUE","year_in_use":2026,"status":"Đang hoạt động","serial":"ARCH-DUE-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"location":"Vị trí lưu trữ","actor":"CI"}' >/tmp/arch-due-device.json
+          ARCH_DUE_DEVICE=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/arch-due-device.json","utf8")).id')
+          curl -fsS -X POST "$BASE/api/maintenances" -F "device_id=$ARCH_DUE_DEVICE" -F "maintenance_date=$TODAY 11:00" -F "type=Bảo dưỡng định kỳ" -F "content=Lịch sắp hạn trước lưu trữ" -F "result=Đạt" -F "performer=CI" -F "next_date=$DUE_SOON" >/tmp/arch-due-maint.json
+          ARCH_INSPECTION=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 11:30",type:"Kiểm định",organization:"CI",certificate_no:"ARCH-DUE-CERT",result:"Đạt",next_date:process.argv[3],file_note:"",note:"Lịch sắp hạn trước lưu trữ"}))' "$ARCH_DUE_DEVICE" "$TODAY" "$DUE_SOON")
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$ARCH_INSPECTION" >/tmp/arch-due-insp.json
+          curl -fsS -X DELETE "$BASE/api/devices/$ARCH_DUE_DEVICE" >/tmp/arch-due-archive.json
+          curl -fsS "$BASE/api/maintenances" >/tmp/latest-all-maints.json
+          curl -fsS "$BASE/api/inspections" >/tmp/latest-all-inspections.json
 
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/latest-after-ops.json
           curl -fsS "$BASE/api/leadership-dashboard" >/tmp/latest-after-leadership.json
@@ -573,10 +583,16 @@ jobs:
           }
           if((aSum.maintenanceOverdue||[]).length!==(bSum.maintenanceOverdue||[]).length) throw new Error("reports summary counted old maintenance next_date");
           if((aSum.inspectionOverdue||[]).length!==(bSum.inspectionOverdue||[]).length) throw new Error("reports summary counted old inspection next_date");
+          const archivedDevice=Number(JSON.parse(fs.readFileSync("/tmp/arch-due-device.json","utf8")).id);
+          const archivedMaint=(JSON.parse(fs.readFileSync("/tmp/latest-all-maints.json","utf8"))||[]).find(x=>Number(x.device_id)===archivedDevice);
+          const archivedInsp=(JSON.parse(fs.readFileSync("/tmp/latest-all-inspections.json","utf8"))||[]).find(x=>Number(x.device_id)===archivedDevice);
+          if(!archivedMaint || Number(archivedMaint.is_archived)!==1) throw new Error("maintenance API did not expose archived device state");
+          if(!archivedInsp || Number(archivedInsp.is_archived)!==1) throw new Error("inspection API did not expose archived device state");
           NODE
 
           grep -F 'latestTechnicalRows(maints,"maintenance_date")' public/dashboard.js >/dev/null
           grep -F 'latestTechnicalRows(inspections,"inspection_date")' public/dashboard.js >/dev/null
+          grep -F '!Number(x.is_archived||0)' public/dashboard.js >/dev/null
           echo "Latest maintenance/inspection schedule semantics passed"
 
       - name: Smoke test incident snapshot correction rules
