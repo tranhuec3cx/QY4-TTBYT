@@ -2155,6 +2155,22 @@ app.delete("/api/devices/:id", (req, res) => {
   res.json({ ok: true, archived: true, qr_uid: ensureDeviceQrUid(id) });
 });
 
+function validateRepairPayload(payload) {
+  if (!Number(payload?.device_id || 0)) return "Vui lòng chọn thiết bị.";
+  if (!String(payload?.repair_date || payload?.received_at || "").trim()) return "Vui lòng nhập thời gian tiếp nhận.";
+  if (!String(payload?.issue || "").trim()) return "Vui lòng nhập tình trạng/nguyên nhân hỏng.";
+  const cost=Number(payload?.cost ?? 0);
+  if (!Number.isFinite(cost) || cost < 0) return "Kinh phí sửa chữa phải là số không âm.";
+  const status=normalizeRepairStatus(payload?.processing_status || "Đang xử lý");
+  if (status === "Đã hoàn thành" && !String(payload?.result || payload?.work || "").trim()) {
+    return "Phiếu hoàn thành phải có nội dung thực hiện hoặc kết quả sửa chữa.";
+  }
+  if (status === "Không sửa được" && !String(payload?.result || payload?.work || "").trim()) {
+    return "Phiếu không sửa được phải ghi rõ kết quả hoặc nội dung xử lý.";
+  }
+  return "";
+}
+
 function repairDeletePolicy(repair) {
   if (!repair) return { can_delete:false, reason:"Không tìm thấy phiếu sửa chữa." };
   if (repair.incident_id) return { can_delete:false, reason:"Phiếu được tạo từ sự cố nên phải giữ để bảo toàn chuỗi hồ sơ." };
@@ -2226,6 +2242,8 @@ app.post("/api/repairs", (req, res) => {
       department_code_snapshot: String(device.department_code || "").trim(),
       location_snapshot: String(device.location || "").trim()
     };
+    const repairError=validateRepairPayload(payload);
+    if(repairError) return res.status(400).json({error:repairError});
     const info = db.prepare(`
       INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at, department_code_snapshot, location_snapshot)
       VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at, @department_code_snapshot, @location_snapshot)
@@ -2339,6 +2357,8 @@ app.put("/api/repairs/:id", (req, res) => {
       completed_at: isTerminalRepairStatus(p.processing_status || old.processing_status || "Đang xử lý") ? (old.completed_at || nowSql()) : "",
       id: Number(req.params.id)
     };
+    const repairError=validateRepairPayload(payload);
+    if(repairError) return res.status(400).json({error:repairError});
     db.prepare(`
       UPDATE repairs SET
         device_id=@device_id,
