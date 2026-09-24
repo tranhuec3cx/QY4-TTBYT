@@ -459,6 +459,26 @@ jobs:
           curl -fsS -X DELETE "$BASE/api/documents/$DOC_ID" >/tmp/document-delete.json
           test ! -f ".$NEW_PATH"
 
+          curl -fsS -X POST "$BASE/api/documents" \
+            -F "device_id=$DEVICE_ID" -F "name=Chứng nhận rollback chưa liên kết" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/inspection-orphan-doc.json
+          ORPHAN_DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-orphan-doc.json","utf8")).id')
+          ORPHAN_DOC_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-orphan-doc.json","utf8")).file_path')
+          test -f ".$ORPHAN_DOC_PATH"
+          curl -fsS -X DELETE "$BASE/api/documents/$ORPHAN_DOC_ID" >/tmp/inspection-orphan-delete.json
+          test ! -f ".$ORPHAN_DOC_PATH"
+
+          curl -fsS -X POST "$BASE/api/documents" \
+            -F "device_id=$DEVICE_ID" -F "name=Chứng nhận đã liên kết" -F "type=Kiểm định" -F "doc_date=$TODAY" \
+            -F "file=@/tmp/attachment-a.pdf;type=application/pdf" >/tmp/inspection-linked-doc.json
+          LINKED_DOC_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-linked-doc.json","utf8")).id')
+          LINKED_DOC_PATH=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-linked-doc.json","utf8")).file_path')
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' \
+            --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 14:30\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"LINKED-CERT\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$LINKED_DOC_PATH\",\"note\":\"Kiểm thử khóa file liên kết\"}" >/tmp/inspection-linked-record.json
+          CODE=$(curl -s -o /tmp/inspection-linked-doc-delete.json -w '%{http_code}' -X DELETE "$BASE/api/documents/$LINKED_DOC_ID")
+          test "$CODE" = "409"
+          test -f ".$LINKED_DOC_PATH"
+
           curl -fsS -X POST "$BASE/api/maintenances" \
             -F "device_id=$DEVICE_ID" -F "maintenance_date=$TODAY 15:00" -F "type=Bảo dưỡng định kỳ" \
             -F "content=Kiểm tra file lịch sử" -F "result=Đạt" -F "performer=CI" \
