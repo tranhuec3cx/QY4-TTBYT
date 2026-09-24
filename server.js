@@ -892,8 +892,8 @@ function seedData() {
   users.forEach(r => insertUser.run(...r));
 
   const insertDevice = db.prepare(`
-    INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
-    VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
+    INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code,inspection_required_types)
+    VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code,@inspection_required_types)
   `);
   const insertAccessory = db.prepare("INSERT INTO accessories (device_id,name,code,maker_country,serial,note) VALUES (?,?,?,?,?,?)");
   const insertRepair = db.prepare("INSERT INTO repairs (device_id,repair_date,issue,work,person,method,cost,result,status_after,processing_status) VALUES (?,?,?,?,?,?,?,?,?,?)");
@@ -928,12 +928,12 @@ function seedData() {
     { department_code:"A12",group_code:"MON",name:"Monitor theo dõi bệnh nhân 5 thông số",manufacturer:"Mindray",model:"iPM 10",year_in_use:2022,warranty_end:"2026-09-30",status:"Đang hoạt động",serial:"MON-A12-001",country:"Trung Quốc",year_manufactured:2021,cost:58000000,funding:"Ngân sách Quốc phòng",location:"Buồng HSTC 1",note:"Monitor giường hồi sức.",accessories:[],repairs:[],maints:[["2026-01-15","Kiểm tra an toàn điện","Đo rò điện và kiểm tra pin","Đạt","Tổ TTBYT","A12","Nội bộ","2027-01-15",""]],logs:[],docs:[] },
     { department_code:"A12",group_code:"MTH",name:"Máy thở chức năng cao",manufacturer:"Dräger",model:"Evita V500",year_in_use:2021,warranty_end:"2026-08-31",status:"Đang hoạt động",serial:"VENT-A12-001",country:"Đức",year_manufactured:2020,cost:980000000,funding:"Nguồn viện trợ",location:"Buồng HSTC 2",note:"Máy thở hồi sức xâm nhập/không xâm nhập.",accessories:[["Bình làm ẩm","HUM-01","Dräger - Đức","HM-091","Tốt"]],repairs:[],maints:[["2026-02-20","Bảo dưỡng định kỳ","Thay lọc khí, kiểm tra cảm biến lưu lượng","Đạt","Dräger Service","A12","Dräger","2026-08-20",""]],logs:[],docs:[] },
     { department_code:"A15",group_code:"MT",name:"Máy thận nhân tạo",manufacturer:"Fresenius",model:"4008S",year_in_use:2021,warranty_end:"2026-11-30",status:"Đang hoạt động",serial:"HD-A15-001",country:"Đức",year_manufactured:2020,cost:420000000,funding:"Nguồn dịch vụ",location:"Đơn nguyên lọc máu 1",note:"Máy chạy thận nhân tạo thường quy.",accessories:[["Bộ kẹp đường máu","CLAMP-HD","Fresenius - Đức","CL-789","Tốt"]],repairs:[],maints:[["2026-03-10","Kiểm tra chất lượng","Kiểm tra bơm dịch và cảm biến áp lực","Đạt","Fresenius VN","A15","Fresenius","2026-09-10",""]],logs:[],docs:[] },
-    { department_code:"C2",group_code:"SH",name:"Máy xét nghiệm sinh hóa tự động",manufacturer:"Beckman Coulter",model:"AU5800",year_in_use:2021,warranty_end:"2026-12-31",status:"Đang hoạt động",serial:"SH-C2-001",country:"Mỹ",year_manufactured:2020,cost:2100000000,funding:"Ngân sách Nhà nước",location:"Phòng sinh hóa",note:"Máy sinh hóa công suất lớn.",accessories:[["Bộ trộn mẫu","MIXER","Beckman - Mỹ","MX-09","Tốt"]],repairs:[],maints:[["2026-03-28","Bảo dưỡng định kỳ","Vệ sinh hệ thống hút mẫu, calibrate quang học","Đạt","Hãng","C2","Beckman","2026-09-28",""]],logs:[],docs:[] },
+    { department_code:"C2",group_code:"SH",name:"Máy xét nghiệm sinh hóa tự động",manufacturer:"Beckman Coulter",model:"AU5800",year_in_use:2021,warranty_end:"2026-12-31",status:"Đang hoạt động",serial:"SH-C2-001",country:"Mỹ",year_manufactured:2020,cost:2100000000,funding:"Ngân sách Nhà nước",location:"Phòng sinh hóa",note:"Máy sinh hóa công suất lớn.",inspection_required_types:["Hiệu chuẩn"],accessories:[["Bộ trộn mẫu","MIXER","Beckman - Mỹ","MX-09","Tốt"]],repairs:[],maints:[["2026-03-28","Bảo dưỡng định kỳ","Vệ sinh hệ thống hút mẫu, calibrate quang học","Đạt","Hãng","C2","Beckman","2026-09-28",""]],logs:[],docs:[] },
     { department_code:"C2",group_code:"HH",name:"Máy xét nghiệm huyết học 5 thành phần",manufacturer:"Sysmex",model:"XN-1000",year_in_use:2020,warranty_end:"2025-08-15",status:"Hoạt động hạn chế",serial:"HH-C2-001",country:"Nhật Bản",year_manufactured:2019,cost:890000000,funding:"Ngân sách Nhà nước",location:"Phòng huyết học",note:"Thỉnh thoảng báo lỗi hút mẫu.",accessories:[["Module hút mẫu","SAMPLER","Sysmex - Nhật Bản","SM-33","Mới ghi nhận"]],repairs:[["2026-03-30","Báo lỗi hút mẫu","Kiểm tra bơm và thay ống mềm","KTV Trang bị","Nội bộ",1200000,"Đã khắc phục tạm thời","Hoạt động hạn chế"]],maints:[],logs:[],docs:[] },
     { department_code:"C2",group_code:"MD",name:"Máy xét nghiệm miễn dịch tự động",manufacturer:"Roche",model:"Cobas e 411",year_in_use:2022,warranty_end:"2027-03-20",status:"Đang hoạt động",serial:"MD-C2-001",country:"Thụy Sĩ",year_manufactured:2021,cost:1380000000,funding:"Ngân sách Nhà nước",location:"Phòng miễn dịch",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C2",group_code:"DM",name:"Máy xét nghiệm đông máu tự động",manufacturer:"Stago",model:"STA Compact Max",year_in_use:2023,warranty_end:"2028-01-15",status:"Đang hoạt động",serial:"DM-C2-001",country:"Pháp",year_manufactured:2022,cost:760000000,funding:"Ngân sách Nhà nước",location:"Phòng đông máu",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C2",group_code:"KHV",name:"Kính hiển vi 2 mắt điện",manufacturer:"Olympus",model:"CX23",year_in_use:2019,warranty_end:"2024-12-31",status:"Đang hoạt động",serial:"MIC-C2-001",country:"Nhật Bản",year_manufactured:2018,cost:32000000,funding:"Ngân sách Quốc phòng",location:"Phòng GPB",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
-    { department_code:"C7",group_code:"XQ",name:"Máy Xquang kỹ thuật số cố định",manufacturer:"Shimadzu",model:"RADspeed Pro",year_in_use:2021,warranty_end:"2026-10-15",status:"Đang hoạt động",serial:"XQ-C7-001",country:"Nhật Bản",year_manufactured:2020,cost:4300000000,funding:"Ngân sách Nhà nước",location:"Phòng Xquang 1",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
+    { department_code:"C7",group_code:"XQ",name:"Máy Xquang kỹ thuật số cố định",manufacturer:"Shimadzu",model:"RADspeed Pro",year_in_use:2021,warranty_end:"2026-10-15",status:"Đang hoạt động",serial:"XQ-C7-001",country:"Nhật Bản",year_manufactured:2020,cost:4300000000,funding:"Ngân sách Nhà nước",location:"Phòng Xquang 1",note:"",inspection_required_types:["Kiểm định","Kiểm định an toàn bức xạ"],accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C7",group_code:"SA",name:"Máy siêu âm màu tổng quát 4D",manufacturer:"GE",model:"Voluson E10",year_in_use:2021,warranty_end:"2026-07-15",status:"Đang hoạt động",serial:"SA-C7-001",country:"Áo",year_manufactured:2020,cost:2850000000,funding:"Nguồn dịch vụ",location:"Phòng siêu âm",note:"",accessories:[["Đầu dò Convex","C1-5","GE - Áo","CVX-00321","Đầy đủ"],["Đầu dò Linear","L3-12","GE - Áo","LIN-00892","Đầy đủ"]],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C7",group_code:"SP",name:"Hệ thống máy chụp xạ hình SPECT",manufacturer:"Siemens",model:"Symbia Evo",year_in_use:2023,warranty_end:"2028-02-28",status:"Đang hoạt động",serial:"SP-C7-001",country:"Đức",year_manufactured:2022,cost:19800000000,funding:"Ngân sách Nhà nước",location:"Phòng y học hạt nhân",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"A2",group_code:"DT",name:"Hệ thống Holter điện tim/Huyết áp",manufacturer:"GE",model:"SEER 1000",year_in_use:2022,warranty_end:"2027-09-01",status:"Đang hoạt động",serial:"DT-A2-001",country:"Mỹ",year_manufactured:2021,cost:240000000,funding:"Ngân sách Quốc phòng",location:"Phòng chẩn đoán chức năng tim mạch",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
@@ -947,7 +947,13 @@ function seedData() {
   const tx = db.transaction(() => {
     devices.forEach(device => {
       // Bảo đảm chế độ demo cũng có đủ mọi named parameter của câu INSERT.
-      const info = insertDevice.run({ quality_level: 3, device_code: null, insurance_code: "", ...device });
+      const info = insertDevice.run({
+        quality_level: 3,
+        device_code: null,
+        insurance_code: "",
+        ...device,
+        inspection_required_types: serializeRequiredInspectionTypes(device.inspection_required_types || [])
+      });
       const deviceId = info.lastInsertRowid;
       device.accessories.forEach(x => insertAccessory.run(deviceId, ...x));
       device.repairs.forEach(x => {
@@ -3596,6 +3602,9 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
   listSheet.getCell("G1").value = "Đánh giá";
   ["Đạt","Đạt có lưu ý","Không đạt","Cần theo dõi thêm"].forEach((v, i) => listSheet.getCell(`G${i+2}`).value = v);
 
+  listSheet.getCell("H1").value = "Nghĩa vụ KĐ/HC/ATBX";
+  INSPECTION_REQUIREMENT_TYPES.forEach((v, i) => listSheet.getCell(`H${i+2}`).value = v);
+
   workbook.definedNames.add("DepartmentList", `DanhMuc!$A$2:$A$${Math.max(2, departments.length+1)}`);
   workbook.definedNames.add("GroupList", `DanhMuc!$B$2:$B$${Math.max(2, groups.length+1)}`);
   workbook.definedNames.add("DeviceList", `DanhMuc!$C$2:$C$${Math.max(2, devices.length+1)}`);
@@ -3618,6 +3627,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
       { header: "Năm sử dụng", key: "year_in_use", width: 14 },
       { header: "Hạn bảo hành", key: "warranty_end", width: 16 },
       { header: "Tình trạng", key: "status", width: 20 },
+      { header: "Nghĩa vụ KĐ/HC/ATBX", key: "inspection_required_types", width: 34 },
       { header: "Nguyên giá", key: "cost", width: 14 },
       { header: "Nguồn kinh phí", key: "funding", width: 20 },
       { header: "Vị trí đặt máy", key: "location", width: 22 },
@@ -3636,6 +3646,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
       2026,
       "2027-12-31",
       "Đang hoạt động",
+      "Kiểm định; Kiểm định an toàn bức xạ",
       0,
       "",
       "Phòng CT",
@@ -3645,7 +3656,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
     addListValidation(ws, "B", "B", "GroupList");
     addListValidation(ws, "K", "K", "StatusList");
     ws.getCell("Q1").value = "Lưu ý";
-    ws.getCell("Q2").value = "Bấm vào từng ô dữ liệu từ dòng 2 trở xuống để hiện danh sách chọn sẵn.";
+    ws.getCell("Q2").value = "Nghĩa vụ KĐ/HC/ATBX: chỉ dùng các giá trị Kiểm định; Hiệu chuẩn; Kiểm xạ; Kiểm định an toàn bức xạ. Nếu một máy có nhiều nghĩa vụ, phân cách bằng dấu chấm phẩy (;). Không khai báo nếu không áp dụng.";
   }
 
   if (kind === "repairs") {
