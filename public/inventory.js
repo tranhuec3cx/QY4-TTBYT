@@ -23,7 +23,9 @@ function itemRow(x,i){
     <td><select id="d_${x.id}" ${locked?"disabled":""}>${deptOptions(x.actual_department_code||x.expected_department_code)}</select></td>
     <td><input id="l_${x.id}" value="${esc(x.actual_location||x.expected_location||"")}" ${locked?"disabled":""}/></td>
     <td><input id="n_${x.id}" value="${esc(x.note||"")}" ${locked?"disabled":""}/></td>
-    <td><div class="table-actions">${locked?"":`<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button><button class="btn btn-secondary btn-sm" id="t_${x.id}" onclick="transferFromInventory(${x.id})" style="display:none">Điều chuyển</button>`}<button class="btn btn-secondary btn-sm" onclick="openInventoryDevice(${Number(x.device_id)})">Mở HS</button></div></td>
+    <td><div class="table-actions">${locked
+      ? `<button class="btn btn-secondary btn-sm" id="t_${x.id}" onclick="transferFromInventory(${x.id})" style="display:none">Điều chuyển</button>`
+      : `<button class="btn btn-sm" onclick="saveItem(${x.id})">Lưu</button>`}<button class="btn btn-secondary btn-sm" onclick="openInventoryDevice(${Number(x.device_id)})">Mở HS</button></div></td>
   </tr>`;
 }
 function onInventoryResultChange(id){
@@ -33,7 +35,17 @@ function onInventoryResultChange(id){
   const dept=q(`d_${id}`), loc=q(`l_${id}`);
   if(!dept || !loc) return;
   const locked=CURRENT?.session?.status==="Đã hoàn thành";
-  if(locked){ dept.disabled=true; loc.disabled=true; return; }
+  const transferBtn=q(`t_${id}`);
+  if(locked){
+    dept.disabled=true;
+    loc.disabled=true;
+    const mismatch=result==="Sai khoa" || result==="Sai vị trí";
+    const alreadyAtRecordedPlace=
+      String(x.current_department_code||"")===String(x.actual_department_code||"") &&
+      String(x.current_location||"")===String(x.actual_location||"");
+    if(transferBtn) transferBtn.style.display=(mismatch && !alreadyAtRecordedPlace) ? "inline-flex" : "none";
+    return;
+  }
 
   if(result==="Có" || result==="Không thấy" || result==="Chưa kiểm kê"){
     dept.value=x.expected_department_code || "";
@@ -48,8 +60,6 @@ function onInventoryResultChange(id){
     dept.disabled=false;
     loc.disabled=false;
   }
-  const transferBtn=q(`t_${id}`);
-  if(transferBtn) transferBtn.style.display=(result==="Sai khoa" || result==="Sai vị trí") ? "inline-flex" : "none";
 }
 
 function openInventoryDevice(deviceId){ window.location.href=`/device-detail.html?id=${encodeURIComponent(deviceId)}&from=inventory`; }
@@ -72,34 +82,46 @@ function inventoryItemPayload(id){
 }
 async function saveItem(id){
   const body=inventoryItemPayload(id);
-  await api(`/api/inventory-items/${id}`,{method:"PUT",body:JSON.stringify(body)});
-  await loadSessions(); await openSession(CURRENT.session.id);
-}
-async function transferFromInventory(id){
-  if(!CURRENT || CURRENT.session.status==="Đã hoàn thành") return;
-  const item=(CURRENT.items||[]).find(x=>Number(x.id)===Number(id));
-  if(!item) return alert("Không tìm thấy dòng kiểm kê.");
-  const body=inventoryItemPayload(id);
-  if(!["Sai khoa","Sai vị trí"].includes(body.result)) return alert("Chỉ điều chuyển khi kết quả kiểm kê là Sai khoa hoặc Sai vị trí.");
-  if(!body.actual_department_code) return alert("Vui lòng chọn khoa/phòng thực tế.");
-  if(!body.actual_location) return alert("Vui lòng nhập vị trí thực tế.");
-  const actor=body.updated_by || window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
-  const reason=`Điều chuyển theo kết quả kiểm kê #${CURRENT.session.id}`;
-  const detail=`${item.expected_department_code||""}/${item.expected_location||""} → ${body.actual_department_code}/${body.actual_location}`;
-  if(!confirm(`Xác nhận điều chuyển thiết bị theo kết quả kiểm kê?\n${detail}\n\nKết quả sai lệch vẫn được giữ trong biên bản kiểm kê để truy vết.`)) return;
   try{
     await api(`/api/inventory-items/${id}`,{method:"PUT",body:JSON.stringify(body)});
+    const sessionId=CURRENT.session.id;
+    await loadSessions();
+    await openSession(sessionId);
+  }catch(e){
+    alert(e.message||"Không lưu được kết quả kiểm kê.");
+  }
+}
+async function transferFromInventory(id){
+  if(!CURRENT || CURRENT.session.status!=="Đã hoàn thành") {
+    return alert("Hãy hoàn thành đợt kiểm kê trước khi thực hiện điều chuyển.");
+  }
+  const item=(CURRENT.items||[]).find(x=>Number(x.id)===Number(id));
+  if(!item) return alert("Không tìm thấy dòng kiểm kê.");
+  if(!["Sai khoa","Sai vị trí"].includes(item.result)) return alert("Chỉ điều chuyển các dòng kết luận Sai khoa hoặc Sai vị trí.");
+  const targetDepartment=String(item.actual_department_code||"").trim();
+  const targetLocation=String(item.actual_location||"").trim();
+  if(!targetDepartment) return alert("Dòng kiểm kê chưa có khoa/phòng thực tế.");
+  if(!targetLocation) return alert("Dòng kiểm kê chưa có vị trí thực tế.");
+  if(String(item.current_department_code||"")===targetDepartment && String(item.current_location||"")===targetLocation){
+    return alert("Thiết bị hiện đã ở đúng khoa/vị trí ghi nhận trong kiểm kê.");
+  }
+  const actor=window.QY4_AUTH_USER?.full_name || q("inventoryActor").value.trim() || "Khoa Trang bị";
+  const reason=`Điều chuyển theo kết quả kiểm kê #${CURRENT.session.id}`;
+  const detail=`${item.expected_department_code||""}/${item.expected_location||""} → ${targetDepartment}/${targetLocation}`;
+  if(!confirm(`Xác nhận điều chuyển thiết bị sau khi đã hoàn thành kiểm kê?\n${detail}\n\nBiên bản kiểm kê vẫn giữ nguyên sai lệch ban đầu để truy vết.`)) return;
+  try{
     await api(`/api/devices/${item.device_id}/transfer`,{method:"POST",body:JSON.stringify({
       transfer_datetime:fromDateTimeLocalValue(nowDateTimeLocalValue()),
-      to_department_code:body.actual_department_code,
-      to_location:body.actual_location,
+      to_department_code:targetDepartment,
+      to_location:targetLocation,
       actor,
       reason,
-      note:[body.note,`Kiểm kê #${CURRENT.session.id}: ${detail}`].filter(Boolean).join(" | ")
+      note:[item.note,`Kiểm kê #${CURRENT.session.id}: ${detail}`].filter(Boolean).join(" | ")
     })});
-    alert("Đã lưu sai lệch kiểm kê và điều chuyển thiết bị theo vị trí thực tế.");
+    alert("Đã điều chuyển thiết bị theo kết quả kiểm kê.");
+    const sessionId=CURRENT.session.id;
     await loadSessions();
-    await openSession(CURRENT.session.id);
+    await openSession(sessionId);
   }catch(e){
     alert(e.message||"Không điều chuyển được thiết bị.");
   }
@@ -111,6 +133,20 @@ document.addEventListener("DOMContentLoaded",async()=>{
   q("inventoryDate").value=todayISO();
   if(q("inventoryActor") && !q("inventoryActor").value) q("inventoryActor").value=window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
   await loadSessions();
-  q("sessionForm").onsubmit=async e=>{e.preventDefault();const r=await api("/api/inventory-sessions",{method:"POST",body:JSON.stringify({inventory_date:q("inventoryDate").value,department_code:q("inventoryDepartment").value,actor:q("inventoryActor").value.trim(),note:q("inventoryNote").value.trim()})});await loadSessions();await openSession(r.id);};
+  q("sessionForm").onsubmit=async e=>{
+    e.preventDefault();
+    try{
+      const r=await api("/api/inventory-sessions",{method:"POST",body:JSON.stringify({
+        inventory_date:q("inventoryDate").value,
+        department_code:q("inventoryDepartment").value,
+        actor:q("inventoryActor").value.trim(),
+        note:q("inventoryNote").value.trim()
+      })});
+      await loadSessions();
+      await openSession(r.id);
+    }catch(err){
+      alert(err.message||"Không tạo được đợt kiểm kê.");
+    }
+  };
   q("completeSessionBtn").onclick=async()=>{if(!CURRENT)return;try{await api(`/api/inventory-sessions/${CURRENT.session.id}/complete`,{method:"POST",body:JSON.stringify({actor:q("inventoryActor").value.trim()})});await loadSessions();await openSession(CURRENT.session.id);}catch(e){alert(e.message||e);}};
 });
