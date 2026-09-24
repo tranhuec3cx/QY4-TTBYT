@@ -3005,8 +3005,8 @@ function validateMaintenancePayload(payload) {
   if (!["Đạt","Đạt có lưu ý","Không đạt","Cần theo dõi thêm"].includes(String(payload?.result || "").trim())) {
     return "Kết quả bảo dưỡng không hợp lệ.";
   }
-  if (payload?.next_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(payload.next_date))) {
-    return "Ngày bảo dưỡng tiếp theo không hợp lệ.";
+  if (payload?.next_date && !isValidIsoDate(payload.next_date)) {
+    return "Ngày bảo dưỡng tiếp theo phải là ngày hợp lệ theo YYYY-MM-DD.";
   }
   return "";
 }
@@ -4085,7 +4085,7 @@ function validateInspectionPayload(payload) {
   if (!payload.type) return "Vui lòng chọn loại kiểm định/hiệu chuẩn.";
   if (!payload.organization) return "Vui lòng nhập đơn vị thực hiện.";
   if (!["Đạt","Đạt có lưu ý","Không đạt"].includes(payload.result)) return "Kết quả không hợp lệ.";
-  if (payload.next_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(payload.next_date))) return "Hạn tiếp theo không hợp lệ.";
+  if (payload.next_date && !isValidIsoDate(payload.next_date)) return "Hạn tiếp theo phải là ngày hợp lệ theo YYYY-MM-DD.";
   return "";
 }
 
@@ -4185,7 +4185,7 @@ function buildQualityRatingPayload(input = {}) {
     }
     payload[key]=Math.round(value);
   }
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.rating_date)) return {error:"Ngày đánh giá không hợp lệ."};
+  if(!isValidIsoDate(payload.rating_date)) return {error:"Ngày đánh giá phải là ngày hợp lệ theo YYYY-MM-DD."};
   if(!payload.evaluator) return {error:"Vui lòng nhập người đánh giá."};
   payload.total_score=payload.age_score+payload.performance_score+payload.repair_score+payload.inspection_score+payload.sparepart_score;
   payload.grade=payload.total_score>=90?"A":payload.total_score>=80?"B":payload.total_score>=65?"C":"D";
@@ -4449,7 +4449,7 @@ app.post("/api/inventory-sessions", (req, res) => {
   const inventoryDate = String(req.body.inventory_date || localDateISO()).slice(0,10);
   const actor = requestActor(req, String(req.body.actor || "").trim() || "Khoa Trang bị");
   if (!departmentCode) return res.status(400).json({ error:"Thiếu khoa/phòng kiểm kê." });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(inventoryDate)) return res.status(400).json({ error:"Ngày kiểm kê phải theo định dạng YYYY-MM-DD." });
+  if (!isValidIsoDate(inventoryDate)) return res.status(400).json({ error:"Ngày kiểm kê phải theo YYYY-MM-DD và là ngày hợp lệ." });
   const dept = db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode);
   if (!dept) return res.status(400).json({ error:"Khoa/phòng không tồn tại." });
   const openSession = db.prepare("SELECT id FROM inventory_sessions WHERE department_code=? AND status='Đang kiểm kê' ORDER BY id DESC LIMIT 1").get(departmentCode);
