@@ -59,14 +59,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbResponseCompleteness", `${monthKpi?.summary?.response_data_completeness_percent||0}%`);
 
   const dueMaint = latestTechnicalRows(maints,"maintenance_date")
-    .filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
+    .filter(x => !Number(x.is_archived||0) && x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueMaints").innerHTML = dueMaint.length
     ? dueMaint.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <b>${fmtDate(x.next_date)}</b></li>`).join("")
     : "<li>Không có bảo dưỡng sắp đến hạn.</li>";
 
   const dueIns = latestTechnicalRows(inspections,"inspection_date")
-    .filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
+    .filter(x => !Number(x.is_archived||0) && x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueInspections").innerHTML = dueIns.length
     ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <b>${fmtDate(x.next_date)}</b></li>`).join("")
