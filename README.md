@@ -191,20 +191,34 @@ http://localhost:5000
 
 ## 5.1. Chạy nhanh trên Windows
 
-Repo có script:
+Cách đơn giản nhất:
 
 ```text
-start-qy4-production.ps1
+Double-click: start-qy4-production.cmd
 ```
 
-Mở PowerShell tại thư mục phần mềm và chạy:
+File `start-qy4-production.cmd` tự gọi PowerShell với ExecutionPolicy phù hợp. Script chính `start-qy4-production.ps1` sẽ:
+
+- kiểm tra Node.js/npm;
+- chặn khởi động nếu cổng 5000 đang có server khác lắng nghe;
+- tắt demo seed;
+- bật xác thực;
+- tắt legacy QR;
+- đặt timezone +07, giới hạn đăng nhập sai, QR rate limit và backup retention;
+- **sao lưu file SQLite/WAL/SHM hiện có trước khi server chạy migration** vào `backups/prestart_YYYYMMDD_HHMMSS/`;
+- chạy `npm ci` để dependency luôn khớp `package-lock.json`;
+- hỏi mật khẩu Quản trị viên lần đầu mà không ghi mật khẩu vào source.
+
+Sau khi server chạy, vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý** trước khi dùng dữ liệu thật hoặc in QR hàng loạt.
+
+Nếu cần chạy trực tiếp bằng PowerShell:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\start-qy4-production.ps1
 ```
 
-Script tự đặt cấu hình an toàn cho bản chính thức: tắt demo seed, bật xác thực, timezone +07, backup retention và QR rate limit. Mật khẩu Quản trị viên không được ghi sẵn trong file; lần đầu có thể nhập bằng prompt PowerShell. Sau khi server chạy, vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý** trước khi dùng dữ liệu thật hoặc in QR hàng loạt.
+Chỉ dùng `-SkipInstall` khi chắc chắn `node_modules` đã khớp đúng phiên bản source hiện tại.
 
 
 
@@ -468,6 +482,7 @@ Các nội dung có thể phát triển sau:
 
 ## 13. Checklist trước khi đưa vào dùng thật
 
+- [ ] Trên Windows, ưu tiên khởi động bằng **start-qy4-production.cmd** để tự backup trước migration và đồng bộ dependency.
 - [ ] Mở **Cài đặt → Hệ thống → Sẵn sàng triển khai**; xác nhận **Toàn vẹn database SQLite = Đạt** và **Toàn vẹn quan hệ dữ liệu = Đạt**, sau đó xử lý hết mục **Cần xử lý**.
 - [ ] Tạo **gói backup** và kiểm tra có cả file `.sqlite` và thư mục `.files` đi kèm.
 - [ ] Tắt demo seed: `QY4_DEMO_SEED=0`.
