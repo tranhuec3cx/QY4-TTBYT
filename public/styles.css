@@ -1387,3 +1387,6 @@ dialog#repairDetailDialog{
 
 /* Legacy hard-coded identity is hidden by default; JS only reveals the authenticated identity. */
 .user-box{display:none}
+
+/* Phân quyền hiển thị: tài khoản khoa chỉ xem, không thao tác hồ sơ kỹ thuật. */
+.role-department [data-technical-write]{display:none!important}
