@@ -45,6 +45,32 @@ jobs:
           NODE
       - name: Install dependencies
         run: npm ci
+      - name: Prepare legacy quality-rating schema
+        run: |
+          node - <<'NODE'
+          const fs=require("fs");
+          const Database=require("better-sqlite3");
+          fs.mkdirSync("db",{recursive:true});
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS quality_ratings (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              device_id INTEGER NOT NULL UNIQUE,
+              rating_date TEXT,
+              age_score INTEGER DEFAULT 0,
+              performance_score INTEGER DEFAULT 0,
+              repair_score INTEGER DEFAULT 0,
+              inspection_score INTEGER DEFAULT 0,
+              sparepart_score INTEGER DEFAULT 0,
+              total_score INTEGER DEFAULT 0,
+              grade TEXT,
+              recommendation TEXT,
+              evaluator TEXT,
+              note TEXT
+            );
+          `);
+          db.close();
+          NODE
       - name: Dependency audit summary
         run: |
           npm audit --json >/tmp/npm-audit.json || true
@@ -113,6 +139,17 @@ jobs:
           test "$CODE" = "404"
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị kiểm thử QR","manufacturer":"Test","model":"TEST-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SERIAL-BEFORE","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí A","note":"","insurance_code":"","actor":"CI"}' >/tmp/device-create.json
           DEVICE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).id')
+          curl -fsS -X POST "$BASE/api/quality-ratings" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"rating_date\":\"2026-09-23\",\"evaluator\":\"CI 1\",\"age_score\":25,\"performance_score\":20,\"repair_score\":15,\"inspection_score\":15,\"sparepart_score\":15,\"recommendation\":\"Mốc 1\",\"note\":\"Lịch sử 1\"}" >/tmp/quality-1.json
+          QUALITY_ID_1=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/quality-1.json","utf8")).id')
+          curl -fsS -X POST "$BASE/api/quality-ratings" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"rating_date\":\"2026-09-24\",\"evaluator\":\"CI 2\",\"age_score\":25,\"performance_score\":25,\"repair_score\":20,\"inspection_score\":15,\"sparepart_score\":15,\"recommendation\":\"Mốc 2\",\"note\":\"Lịch sử 2\"}" >/tmp/quality-2.json
+          QUALITY_ID_2=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/quality-2.json","utf8")).id')
+          curl -fsS "$BASE/api/quality-ratings" >/tmp/quality-list.json
+          node -e 'const fs=require("fs");const device=Number(process.argv[1]);const id1=Number(process.argv[2]);const id2=Number(process.argv[3]);const rows=JSON.parse(fs.readFileSync("/tmp/quality-list.json","utf8")).filter(x=>Number(x.device_id)===device);if(rows.length!==2)throw new Error("Quality history did not preserve 2 ratings: "+rows.length);const a=rows.find(x=>Number(x.id)===id1),b=rows.find(x=>Number(x.id)===id2);if(!a||!b||Number(a.is_latest)!==0||Number(b.is_latest)!==1)throw new Error("Quality latest marker invalid");' "$DEVICE_ID" "$QUALITY_ID_1" "$QUALITY_ID_2"
+          curl -fsS -X PUT "$BASE/api/quality-ratings/$QUALITY_ID_1" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"rating_date\":\"2026-09-23\",\"evaluator\":\"CI 1 sửa\",\"age_score\":20,\"performance_score\":20,\"repair_score\":15,\"inspection_score\":15,\"sparepart_score\":15,\"recommendation\":\"Mốc 1 sửa\",\"note\":\"Hiệu chỉnh\"}" >/tmp/quality-update.json
+          curl -fsS "$BASE/api/quality-ratings" >/tmp/quality-after-update.json
+          node -e 'const fs=require("fs");const id1=Number(process.argv[1]),id2=Number(process.argv[2]);const rows=JSON.parse(fs.readFileSync("/tmp/quality-after-update.json","utf8"));const a=rows.find(x=>Number(x.id)===id1),b=rows.find(x=>Number(x.id)===id2);if(a?.evaluator!=="CI 1 sửa"||b?.evaluator!=="CI 2")throw new Error("Quality PUT overwrote wrong history row");' "$QUALITY_ID_1" "$QUALITY_ID_2"
+          CODE=$(curl -s -o /tmp/quality-delete-reject.json -w '%{http_code}' -X DELETE "$BASE/api/quality-ratings/$QUALITY_ID_1")
+          test "$CODE" = "409"
           QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
           test -n "$DEVICE_ID"
           test -n "$QR_UID"
