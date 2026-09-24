@@ -3976,13 +3976,45 @@ app.post("/api/usage-reports", (req, res) => {
   }
 });
 
+app.put("/api/usage-reports/:id", (req, res) => {
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM usage_reports WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy báo cáo sử dụng."});
+    const p=req.body || {};
+    if(p.device_id !== undefined && Number(p.device_id)!==Number(old.device_id)){
+      return res.status(409).json({error:"Không thể đổi thiết bị của báo cáo sử dụng đã lưu."});
+    }
+    const year=Number(p.year ?? old.year ?? 0);
+    const month=(p.month===null || p.month==="" || p.month===undefined) ? old.month : Number(p.month);
+    const value=Number(p.value ?? old.value ?? 0);
+    const indicator=String(p.indicator ?? old.indicator ?? "").trim();
+    const unit=String(p.unit ?? old.unit ?? "").trim();
+    const note=String(p.note ?? old.note ?? "");
+    if(!Number.isInteger(year) || year<2000 || year>2100) return res.status(400).json({error:"Năm báo cáo không hợp lệ."});
+    if(month!==null && month!==undefined && (!Number.isInteger(Number(month)) || Number(month)<1 || Number(month)>12)) return res.status(400).json({error:"Tháng báo cáo phải từ 1 đến 12."});
+    if(!indicator) return res.status(400).json({error:"Vui lòng nhập chỉ tiêu sử dụng."});
+    if(!Number.isFinite(value) || value<0) return res.status(400).json({error:"Giá trị sử dụng phải là số không âm."});
+    db.prepare(`
+      UPDATE usage_reports
+      SET year=?,month=?,indicator=?,value=?,unit=?,note=?
+      WHERE id=?
+    `).run(year,month===undefined?null:month,indicator,value,unit,note,id);
+    writeAudit(requestActor(req),"Cập nhật báo cáo sử dụng","usage_report",id,`${old.month || "Năm"}/${old.year} | ${old.indicator}: ${old.value} → ${month || "Năm"}/${year} | ${indicator}: ${value}`);
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/usage-reports/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật báo cáo sử dụng."});
+  }
+});
+
 app.delete("/api/usage-reports/:id", (req, res) => {
   const id=Number(req.params.id);
   const old=db.prepare("SELECT * FROM usage_reports WHERE id=?").get(id);
   if(!old) return res.status(404).json({error:"Không tìm thấy báo cáo sử dụng."});
-  db.prepare("DELETE FROM usage_reports WHERE id=?").run(id);
-  writeAudit(requestActor(req), "Xóa báo cáo sử dụng", "usage_report", id, `Thiết bị #${old.device_id} | ${old.month || ""}/${old.year || ""} | ${old.indicator || ""}`);
-  res.json({ ok: true });
+  return res.status(409).json({
+    error:"Báo cáo sử dụng là dữ liệu lịch sử/KPI và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để hiệu chỉnh."
+  });
 });
 
 app.get("/api/devices/:id/transfers", (req, res) => {
