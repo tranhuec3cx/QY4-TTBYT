@@ -4381,6 +4381,9 @@ app.get("/api/system/readiness", (req, res) => {
   const activeAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND trim(COALESCE(password_hash,''))<>''").get().c;
   const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
   const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
+  const inspectionScheduleGaps = requiredInspectionScheduleGaps();
+  const missingInspectionRecords = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa có hồ sơ").length;
+  const missingInspectionNextDates = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa đặt hạn tiếp theo").length;
   let qrUploadWritable = true, documentUploadWritable = true, backupWritable = true;
   try { fs.accessSync(qrUploadsDir, fs.constants.W_OK); } catch { qrUploadWritable = false; }
   try { fs.accessSync(uploadsDir, fs.constants.W_OK); } catch { documentUploadWritable = false; }
@@ -4504,6 +4507,14 @@ app.get("/api/system/readiness", (req, res) => {
       level:unacknowledged===0 ? "Đạt" : "Lưu ý",
       title:"Sự cố chưa tiếp nhận",
       detail:unacknowledged===0 ? "Không có sự cố mới đang thiếu mốc tiếp nhận." : `Có ${unacknowledged} sự cố mới chưa có mốc tiếp nhận.`
+    },
+    {
+      key:"inspection_schedule",
+      level:inspectionScheduleGaps.length===0 ? "Đạt" : "Cần xử lý",
+      title:"Lịch KĐ/HC/ATBX bắt buộc",
+      detail:inspectionScheduleGaps.length===0
+        ? "Các nghĩa vụ KĐ/HC/ATBX đã khai báo đều có hồ sơ và hạn tiếp theo."
+        : `Còn ${inspectionScheduleGaps.length} nghĩa vụ chưa hoàn chỉnh: ${missingInspectionRecords} chưa có hồ sơ; ${missingInspectionNextDates} chưa đặt hạn tiếp theo.`
     }
   ];
   const blocking = checks.filter(x=>x.level==="Cần xử lý").length;
@@ -4526,7 +4537,10 @@ app.get("/api/system/readiness", (req, res) => {
       backups:backups.length,
       latest_backup:latestBackup,
       latest_backup_integrity:latestBackupStatus.integrity,
-      latest_backup_age_hours:latestBackupStatus.age_hours
+      latest_backup_age_hours:latestBackupStatus.age_hours,
+      missing_inspection_schedules:inspectionScheduleGaps.length,
+      missing_inspection_records:missingInspectionRecords,
+      missing_inspection_next_dates:missingInspectionNextDates
     }
   });
 });
