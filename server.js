@@ -387,7 +387,6 @@ const uploadIncidentMedia = multer({
     cb(null, true);
   }
 });
-const INCIDENT_STATUSES = ["Mới ghi nhận","Đã chuyển sửa chữa","Đã xử lý tại chỗ"];
 const REPAIR_STATUSES = ["Đang xử lý","Chờ linh kiện","Đã hoàn thành","Không sửa được"];
 function normalizeRepairStatus(status) {
   const raw = String(status || "").trim();
@@ -421,9 +420,6 @@ function normalizeDateTime(value) {
 function requireFields(obj, fields) {
   const missing = fields.filter(f => obj[f] === undefined || obj[f] === null || String(obj[f]).trim() === "");
   return missing;
-}
-function sanitizeStatus(value, allowed, fallback) {
-  return allowed.includes(value) ? value : fallback;
 }
 function normalizeIncidentStatusForUi(status, linkedRepairId) {
   const raw = String(status || "").trim();
@@ -501,9 +497,12 @@ function shiftIsoDate(value, days) {
 function localDatePlusDays(days, base = new Date()) {
   return shiftIsoDate(localDateISO(base), days);
 }
-function nowSql() {
-  const p = zonedDateParts(new Date(), true);
+function sqlDateTimeInAppZone(date = new Date()) {
+  const p = zonedDateParts(date, true);
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
+function nowSql() {
+  return sqlDateTimeInAppZone(new Date());
 }
 
 function makeIncidentCode(id, incidentDate = nowSql()) {
@@ -3148,7 +3147,8 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
     const condition = String(p.condition || "").trim();
     const inspector = String(p.inspector || "").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
-    validateIncidentFiles(req.files);
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) return qrRequestError(req, res, 400, fileError);
     if (!inspector) return qrRequestError(req, res, 400, "Vui lòng nhập tên người kiểm tra.");
 
     const normalizedCondition = condition === "Tốt" ? "Bình thường" : condition;
@@ -3227,7 +3227,8 @@ app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) 
     const description = String(p.description || "").trim();
     const severity = String(p.severity || "Trung bình").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
-    validateIncidentFiles(req.files);
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) return qrRequestError(req, res, 400, fileError);
     if (!reporter) return qrRequestError(req, res, 400, "Vui lòng nhập người báo.");
     if (!description) return qrRequestError(req, res, 400, "Vui lòng nhập mô tả sự cố.");
     if (!["Thấp","Trung bình","Cao"].includes(severity)) return qrRequestError(req, res, 400, "Mức độ không hợp lệ.");
@@ -3381,10 +3382,30 @@ function validateIncidentFiles(files){
   const list = Array.isArray(files) ? files : [];
   const images = list.filter(f => String(f.mimetype||"").startsWith("image/"));
   const videos = list.filter(f => String(f.mimetype||"").startsWith("video/") || /\.(mp4|mov)$/i.test(f.originalname||""));
-  if (images.length > 5) throw new Error("Chỉ được tải tối đa 5 ảnh cho mỗi sự cố.");
-  if (videos.length > 1) throw new Error("Chỉ được tải tối đa 1 video cho mỗi sự cố.");
-  for (const f of images) if (f.size > 5 * 1024 * 1024) throw new Error("Mỗi ảnh tối đa 5MB.");
-  for (const f of videos) if (f.size > 30 * 1024 * 1024) throw new Error("Video tối đa 30MB.");
+  if (images.length > 5) return "Chỉ được tải tối đa 5 ảnh cho mỗi sự cố.";
+  if (videos.length > 1) return "Chỉ được tải tối đa 1 video cho mỗi sự cố.";
+  for (const f of images) if (f.size > 5 * 1024 * 1024) return "Mỗi ảnh tối đa 5MB.";
+  for (const f of videos) if (f.size > 30 * 1024 * 1024) return "Video tối đa 30MB.";
+  return "";
+}
+function isValidSqlDateTime(value) {
+  const m=String(value || "").match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if(!m) return false;
+  const parts=m.slice(1).map(Number);
+  const [y,mo,d,h,mi,s]=parts;
+  const dt=new Date(Date.UTC(y,mo-1,d,h,mi,s));
+  return dt.getUTCFullYear()===y && dt.getUTCMonth()===mo-1 && dt.getUTCDate()===d
+    && dt.getUTCHours()===h && dt.getUTCMinutes()===mi && dt.getUTCSeconds()===s;
+}
+function validateIncidentCore(payload, { checkTime=true } = {}) {
+  if (!["Thấp","Trung bình","Cao"].includes(String(payload?.severity || ""))) return "Mức độ sự cố không hợp lệ.";
+  if (checkTime) {
+    const value=String(payload?.incident_datetime || "");
+    if (!isValidSqlDateTime(value)) return "Thời điểm sự cố không hợp lệ.";
+    const maxAllowed=sqlDateTimeInAppZone(new Date(Date.now()+5*60*1000));
+    if (value > maxAllowed) return "Thời điểm sự cố không được ở tương lai.";
+  }
+  return "";
 }
 function saveIncidentFiles(incidentId, deviceId, files){
   const list = Array.isArray(files) ? files : [];
@@ -3475,7 +3496,11 @@ app.get("/api/incidents", (req, res) => {
 app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    validateIncidentFiles(req.files);
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:fileError});
+    }
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
     if (missing.length) {
       cleanupUploadedFiles(req.files);
@@ -3493,7 +3518,12 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
       local_resolution_note: p.local_resolution_note || "",
       source_channel: "Nhập trực tiếp"
     };
-    const deviceExists = db.prepare("SELECT id FROM devices WHERE id=?").get(payload.device_id);
+    const incidentError=validateIncidentCore(payload);
+    if(incidentError){
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:incidentError});
+    }
+    const deviceExists = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
     if (!deviceExists) {
       cleanupUploadedFiles(req.files);
       return res.status(400).json({ error: "Thiết bị không tồn tại." });
@@ -3529,7 +3559,11 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
 app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    validateIncidentFiles(req.files);
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:fileError});
+    }
     const old = db.prepare("SELECT * FROM incidents WHERE id=?").get(req.params.id);
     if (!old) {
       cleanupUploadedFiles(req.files);
@@ -3566,6 +3600,11 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       note: p.note || "",
       local_resolution_note: p.local_resolution_note || old.local_resolution_note || ""
     };
+    const incidentError=validateIncidentCore(payload,{checkTime:!incidentTimeLocked});
+    if(incidentError){
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:incidentError});
+    }
     const deviceExists = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
     if (!deviceExists) {
       cleanupUploadedFiles(req.files);
