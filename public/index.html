@@ -29,7 +29,7 @@
     <select id="fundingFilter"></select>
     <button class="btn" id="filterBtn">Lọc</button>
     <button class="btn" id="resetBtn">Đặt lại</button>
-    <button class="btn btn-primary" onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm thiết bị</button>
+    <button class="btn btn-primary" data-technical-write onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm thiết bị</button>
   </div>
 </section>
 
@@ -47,7 +47,7 @@
   </div>
 </section>
 
-<section id="formCard" class="card">
+<section id="formCard" class="card" data-technical-write>
   <div class="table-card-header"><h3>Thêm / cập nhật thiết bị</h3></div>
   <form id="deviceForm">
     <input type="hidden" id="deviceId" />
