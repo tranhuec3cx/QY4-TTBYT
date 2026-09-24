@@ -16,6 +16,15 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     throw "Chua tim thay npm trong PATH."
 }
 
+$nodeVersionText = (node -v).Trim().TrimStart("v")
+$nodeMajor = 0
+if (-not [int]::TryParse(($nodeVersionText -split '\.')[0], [ref]$nodeMajor)) {
+    throw "Khong doc duoc phien ban Node.js: $nodeVersionText"
+}
+if ($nodeMajor -lt 20) {
+    throw "QY4-TTBYT 5.0.0 yeu cau Node.js 20 tro len. Dang co: v$nodeVersionText"
+}
+
 # Khong cho khoi dong them mot server tren cung cong.
 $port = 5000
 try {
