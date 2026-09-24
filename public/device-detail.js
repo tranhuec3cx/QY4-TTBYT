@@ -68,14 +68,13 @@ function renderTechnicalHistory() {
     return `<tr>
       <td>${formatDateTimeVNLines(x.date)}</td>
       <td><b>${esc(x.type||"")}</b></td>
+      <td><b>${esc(x.department_code||"—")}</b>${x.location ? `<div class="small">${esc(x.location)}</div>` : ""}</td>
       <td class="wrap-text">${esc(x.content||"")}</td>
       <td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"—")}</span></td>
       <td>${esc(x.person||"")}</td>
       <td>${href ? `<a class="btn btn-secondary btn-sm" href="${href}">Mở phiếu</a>` : "—"}</td>
     </tr>`;
-  }, 6);
-}
-async function loadTechnicalHistory() {
+  }, 7);\n}\nasync function loadTechnicalHistory() {
   if (!q("technicalRows")) return;
   const from = q("techFromDate")?.value || "";
   const to = q("techToDate")?.value || "";
