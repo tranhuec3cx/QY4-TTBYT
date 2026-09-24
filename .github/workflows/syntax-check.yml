@@ -332,9 +332,11 @@ jobs:
           QR_MEDIA_PATH=$(node -p 'const fs=require("fs");const id=Number(JSON.parse(fs.readFileSync("/tmp/qr-incident.json","utf8")).incident_id);const rows=JSON.parse(fs.readFileSync("/tmp/incidents-after.json","utf8"));const r=rows.find(x=>Number(x.id)===id);r?.files?.[0]?.file_path||""')
           test -n "$QR_MEDIA_PATH"
           test -f ".$QR_MEDIA_PATH"
-          curl -fsS -X DELETE "$BASE/api/incidents/$QR_INCIDENT_ID" >/tmp/qr-incident-delete.json
+          CODE=$(curl -s -o /tmp/qr-incident-delete.json -w '%{http_code}' -X DELETE "$BASE/api/incidents/$QR_INCIDENT_ID")
+          if [ "$CODE" != "200" ]; then echo "qr-incident-delete HTTP=$CODE"; cat /tmp/qr-incident-delete.json; exit 1; fi
           test ! -f ".$QR_MEDIA_PATH"
-          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-qr-incident-delete.json
+          CODE=$(curl -s -o /tmp/device-after-qr-incident-delete.json -w '%{http_code}' "$BASE/api/devices/$DEVICE_ID")
+          if [ "$CODE" != "200" ]; then echo "device-after-qr-delete HTTP=$CODE"; cat /tmp/device-after-qr-incident-delete.json; exit 1; fi
           node -e 'const fs=require("fs");const p=process.argv[1];const d=JSON.parse(fs.readFileSync("/tmp/device-after-qr-incident-delete.json","utf8"));if((d.documents||[]).some(x=>String(x.file_path||"")===p))throw new Error("Deleted QR incident left a ghost document")' "$QR_MEDIA_PATH"
 
           CODE=$(curl -s -o /tmp/trace-device.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị truy vết QR","manufacturer":"Test","model":"TRACE-01","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"TRACE-QR-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí truy vết","note":"","insurance_code":"","actor":"CI"}')
