@@ -995,6 +995,11 @@ jobs:
 
           CODE=$(curl -s -o /tmp/unauth.json -w '%{http_code}' "$BASE/api/devices")
           test "$CODE" = "401"
+          CODE=$(curl -s -o /tmp/dashboard-page-unauth.html -w '%{http_code}' "$BASE/dashboard.html")
+          test "$CODE" = "302"
+          grep -qi 'login.html' /tmp/dashboard-page-unauth.html || true
+          CODE=$(curl -s -o /tmp/login-page.html -w '%{http_code}' "$BASE/login.html")
+          test "$CODE" = "200"
           test "$(curl -s -o /tmp/qr-origins-unauth.json -w '%{http_code}' "$BASE/api/system/qr-origins")" = "401"
 
           LAST_LOGIN_CODE=0
@@ -1013,6 +1018,8 @@ jobs:
           fi
 
           curl -fsS -c /tmp/admin-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"admin","password":"AdminPass123!"}' >/tmp/admin-login.json
+          CODE=$(curl -s -b /tmp/admin-cookie.txt -o /tmp/dashboard-page-auth.html -w '%{http_code}' "$BASE/dashboard.html")
+          test "$CODE" = "200"
           if [ -n "$UPLOAD_FILE" ]; then
             CODE=$(curl -s -b /tmp/admin-cookie.txt -o /tmp/upload-auth.bin -w '%{http_code}' "$BASE$UPLOAD_URL")
             test "$CODE" = "200"
