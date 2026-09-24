@@ -1816,8 +1816,12 @@ app.delete("/api/device-groups/:code", (req, res) => {
 });
 
 app.get("/api/meta", (req, res) => {
+  const departmentLimited = AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa";
+  const departments = departmentLimited
+    ? db.prepare("SELECT * FROM departments WHERE code=? ORDER BY code").all(String(req.authUser.department_code || ""))
+    : db.prepare("SELECT * FROM departments ORDER BY code").all();
   res.json({
-    departments: db.prepare("SELECT * FROM departments ORDER BY code").all(),
+    departments,
     groups: db.prepare("SELECT * FROM device_groups ORDER BY code").all()
   });
 });
