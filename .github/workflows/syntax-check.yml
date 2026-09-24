@@ -479,7 +479,7 @@ jobs:
           curl -fsS "$BASE/api/devices/$CTX_DEVICE" >/tmp/context-device-after.json
           curl -fsS "$BASE/api/reports/summary" >/tmp/context-summary-after.json
 
-          node - <<'NODE'
+          node - "$CTX_DEVICE" "$CTX_REPAIR" "$CTX_MAINT" "$CTX_INSP" "$CTX_OP" <<'NODE'
           const fs=require("fs");
           const deviceId=Number(process.env.CTX_DEVICE_ENV || process.argv[2] || 0);
           const repairId=Number(process.argv[3]||0), maintId=Number(process.argv[4]||0), inspId=Number(process.argv[5]||0), opId=Number(process.argv[6]||0);
@@ -503,7 +503,6 @@ jobs:
           if(cost(before,"TST")!==cost(after,"TST")) throw new Error("repair cost moved away from historical department");
           if(cost(before,"TST2")!==cost(after,"TST2")) throw new Error("repair cost moved into current department after transfer");
           NODE
-          "$CTX_DEVICE" "$CTX_REPAIR" "$CTX_MAINT" "$CTX_INSP" "$CTX_OP"
 
           CODE=$(curl -s -o /tmp/context-maint-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/maintenances/$CTX_MAINT" -F "device_id=$CTX_OTHER" -F "maintenance_date=$TODAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Không được đổi máy" -F "result=Đạt" -F "performer=CI")
           test "$CODE" = "409"
