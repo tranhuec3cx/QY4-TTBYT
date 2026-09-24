@@ -1823,6 +1823,28 @@ app.get("/api/meta", (req, res) => {
 });
 
 const USER_ROLES = ["Quản trị viên","Kỹ sư TTBYT","Người dùng khoa"];
+function normalizeUsername(value) {
+  return String(value || "").trim();
+}
+function validateUserInput(input = {}, excludeId = 0, requirePassword = false) {
+  const fullName=String(input.full_name || "").trim();
+  const username=normalizeUsername(input.username);
+  const role=String(input.role || "").trim();
+  const status=String(input.status || "Hoạt động").trim() || "Hoạt động";
+  const departmentCode=String(input.department_code || "").trim();
+  const password=String(input.password || "");
+  if(!fullName || !username || !role) return {error:"Thiếu họ tên, tài khoản hoặc vai trò."};
+  if(!/^[A-Za-z0-9._-]{3,50}$/.test(username)) return {error:"Tài khoản chỉ dùng chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang; dài 3–50 ký tự."};
+  if(!USER_ROLES.includes(role)) return {error:"Vai trò người dùng không hợp lệ."};
+  if(!["Hoạt động","Ngừng hoạt động"].includes(status)) return {error:"Trạng thái người dùng không hợp lệ."};
+  if(requirePassword && !password) return {error:"Khi bật xác thực, người dùng mới phải có mật khẩu."};
+  if(password && password.length < 8) return {error:"Mật khẩu phải có ít nhất 8 ký tự."};
+  if(role==="Người dùng khoa" && !departmentCode) return {error:"Tài khoản Người dùng khoa phải được gán một khoa/phòng."};
+  if(departmentCode && !db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode)) return {error:"Khoa/phòng được gán không tồn tại trong danh mục."};
+  const duplicate=db.prepare("SELECT id,username FROM users WHERE lower(trim(username))=lower(trim(?)) AND (?=0 OR id<>?) LIMIT 1").get(username,Number(excludeId||0),Number(excludeId||0));
+  if(duplicate) return {error:`Tài khoản “${username}” đã tồn tại (không phân biệt chữ hoa/thường).`};
+  return {value:{full_name:fullName,username,role,department_code:departmentCode || null,status,phone:String(input.phone || "").trim(),password}};
+}
 function activeAdminCount(excludeId = 0) {
   return db.prepare(`
     SELECT COUNT(*) AS c FROM users
@@ -1844,48 +1866,54 @@ app.get("/api/users", (req, res) => {
 
 app.post("/api/users", (req, res) => {
   try {
-    const { full_name, username, role, department_code, status, phone, password } = req.body;
-    if (!full_name || !username || !role) return res.status(400).json({ error: "Thiếu họ tên, tài khoản hoặc vai trò." });
-    if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Vai trò người dùng không hợp lệ." });
-    if (status && !["Hoạt động","Ngừng hoạt động"].includes(status)) return res.status(400).json({ error: "Trạng thái người dùng không hợp lệ." });
-    if (AUTH_REQUIRED && !password) return res.status(400).json({ error: "Khi bật xác thực, người dùng mới phải có mật khẩu." });
-    const info = db.prepare(`
-      INSERT INTO users (full_name, username, role, department_code, status, phone)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(full_name, username, role, department_code || null, status || "Hoạt động", phone || "");
-    if (password) setUserPassword(info.lastInsertRowid, password);
-    writeAudit(req.authUser?.full_name || "Quản trị viên", "Tạo người dùng", "user", info.lastInsertRowid, username);
-    res.json({ id: info.lastInsertRowid });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
+    const built=validateUserInput(req.body || {},0,AUTH_REQUIRED);
+    if(built.error) return res.status(400).json({error:built.error});
+    const p=built.value;
+    const tx=db.transaction(()=>{
+      const info = db.prepare(`
+        INSERT INTO users (full_name, username, role, department_code, status, phone)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(p.full_name,p.username,p.role,p.department_code,p.status,p.phone);
+      if(p.password) setUserPassword(info.lastInsertRowid,p.password);
+      writeAudit(req.authUser?.full_name || "Quản trị viên","Tạo người dùng","user",info.lastInsertRowid,p.username);
+      return info.lastInsertRowid;
+    });
+    res.json({id:tx()});
+  } catch(e) {
+    console.error("POST /api/users error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo người dùng."});
   }
 });
 
 app.put("/api/users/:id", (req, res) => {
   try {
-    const { full_name, username, role, department_code, status, phone, password } = req.body;
-    const old = db.prepare("SELECT * FROM users WHERE id=?").get(Number(req.params.id));
-    if (!old) return res.status(404).json({ error: "Không tìm thấy người dùng." });
-    if (!USER_ROLES.includes(role)) return res.status(400).json({ error: "Vai trò người dùng không hợp lệ." });
-    if (!["Hoạt động","Ngừng hoạt động"].includes(status || "Hoạt động")) return res.status(400).json({ error: "Trạng thái người dùng không hợp lệ." });
-    const wouldRemoveActiveAdmin = old.role === "Quản trị viên" && old.status === "Hoạt động"
-      && (role !== "Quản trị viên" || (status || "Hoạt động") !== "Hoạt động");
-    if (wouldRemoveActiveAdmin && activeAdminCount(old.id) === 0) {
-      return res.status(400).json({ error: "Không thể hạ quyền hoặc ngừng hoạt động Quản trị viên cuối cùng." });
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM users WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy người dùng."});
+    const built=validateUserInput(req.body || {},id,false);
+    if(built.error) return res.status(400).json({error:built.error});
+    const p=built.value;
+    const wouldRemoveActiveAdmin=old.role==="Quản trị viên" && old.status==="Hoạt động"
+      && (p.role!=="Quản trị viên" || p.status!=="Hoạt động");
+    if(wouldRemoveActiveAdmin && activeAdminCount(old.id)===0){
+      return res.status(400).json({error:"Không thể hạ quyền hoặc ngừng hoạt động Quản trị viên cuối cùng."});
     }
-    db.prepare(`
-      UPDATE users SET full_name=?, username=?, role=?, department_code=?, status=?, phone=?
-      WHERE id=?
-    `).run(full_name, username, role, department_code || null, status || "Hoạt động", phone || "", req.params.id);
-    if (password) {
-      setUserPassword(req.params.id, password);
-      db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(Number(req.params.id));
-    }
-    if (status !== "Hoạt động") db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(Number(req.params.id));
-    writeAudit(req.authUser?.full_name || "Quản trị viên", "Cập nhật người dùng", "user", req.params.id, `${old.username} → ${username}${password ? " | đã đổi mật khẩu và thu hồi phiên đăng nhập" : ""}`);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
+    const tx=db.transaction(()=>{
+      db.prepare(`
+        UPDATE users SET full_name=?,username=?,role=?,department_code=?,status=?,phone=? WHERE id=?
+      `).run(p.full_name,p.username,p.role,p.department_code,p.status,p.phone,id);
+      if(p.password){
+        setUserPassword(id,p.password);
+        db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+      }
+      if(p.status!=="Hoạt động") db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+      writeAudit(req.authUser?.full_name || "Quản trị viên","Cập nhật người dùng","user",id,`${old.username} → ${p.username}${p.password ? " | đã đổi mật khẩu và thu hồi phiên đăng nhập" : ""}`);
+    });
+    tx();
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/users/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật người dùng."});
   }
 });
 
