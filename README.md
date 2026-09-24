@@ -150,7 +150,7 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 
 ## 3. Cài đặt
 
-Yêu cầu Node.js phù hợp với các dependency của dự án.
+Yêu cầu **Node.js 20 trở lên** (cùng major runtime đang được kiểm thử trong GitHub Actions).
 
 ```bash
 npm ci
@@ -206,7 +206,7 @@ File `start-qy4-production.cmd` tự gọi PowerShell với ExecutionPolicy phù
 - tắt legacy QR;
 - đặt timezone +07, giới hạn đăng nhập sai, QR rate limit và backup retention;
 - **sao lưu file SQLite/WAL/SHM hiện có trước khi server chạy migration** vào `backups/prestart_YYYYMMDD_HHMMSS/`;
-- chạy `npm ci` để dependency luôn khớp `package-lock.json`;
+- kiểm tra dependency cục bộ bằng `npm ls`; nếu đã đủ và đúng phiên bản thì **không tải lại**, phù hợp máy chạy LAN/offline; chỉ chạy `npm ci` khi dependency thiếu hoặc lệch;
 - hỏi mật khẩu Quản trị viên lần đầu mà không ghi mật khẩu vào source.
 
 Sau khi server chạy, vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý** trước khi dùng dữ liệu thật hoặc in QR hàng loạt.
@@ -218,7 +218,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\start-qy4-production.ps1
 ```
 
-Chỉ dùng `-SkipInstall` khi chắc chắn `node_modules` đã khớp đúng phiên bản source hiện tại.
+Chỉ dùng `-SkipInstall` khi chắc chắn `node_modules` đã khớp đúng phiên bản source hiện tại. Nếu máy hoàn toàn offline mà dependency còn thiếu, cần chuẩn bị sẵn `node_modules` đúng `package-lock.json` hoặc npm cache trước khi triển khai.
 
 
 
