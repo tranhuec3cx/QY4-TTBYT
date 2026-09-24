@@ -45,6 +45,7 @@ $env:QY4_SESSION_HOURS = $(if ($env:QY4_SESSION_HOURS) { $env:QY4_SESSION_HOURS 
 $env:QY4_AUTH_LOGIN_LIMIT = $(if ($env:QY4_AUTH_LOGIN_LIMIT) { $env:QY4_AUTH_LOGIN_LIMIT } else { "8" })
 $env:QY4_AUTH_LOGIN_WINDOW_MS = $(if ($env:QY4_AUTH_LOGIN_WINDOW_MS) { $env:QY4_AUTH_LOGIN_WINDOW_MS } else { "900000" })
 $env:QY4_BACKUP_KEEP = $(if ($env:QY4_BACKUP_KEEP) { $env:QY4_BACKUP_KEEP } else { "30" })
+$env:QY4_PRESTART_KEEP = $(if ($env:QY4_PRESTART_KEEP) { $env:QY4_PRESTART_KEEP } else { "10" })
 $env:QY4_QR_RATE_LIMIT = $(if ($env:QY4_QR_RATE_LIMIT) { $env:QY4_QR_RATE_LIMIT } else { "20" })
 $env:QY4_QR_RATE_WINDOW_MS = $(if ($env:QY4_QR_RATE_WINDOW_MS) { $env:QY4_QR_RATE_WINDOW_MS } else { "60000" })
 $env:QY4_TIME_ZONE = $(if ($env:QY4_TIME_ZONE) { $env:QY4_TIME_ZONE } else { "Asia/Bangkok" })
@@ -58,6 +59,14 @@ if (Test-Path $dbMain) {
     Get-ChildItem (Join-Path $PSScriptRoot "db") -Filter "qy4_ttbyt.sqlite*" -File -ErrorAction SilentlyContinue |
         Copy-Item -Destination $preDir -Force
     Write-Host "Da sao luu DB truoc cap nhat: $preDir" -ForegroundColor Green
+
+    $preKeep = 10
+    [void][int]::TryParse($env:QY4_PRESTART_KEEP, [ref]$preKeep)
+    $preKeep = [Math]::Max(3, $preKeep)
+    Get-ChildItem (Join-Path $PSScriptRoot "backups") -Directory -Filter "prestart_*" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip $preKeep |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($SkipInstall) {
@@ -113,6 +122,7 @@ Write-Host "  Xac thuc       : $env:QY4_AUTH_REQUIRED"
 Write-Host "  Legacy QR      : $env:QY4_ALLOW_LEGACY_QR"
 Write-Host "  Time zone      : $env:QY4_TIME_ZONE"
 Write-Host "  Backup keep    : $env:QY4_BACKUP_KEEP"
+Write-Host "  Prestart keep  : $env:QY4_PRESTART_KEEP"
 Write-Host "  QR rate limit  : $env:QY4_QR_RATE_LIMIT / $env:QY4_QR_RATE_WINDOW_MS ms"
 if ($env:QY4_BACKUP_MIRROR_DIR) {
     Write-Host "  Backup mirror  : $env:QY4_BACKUP_MIRROR_DIR"
