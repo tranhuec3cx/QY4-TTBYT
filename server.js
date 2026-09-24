@@ -1419,7 +1419,11 @@ app.post("/api/auth/login", (req, res) => {
     res.setHeader("Retry-After",String(rate.retrySeconds));
     return res.status(429).json({error:"Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau."});
   }
-  const user = db.prepare("SELECT * FROM users WHERE lower(username)=lower(?) LIMIT 1").get(username);
+  const matches=db.prepare("SELECT * FROM users WHERE lower(trim(username))=lower(trim(?)) ORDER BY id").all(username);
+  if(matches.length>1){
+    return res.status(409).json({error:"Tài khoản bị trùng chữ hoa/thường trong dữ liệu cũ. Quản trị viên cần đổi tên một tài khoản trước khi đăng nhập."});
+  }
+  const user=matches[0];
   if (!user || user.status !== "Hoạt động" || !verifyUserPassword(user, password)) {
     const failed=recordAuthLoginFailure(req,username);
     if(failed.blocked) res.setHeader("Retry-After",String(failed.retrySeconds));
@@ -4793,6 +4797,17 @@ app.get("/api/system/readiness", (req, res) => {
   `).get().c;
   const activeAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND trim(COALESCE(password_hash,''))<>''").get().c;
   const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
+  const activeUsersMissingPassword = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND trim(COALESCE(password_hash,''))=''").get().c;
+  const departmentUsersMissingDepartment = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND role='Người dùng khoa' AND trim(COALESCE(department_code,''))=''").get().c;
+  const duplicateUsernameGroups = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT lower(trim(username)) username_key
+      FROM users
+      WHERE trim(COALESCE(username,''))<>''
+      GROUP BY lower(trim(username))
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
   const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
   const inspectionScheduleGaps = requiredInspectionScheduleGaps();
   const failedInspectionRows = failedInspectionSchedules();
@@ -4849,6 +4864,12 @@ app.get("/api/system/readiness", (req, res) => {
       level:AUTH_REQUIRED && activeAdmins>0 ? "Đạt" : "Cần xử lý",
       title:"Đăng nhập và quản trị",
       detail:AUTH_REQUIRED ? (activeAdmins>0 ? `Đã bật xác thực; có ${activeAdmins} Quản trị viên hoạt động.` : "Đã bật xác thực nhưng chưa có Quản trị viên có mật khẩu.") : "QY4_AUTH_REQUIRED đang tắt."
+    },
+    {
+      key:"user_accounts",
+      level:duplicateUsernameGroups>0 || departmentUsersMissingDepartment>0 || (AUTH_REQUIRED && activeUsersMissingPassword>0) ? "Cần xử lý" : "Đạt",
+      title:"Tính toàn vẹn tài khoản",
+      detail:`Trùng username không phân biệt hoa/thường: ${duplicateUsernameGroups}; tài khoản khoa chưa gán khoa: ${departmentUsersMissingDepartment}; tài khoản hoạt động chưa có mật khẩu: ${activeUsersMissingPassword}.`
     },
     {
       key:"transport_security",
