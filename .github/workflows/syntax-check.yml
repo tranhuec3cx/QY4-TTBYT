@@ -851,6 +851,48 @@ jobs:
           if(readyCheck?.level!=="Đạt") throw new Error("Readiness did not clear after completing required schedules");
           NODE
 
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/failed-ops-before.json
+          curl -fsS "$BASE/api/system/readiness" >/tmp/failed-readiness-before.json
+          DEVICE_ID="$REQUIRED_DEVICE" RUN_DATE="$TODAY" NEXT_DATE="$FUTURE" TYPE="Kiểm xạ" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 11:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"REQ-KX-FAIL",result:"Không đạt",next_date:process.env.NEXT_DATE,note:"Kết quả không đạt phải cảnh báo dù có hạn tiếp theo"}))' >/tmp/required-kx-fail.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/required-kx-fail.json >/tmp/required-kx-fail-out.json
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/failed-ops-active.json
+          curl -fsS "$BASE/api/system/readiness" >/tmp/failed-readiness-active.json
+          curl -fsS "$BASE/api/reports/summary" >/tmp/failed-report-active.json
+          REQUIRED_DEVICE="$REQUIRED_DEVICE" node - <<'NODE'
+          const fs=require("fs");
+          const before=JSON.parse(fs.readFileSync("/tmp/failed-ops-before.json","utf8"));
+          const after=JSON.parse(fs.readFileSync("/tmp/failed-ops-active.json","utf8"));
+          const readiness=JSON.parse(fs.readFileSync("/tmp/failed-readiness-active.json","utf8"));
+          const report=JSON.parse(fs.readFileSync("/tmp/failed-report-active.json","utf8"));
+          const id=Number(process.env.REQUIRED_DEVICE);
+          if(Number(after.failedInspection)!==Number(before.failedInspection||0)+1) throw new Error("Latest failed inspection was not counted");
+          const rows=(report.inspectionFailed||[]).filter(x=>Number(x.id)===id && x.obligation_type==="Kiểm xạ");
+          if(rows.length!==1 || rows[0].inspection?.result!=="Không đạt") throw new Error("Failed inspection report missing latest failed obligation");
+          const check=(readiness.checks||[]).find(x=>x.key==="inspection_result");
+          if(check?.level!=="Cần xử lý") throw new Error("Readiness did not block latest failed inspection");
+          NODE
+
+          DEVICE_ID="$REQUIRED_DEVICE" RUN_DATE="$TODAY" NEXT_DATE="$FUTURE" TYPE="Kiểm xạ" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 12:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"REQ-KX-PASS",result:"Đạt",next_date:process.env.NEXT_DATE,note:"Hồ sơ mới cùng loại đã đạt"}))' >/tmp/required-kx-pass.json
+          curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/required-kx-pass.json >/tmp/required-kx-pass-out.json
+          curl -fsS "$BASE/api/dashboard/operations" >/tmp/failed-ops-cleared.json
+          curl -fsS "$BASE/api/system/readiness" >/tmp/failed-readiness-cleared.json
+          curl -fsS "$BASE/api/reports/summary" >/tmp/failed-report-cleared.json
+          REQUIRED_DEVICE="$REQUIRED_DEVICE" node - <<'NODE'
+          const fs=require("fs");
+          const before=JSON.parse(fs.readFileSync("/tmp/failed-ops-before.json","utf8"));
+          const after=JSON.parse(fs.readFileSync("/tmp/failed-ops-cleared.json","utf8"));
+          const readinessBefore=JSON.parse(fs.readFileSync("/tmp/failed-readiness-before.json","utf8"));
+          const readinessAfter=JSON.parse(fs.readFileSync("/tmp/failed-readiness-cleared.json","utf8"));
+          const report=JSON.parse(fs.readFileSync("/tmp/failed-report-cleared.json","utf8"));
+          const id=Number(process.env.REQUIRED_DEVICE);
+          if(Number(after.failedInspection)!==Number(before.failedInspection||0)) throw new Error("New passing record did not clear failed inspection alert");
+          const rows=(report.inspectionFailed||[]).filter(x=>Number(x.id)===id && x.obligation_type==="Kiểm xạ");
+          if(rows.length) throw new Error("Historical failed result remained active after newer passing result");
+          const beforeCheck=(readinessBefore.checks||[]).find(x=>x.key==="inspection_result");
+          const afterCheck=(readinessAfter.checks||[]).find(x=>x.key==="inspection_result");
+          if(afterCheck?.level!==beforeCheck?.level) throw new Error("Readiness did not return to baseline after clearing failed result");
+          NODE
+
           curl -fsS "$BASE/api/excel-template/devices" -o /tmp/device-template.xlsx
           node - <<'NODE'
           const ExcelJS=require("exceljs");
@@ -871,7 +913,11 @@ jobs:
           grep -q "params.get('type')" public/inspections.js
           grep -q 'inspectionEntryHref' public/dashboard.js
           grep -q 'Lập hồ sơ' public/dashboard.js
-          echo "Missing schedule direct-action UI guards passed"
+          grep -q 'dbFailedInspection' public/dashboard.html
+          grep -q 'failedInspections' public/dashboard.js
+          grep -q 'inspectionFailed' public/reports.html
+          grep -q 'inspectionFailed' public/reports.js
+          echo "Inspection schedule direct-action and failed-result UI guards passed"
 
       - name: Smoke test public QR rate limit
         run: |
