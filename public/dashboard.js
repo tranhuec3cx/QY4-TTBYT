@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbUnacknowledged", ops.unacknowledgedIncidents || 0);
   setText("dbDueInspection", ops.dueInspection || 0);
   setText("dbOverdueInspection", ops.overdueInspection || 0);
+  setText("dbMissingInspectionSchedule", ops.missingInspectionSchedule || 0);
   setText("dbWaitingParts", ops.waitingParts || 0);
   setText("dbAvgResponse", fmtMinutes(ops.avgResponseMinutes));
   setText("dbAvgResolution", fmtMinutes(ops.avgResolutionMinutes));
@@ -84,6 +85,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   q("dueInspections").innerHTML = dueIns.length
     ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <span class="tag gray">${esc(x.schedule_type||x.type||"KĐ/HC")}</span> <b>${fmtDate(x.next_date)}</b></li>`).join("")
     : "<li>Không có KĐ/HC/ATBX sắp đến hạn.</li>";
+
+  const missingSchedules = Array.isArray(ops.missingInspectionSchedules) ? ops.missingInspectionSchedules : [];
+  q("missingInspectionSchedules").innerHTML = missingSchedules.length
+    ? missingSchedules.slice(0,6).map(x => `<li><a href="/device-detail.html?id=${Number(x.id)}">${esc(x.device_code||"")} - ${esc(x.name||"")}</a> <span class="tag gray">${esc(x.obligation_type||"KĐ/HC")}</span> <b>${esc(x.schedule_issue||"Chưa có lịch")}</b></li>`).join("")
+    : "<li>Không có nghĩa vụ KĐ/HC/ATBX thiếu lịch.</li>";
 
   renderMonthlyIncidents(ops.monthlyIncidents || []);
 });
