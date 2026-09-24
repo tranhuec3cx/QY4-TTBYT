@@ -57,9 +57,9 @@ function renderRows() {
       <td>
         <div class="table-actions device-row-actions">
           <a class="btn btn-sm" href="/device-detail.html?id=${d.id}">Xem hồ sơ</a>
-          <button class="btn btn-sm" onclick="showDeviceQrModal(byId(${d.id}))">QR</button>
-          <button class="btn btn-sm" onclick="editDevice(${d.id})">Cập nhật</button>
-          <button class="btn btn-sm danger-light" onclick="deleteDevice(${d.id})">Lưu trữ</button>
+          ${d.limited_view ? "" : `<button class="btn btn-sm" data-technical-write onclick="showDeviceQrModal(byId(${d.id}))">QR</button>
+          <button class="btn btn-sm" data-technical-write onclick="editDevice(${d.id})">Cập nhật</button>
+          <button class="btn btn-sm danger-light" data-technical-write onclick="deleteDevice(${d.id})">Lưu trữ</button>`}
         </div>
       </td>
     </tr>
