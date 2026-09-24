@@ -4434,9 +4434,10 @@ app.get("/api/inventory-sessions", (req, res) => {
 
 app.post("/api/inventory-sessions", (req, res) => {
   const departmentCode = String(req.body.department_code || "").trim();
-  const inventoryDate = String(req.body.inventory_date || nowSql().slice(0,10)).slice(0,10);
-  const actor = String(req.body.actor || "").trim();
+  const inventoryDate = String(req.body.inventory_date || localDateISO()).slice(0,10);
+  const actor = requestActor(req, String(req.body.actor || "").trim() || "Khoa Trang bị");
   if (!departmentCode) return res.status(400).json({ error:"Thiếu khoa/phòng kiểm kê." });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inventoryDate)) return res.status(400).json({ error:"Ngày kiểm kê phải theo định dạng YYYY-MM-DD." });
   const dept = db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode);
   if (!dept) return res.status(400).json({ error:"Khoa/phòng không tồn tại." });
   const openSession = db.prepare("SELECT id FROM inventory_sessions WHERE department_code=? AND status='Đang kiểm kê' ORDER BY id DESC LIMIT 1").get(departmentCode);
@@ -4496,7 +4497,9 @@ app.put("/api/inventory-items/:id", (req, res) => {
   if (old.session_status === "Đã hoàn thành") return res.status(400).json({ error:"Đợt kiểm kê đã hoàn thành; không được sửa kết quả." });
 
   const allowed = ["Chưa kiểm kê","Có","Không thấy","Sai vị trí","Sai khoa"];
-  const result = allowed.includes(req.body.result) ? req.body.result : "Chưa kiểm kê";
+  const requestedResult = String(req.body.result ?? old.result ?? "Chưa kiểm kê").trim();
+  if (!allowed.includes(requestedResult)) return res.status(400).json({ error:"Kết quả kiểm kê không hợp lệ." });
+  const result = requestedResult;
   let actualDepartment = String(req.body.actual_department_code || old.actual_department_code || old.expected_department_code || "").trim();
   let actualLocation = String(req.body.actual_location ?? old.actual_location ?? "").trim();
 
