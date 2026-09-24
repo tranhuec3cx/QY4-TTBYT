@@ -1091,6 +1091,8 @@ jobs:
           test "$CODE" = "302"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-index.html -w '%{http_code}' "$BASE/index.html")
           test "$CODE" = "200"
+          curl -fsS -b /tmp/dept-cookie.txt "$BASE/api/meta" >/tmp/dept-meta.json
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/dept-meta.json","utf8")); if(!Array.isArray(x.departments)||x.departments.length!==1||x.departments[0].code!=="TST") throw new Error("Department metadata scope failed")'
           curl -fsS -b /tmp/dept-cookie.txt "$BASE/api/devices" >/tmp/dept-devices.json
           node - <<'NODE'
           const fs=require("fs");
