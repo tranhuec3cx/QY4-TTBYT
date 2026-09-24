@@ -3892,19 +3892,32 @@ app.get("/api/devices/:id/technical-history", (req, res) => {
     return (!from || d >= from) && (!to || d <= to);
   };
   let rows = [];
+  const historyContext = (departmentCode, location) => {
+    const code = String(departmentCode || "").trim();
+    const department = code ? db.prepare("SELECT name FROM departments WHERE code=?").get(code) : null;
+    return {
+      department_code: code,
+      department_name: department?.name || code,
+      location: String(location || "").trim()
+    };
+  };
   db.prepare("SELECT * FROM incidents WHERE device_id=?").all(id).forEach(r => rows.push({
     type:"Sự cố", date:r.incident_datetime, status:normalizeIncidentStatusForUi(r.status, db.prepare("SELECT id FROM repairs WHERE incident_id=? LIMIT 1").get(r.id)?.id),
-    content:r.description || "", person:r.reporter || "", record_id:r.id
+    content:r.description || "", person:r.reporter || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
   }));
   db.prepare("SELECT * FROM repairs WHERE device_id=?").all(id).forEach(r => rows.push({
     type:"Sửa chữa", date:r.received_at || r.repair_date, status:normalizeRepairStatus(r.processing_status),
-    content:[r.issue,r.work,r.result].filter(Boolean).join(" | "), person:r.person || "", record_id:r.id
+    content:[r.issue,r.work,r.result].filter(Boolean).join(" | "), person:r.person || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
   }));
   db.prepare("SELECT * FROM maintenances WHERE device_id=?").all(id).forEach(r => rows.push({
-    type:"Bảo dưỡng", date:r.maintenance_date, status:r.result || "", content:[r.type,r.content].filter(Boolean).join(" | "), person:r.performer || "", record_id:r.id
+    type:"Bảo dưỡng", date:r.maintenance_date, status:r.result || "", content:[r.type,r.content].filter(Boolean).join(" | "), person:r.performer || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
   }));
   db.prepare("SELECT * FROM inspections WHERE device_id=?").all(id).forEach(r => rows.push({
-    type:r.type || "Kiểm định", date:r.inspection_date, status:r.result || "", content:[r.organization,r.certificate_no].filter(Boolean).join(" | "), person:r.organization || "", record_id:r.id
+    type:r.type || "Kiểm định", date:r.inspection_date, status:r.result || "", content:[r.organization,r.certificate_no].filter(Boolean).join(" | "), person:r.organization || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
   }));
   rows = rows.filter(r => inRange(r.date) && (type === "ALL" || r.type === type)).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
   res.json(rows);
