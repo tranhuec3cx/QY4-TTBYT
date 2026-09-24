@@ -3448,7 +3448,7 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
       severity: p.severity || "Trung bình",
       reporter: String(p.reporter || "").trim(),
       reporter_phone: String(p.reporter_phone || "").trim(),
-      status: normalizeIncidentPayloadStatus(p.status || "Mới ghi nhận", "Mới ghi nhận", null),
+      status: "Mới ghi nhận",
       note: p.note || "",
       local_resolution_note: p.local_resolution_note || "",
       source_channel: "Nhập trực tiếp"
@@ -3501,10 +3501,23 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
       return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
     }
     const linkedRepair = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
+    const requestedIncidentDatetime=normalizeDateTime(p.incident_datetime || old.incident_datetime || "");
+    const incidentTimeLocked =
+      String(old.source_channel || "") === "QR"
+      || Boolean(String(old.acknowledged_at || "").trim())
+      || Boolean(linkedRepair);
+    if (incidentTimeLocked && requestedIncidentDatetime !== String(old.incident_datetime || "")) {
+      cleanupUploadedFiles(req.files);
+      return res.status(409).json({
+        error:String(old.source_channel || "") === "QR"
+          ? "Thời điểm sự cố phát sinh từ QR là dữ liệu gốc và không được thay đổi."
+          : "Không thể đổi thời điểm phát sinh sau khi sự cố đã được tiếp nhận/chuyển sửa chữa."
+      });
+    }
     const payload = {
       id: Number(req.params.id),
       device_id: Number(p.device_id),
-      incident_datetime: normalizeDateTime(p.incident_datetime),
+      incident_datetime: incidentTimeLocked ? String(old.incident_datetime || "") : requestedIncidentDatetime,
       description: String(p.description || "").trim(),
       severity: p.severity || "Trung bình",
       reporter: String(p.reporter || "").trim(),
