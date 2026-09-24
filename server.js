@@ -524,25 +524,23 @@ function makeIncidentCode(id, incidentDate = nowSql()) {
   return `SC-${d}-${String(id).padStart(4, "0")}`;
 }
 
-function buildIncidentSnapshot(deviceId) {
-  const dv = db.prepare(`
-    SELECT dv.*, d.name AS department_name
-    FROM devices dv
-    LEFT JOIN departments d ON d.code = dv.department_code
-    WHERE dv.id=?
-  `).get(deviceId);
+function buildIncidentSnapshot(deviceId, eventTime = "") {
+  const dv = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(deviceId));
   if (!dv) return null;
+  const ctx = historicalDeviceContext(deviceId, eventTime);
+  const departmentCode = String(ctx.department_code || dv.department_code || "").trim();
+  const department = departmentCode ? db.prepare("SELECT name FROM departments WHERE code=?").get(departmentCode) : null;
   return {
     device_code_snapshot: getDeviceCode(deviceId),
     device_name_snapshot: dv.name || "",
-    department_snapshot: dv.department_name || dv.department_code || "",
-    department_code_snapshot: dv.department_code || "",
-    location_snapshot: dv.location || ""
+    department_snapshot: department?.name || departmentCode,
+    department_code_snapshot: departmentCode,
+    location_snapshot: String(ctx.location ?? dv.location ?? "").trim()
   };
 }
 
 function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) {
-  const snap = buildIncidentSnapshot(deviceId) || {
+  const snap = buildIncidentSnapshot(deviceId, incidentDate) || {
     device_code_snapshot: "",
     device_name_snapshot: "",
     department_snapshot: "",
@@ -573,7 +571,8 @@ function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) 
 }
 
 function touchIncident(id, deviceId, actor = "") {
-  const snap = buildIncidentSnapshot(deviceId) || {};
+  const row = db.prepare("SELECT incident_datetime FROM incidents WHERE id=?").get(Number(id));
+  const snap = buildIncidentSnapshot(deviceId, row?.incident_datetime || "") || {};
   db.prepare(`
     UPDATE incidents
     SET device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
@@ -588,7 +587,8 @@ function touchIncident(id, deviceId, actor = "") {
 }
 
 function replaceIncidentSnapshot(id, deviceId, actor = "") {
-  const snap = buildIncidentSnapshot(deviceId);
+  const row = db.prepare("SELECT incident_datetime FROM incidents WHERE id=?").get(Number(id));
+  const snap = buildIncidentSnapshot(deviceId, row?.incident_datetime || "");
   if (!snap) throw new Error("Thiết bị không tồn tại.");
   db.prepare(`
     UPDATE incidents
@@ -2297,6 +2297,9 @@ app.post("/api/repairs", (req, res) => {
     };
     const repairError=validateRepairPayload(payload);
     if(repairError) return res.status(400).json({error:repairError});
+    const repairContext = historicalDeviceContext(payload.device_id, payload.received_at || payload.repair_date);
+    payload.department_code_snapshot = String(repairContext.department_code || "").trim();
+    payload.location_snapshot = String(repairContext.location || "").trim();
     const info = db.prepare(`
       INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at, department_code_snapshot, location_snapshot)
       VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at, @department_code_snapshot, @location_snapshot)
@@ -2554,6 +2557,9 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       cleanupSingleUpload(req);
       return res.status(400).json({ error: maintenanceError });
     }
+    const maintenanceContext = historicalDeviceContext(deviceId, payload.maintenance_date);
+    payload.department_code_snapshot = String(maintenanceContext.department_code || "").trim();
+    payload.location_snapshot = String(maintenanceContext.location || "").trim();
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE maintenances SET
@@ -2625,6 +2631,10 @@ app.post("/api/operation-logs", (req, res) => {
     };
     if(!payload.log_datetime) return res.status(400).json({error:"Thời gian vận hành không hợp lệ."});
     if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
+    const operationContext = historicalDeviceContext(deviceId, payload.log_datetime);
+    payload.department_code = String(operationContext.department_code || "").trim();
+    payload.department_code_snapshot = payload.department_code;
+    payload.location_snapshot = String(operationContext.location || "").trim();
     const info=db.prepare(`
       INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,department_code_snapshot,location_snapshot,usage_count,status_before,status_after,note)
       VALUES (@device_id,@log_datetime,@user_name,@department_code,@department_code_snapshot,@location_snapshot,@usage_count,@status_before,@status_after,@note)
@@ -2714,6 +2724,9 @@ app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
       cleanupSingleUpload(req);
       return res.status(400).json({error:"Ngày tài liệu phải là ngày hợp lệ theo YYYY-MM-DD."});
     }
+    const documentContext = historicalDeviceContext(deviceId, payload.doc_date);
+    payload.department_code_snapshot = String(documentContext.department_code || "").trim();
+    payload.location_snapshot = String(documentContext.location || "").trim();
     const info = db.prepare(`
       INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
       VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
@@ -4104,9 +4117,9 @@ app.post("/api/inspections", (req, res) => {
     const payload=buildInspectionPayload(req.body || {});
     const error=validateInspectionPayload(payload);
     if(error) return res.status(400).json({error});
-    const device = db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(payload.device_id) || {};
-    payload.department_code_snapshot = String(device.department_code || "").trim();
-    payload.location_snapshot = String(device.location || "").trim();
+    const inspectionContext = historicalDeviceContext(payload.device_id, payload.inspection_date);
+    payload.department_code_snapshot = String(inspectionContext.department_code || "").trim();
+    payload.location_snapshot = String(inspectionContext.location || "").trim();
     const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note,department_code_snapshot,location_snapshot) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note,@department_code_snapshot,@location_snapshot)`).run(payload);
     writeAudit(requestActor(req), "Tạo kiểm định/hiệu chuẩn", "inspection", info.lastInsertRowid, `${payload.type} | ${payload.certificate_no}`);
     res.json({ id: info.lastInsertRowid });
