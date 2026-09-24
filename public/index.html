@@ -66,6 +66,16 @@
       <input id="warrantyInput" type="date" />
       <select id="statusInput" required><option>Đang hoạt động</option><option>Hoạt động hạn chế</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
       <select id="qualityInput" required><option value="1">Cấp 1 - Rất tốt</option><option value="2">Cấp 2 - Tốt</option><option value="3">Cấp 3 - Trung bình</option><option value="4">Cấp 4 - Kém</option><option value="5">Cấp 5 - Rất kém</option></select>
+      <div class="field span-3" id="inspectionRequirementField">
+        <span class="field-label">Nghĩa vụ KĐ/HC/ATBX cần theo dõi</span>
+        <div style="display:flex;flex-wrap:wrap;gap:12px 18px;padding:8px 10px;border:1px solid var(--border,#d9e1e8);border-radius:8px">
+          <label><input type="checkbox" name="inspectionRequiredType" value="Kiểm định" /> Kiểm định</label>
+          <label><input type="checkbox" name="inspectionRequiredType" value="Hiệu chuẩn" /> Hiệu chuẩn</label>
+          <label><input type="checkbox" name="inspectionRequiredType" value="Kiểm xạ" /> Kiểm xạ</label>
+          <label><input type="checkbox" name="inspectionRequiredType" value="Kiểm định an toàn bức xạ" /> Kiểm định an toàn bức xạ</label>
+        </div>
+        <span class="small">Chỉ tích loại thực sự áp dụng cho thiết bị. Hệ thống dùng khai báo này để cảnh báo thiếu hồ sơ hoặc chưa đặt hạn tiếp theo.</span>
+      </div>
       <input id="costInput" type="number" placeholder="Nguyên giá" />
       <input id="fundingInput" placeholder="Nguồn kinh phí" />
       <input id="locationInput" placeholder="Vị trí đặt máy" />
