@@ -704,6 +704,8 @@ function initDb() {
       received_at TEXT,
       updated_at TEXT,
       completed_at TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
       FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE SET NULL
     );
@@ -720,6 +722,8 @@ function initDb() {
       vendor TEXT,
       next_date TEXT,
       note TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -729,6 +733,8 @@ function initDb() {
       log_datetime TEXT,
       user_name TEXT,
       department_code TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       usage_count TEXT,
       status_before TEXT,
       status_after TEXT,
@@ -1413,6 +1419,64 @@ function ensureQualityRatingHistorySchema() {
   db.exec("CREATE INDEX IF NOT EXISTS idx_quality_ratings_device_date ON quality_ratings(device_id, rating_date DESC, id DESC)");
 }
 
+
+function historicalDeviceContext(deviceId, eventTime = "") {
+  const current = db.prepare("SELECT department_code, location FROM devices WHERE id=?").get(Number(deviceId)) || {};
+  const event = normalizeDateTime(eventTime || "");
+  let nextTransfer = null;
+  if (event) {
+    nextTransfer = db.prepare(`
+      SELECT from_department_code, from_location
+      FROM device_transfers
+      WHERE device_id=? AND COALESCE(transfer_datetime,'') > ?
+      ORDER BY transfer_datetime ASC, id ASC
+      LIMIT 1
+    `).get(Number(deviceId), event);
+  }
+  return {
+    department_code: String(nextTransfer?.from_department_code || current.department_code || "").trim(),
+    location: String(nextTransfer?.from_location ?? current.location ?? "").trim()
+  };
+}
+
+function ensureTechnicalContextSnapshots() {
+  const ensureColumn = (table, column, definition = "TEXT") => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  };
+  for (const table of ["repairs","maintenances","operation_logs","inspections"]) {
+    ensureColumn(table, "department_code_snapshot");
+    ensureColumn(table, "location_snapshot");
+  }
+
+  const backfill = (table, timeExpr, legacyDepartmentColumn = "") => {
+    const legacySelect = legacyDepartmentColumn ? `, ${legacyDepartmentColumn} AS legacy_department_code` : "";
+    const rows = db.prepare(`
+      SELECT id, device_id, ${timeExpr} AS event_time,
+             department_code_snapshot, location_snapshot${legacySelect}
+      FROM ${table}
+      WHERE COALESCE(TRIM(department_code_snapshot),'')=''
+         OR COALESCE(TRIM(location_snapshot),'')=''
+    `).all();
+    const update = db.prepare(`
+      UPDATE ${table}
+      SET department_code_snapshot=?, location_snapshot=?
+      WHERE id=?
+    `);
+    for (const row of rows) {
+      const ctx = historicalDeviceContext(row.device_id, row.event_time);
+      const departmentCode = String(row.department_code_snapshot || row.legacy_department_code || ctx.department_code || "").trim();
+      const location = String(row.location_snapshot || ctx.location || "").trim();
+      update.run(departmentCode, location, row.id);
+    }
+  };
+
+  backfill("repairs", "COALESCE(NULLIF(received_at,''), repair_date)");
+  backfill("maintenances", "maintenance_date");
+  backfill("inspections", "inspection_date");
+  backfill("operation_logs", "log_datetime", "department_code");
+}
+
 function initExtendedModules() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS inspections (
@@ -1426,6 +1490,8 @@ function initExtendedModules() {
       next_date TEXT,
       file_note TEXT,
       note TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -1460,6 +1526,7 @@ function initExtendedModules() {
   `);
 
   ensureQualityRatingHistorySchema();
+  ensureTechnicalContextSnapshots();
 
   if (process.env.QY4_DEMO_SEED !== "1") return;
 
@@ -1505,6 +1572,7 @@ function initExtendedModules() {
       insertUsage.run(d.id, 2026, null, indicator, (idx+1)*120 + 450, unit, "Dữ liệu mẫu phục vụ báo cáo thực lực");
     });
   }
+  ensureTechnicalContextSnapshots();
 }
 
 initExtendedModules();
@@ -1823,7 +1891,7 @@ app.get("/api/devices/:id", (req, res) => {
     `).all(id).map(r => ({ ...r, processing_status: normalizeRepairStatus(r.processing_status) })),
     incidents: incidentRows.map(r => ({ ...r, status: normalizeIncidentStatusForUi(r.status, r.linked_repair_id), files: incidentFiles[r.id] || [] })),
     maintenances: db.prepare("SELECT * FROM maintenances WHERE device_id = ? ORDER BY id DESC").all(id),
-    inspections: db.prepare("SELECT * FROM inspections WHERE device_id = ? ORDER BY id DESC").all(id).map(r => ({ ...r, device_code: getDeviceCode(r.device_id), device_name: device.name, department_code: device.department_code })),
+    inspections: db.prepare("SELECT * FROM inspections WHERE device_id = ? ORDER BY id DESC").all(id).map(r => ({ ...r, device_code: getDeviceCode(r.device_id), device_name: device.name, department_code: r.department_code_snapshot || device.department_code, location: r.location_snapshot || device.location })),
     operation_logs: db.prepare("SELECT * FROM operation_logs WHERE device_id = ? ORDER BY id DESC").all(id),
     documents: db.prepare("SELECT * FROM documents WHERE device_id = ? ORDER BY id DESC").all(id),
     transfers: db.prepare("SELECT * FROM device_transfers WHERE device_id = ? ORDER BY transfer_datetime DESC, id DESC").all(id)
@@ -1976,9 +2044,9 @@ app.get("/api/repairs", (req, res) => {
       r.*,
       COALESCE(r.processing_status, 'Đang xử lý') AS processing_status,
       dv.name AS device_name,
-      dv.department_code,
+      COALESCE(NULLIF(r.department_code_snapshot,''), dv.department_code) AS department_code,
       dv.group_code,
-      dv.location,
+      COALESCE(NULLIF(r.location_snapshot,''), dv.location) AS location,
       dv.model,
       dv.serial,
       i.id AS source_incident_id,
@@ -1988,7 +2056,7 @@ app.get("/api/repairs", (req, res) => {
     FROM repairs r
     LEFT JOIN devices dv ON dv.id = r.device_id
     LEFT JOIN incidents i ON i.id = r.incident_id
-    LEFT JOIN departments d ON d.code = dv.department_code
+    LEFT JOIN departments d ON d.code = COALESCE(NULLIF(r.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY r.id DESC
   `).all().map(r => ({ ...r, processing_status: normalizeRepairStatus(r.processing_status), device_code: getDeviceCode(r.device_id) }));
@@ -2000,7 +2068,7 @@ app.post("/api/repairs", (req, res) => {
     const p = req.body || {};
     if (p.incident_id) return res.status(400).json({ error: "Phiếu liên kết sự cố phải được tạo từ chức năng Chuyển sửa chữa của sự cố." });
     if (!p.device_id) return res.status(400).json({ error: "Vui lòng chọn thiết bị." });
-    const device = db.prepare("SELECT id,status FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(p.device_id));
+    const device = db.prepare("SELECT id,status,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(p.device_id));
     if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
     const existingOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(p.device_id));
     if (existingOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${existingOpen.id} chưa hoàn thành.` });
@@ -2022,11 +2090,13 @@ app.post("/api/repairs", (req, res) => {
       incident_id: p.incident_id ? Number(p.incident_id) : null,
       received_at: normalizeDateTime(p.received_at || p.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || "Đang xử lý")) ? nowSql() : ""
+      completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || "Đang xử lý")) ? nowSql() : "",
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
     };
     const info = db.prepare(`
-      INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
-      VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+      INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at, department_code_snapshot, location_snapshot)
+      VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at, @department_code_snapshot, @location_snapshot)
     `).run(payload);
     db.prepare(`UPDATE devices SET status=? WHERE id=?`).run(payload.status_after, payload.device_id);
     if (!p.skip_history) {
@@ -2253,10 +2323,14 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       return res.status(404).json({ error: "Không tìm thấy bản ghi bảo dưỡng." });
     }
     const deviceId = Number(p.device_id || 0);
-    const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (Number(old.device_id) !== deviceId) {
+      cleanupSingleUpload(req);
+      return res.status(409).json({ error: "Không thể đổi thiết bị của bản ghi bảo dưỡng đã lưu. Nếu chọn nhầm thiết bị, hãy tạo bản ghi hiệu chỉnh mới và ghi chú rõ." });
+    }
+    const device = db.prepare("SELECT id FROM devices WHERE id=?").get(deviceId);
     if (!device) {
       cleanupSingleUpload(req);
-      return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+      return res.status(400).json({ error: "Thiết bị không tồn tại." });
     }
     const file = req.file || null;
     const payload = {
@@ -2333,13 +2407,15 @@ app.post("/api/operation-logs", (req, res) => {
   try {
     const p=req.body || {};
     const deviceId=Number(p.device_id || 0);
-    const device=db.prepare("SELECT department_code FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    const device=db.prepare("SELECT department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
     if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
     const payload={
       device_id:deviceId,
       log_datetime:normalizeDateTime(p.log_datetime || nowSql()),
       user_name:String(p.user_name || "").trim(),
-      department_code:String(p.department_code || device.department_code || "").trim(),
+      department_code:String(device.department_code || "").trim(),
+      department_code_snapshot:String(device.department_code || "").trim(),
+      location_snapshot:String(device.location || "").trim(),
       usage_count:String(p.usage_count || "").trim(),
       status_before:String(p.status_before || "").trim(),
       status_after:String(p.status_after || "").trim(),
@@ -2347,8 +2423,8 @@ app.post("/api/operation-logs", (req, res) => {
     };
     if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
     const info=db.prepare(`
-      INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,usage_count,status_before,status_after,note)
-      VALUES (@device_id,@log_datetime,@user_name,@department_code,@usage_count,@status_before,@status_after,@note)
+      INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,department_code_snapshot,location_snapshot,usage_count,status_before,status_after,note)
+      VALUES (@device_id,@log_datetime,@user_name,@department_code,@department_code_snapshot,@location_snapshot,@usage_count,@status_before,@status_after,@note)
     `).run(payload);
     writeAudit(requestActor(req,payload.user_name),"Tạo nhật ký vận hành","operation_log",info.lastInsertRowid,`${payload.log_datetime} | ${payload.note || payload.status_after || ""}`);
     res.json({id:info.lastInsertRowid});
@@ -2364,11 +2440,17 @@ app.put("/api/operation-logs/:id", (req, res) => {
     const old=db.prepare("SELECT * FROM operation_logs WHERE id=?").get(id);
     if(!old) return res.status(404).json({error:"Không tìm thấy nhật ký vận hành."});
     const p=req.body || {};
+    if (p.device_id !== undefined && Number(p.device_id) !== Number(old.device_id)) {
+      return res.status(409).json({error:"Không thể đổi thiết bị của nhật ký vận hành đã lưu."});
+    }
+    if (p.department_code !== undefined && String(p.department_code || "").trim() !== String(old.department_code || "").trim()) {
+      return res.status(409).json({error:"Khoa tại thời điểm vận hành là dữ liệu lịch sử và không được đổi trực tiếp."});
+    }
     const payload={
       id,
       log_datetime:normalizeDateTime(p.log_datetime || old.log_datetime || nowSql()),
       user_name:String(p.user_name ?? old.user_name ?? "").trim(),
-      department_code:String(p.department_code ?? old.department_code ?? "").trim(),
+      department_code:String(old.department_code || old.department_code_snapshot || "").trim(),
       usage_count:String(p.usage_count ?? old.usage_count ?? "").trim(),
       status_before:String(p.status_before ?? old.status_before ?? "").trim(),
       status_after:String(p.status_after ?? old.status_after ?? "").trim(),
@@ -2420,7 +2502,9 @@ app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
       stored_name: file ? file.filename : null,
       file_path: file ? `/uploads/documents/${file.filename}` : null,
       file_mime: file ? file.mimetype : null,
-      file_size: file ? file.size : 0
+      file_size: file ? file.size : 0,
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
     };
     const info = db.prepare(`
       INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
@@ -2561,16 +2645,16 @@ app.get("/api/maintenances", (req, res) => {
     SELECT
       m.*,
       dv.name AS device_name,
-      dv.department_code,
+      COALESCE(NULLIF(m.department_code_snapshot,''), dv.department_code) AS department_code,
       dv.group_code,
-      dv.location,
+      COALESCE(NULLIF(m.location_snapshot,''), dv.location) AS location,
       dv.model,
       dv.serial,
       d.name AS department_name,
       g.name AS group_name
     FROM maintenances m
     LEFT JOIN devices dv ON dv.id = m.device_id
-    LEFT JOIN departments d ON d.code = dv.department_code
+    LEFT JOIN departments d ON d.code = COALESCE(NULLIF(m.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY m.id DESC
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
@@ -2582,7 +2666,7 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
     const p = req.body || {};
     const file = req.file || null;
     const deviceId = Number(p.device_id || 0);
-    const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    const device = db.prepare("SELECT id,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
     if (!device) {
       cleanupSingleUpload(req);
       return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
@@ -2610,8 +2694,8 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
     }
     const tx = db.transaction(() => {
       const info = db.prepare(`
-        INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (@device_id,@maintenance_date,@type,@content,@result,@performer,@user_confirm,@vendor,@next_date,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+        INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+        VALUES (@device_id,@maintenance_date,@type,@content,@result,@performer,@user_confirm,@vendor,@next_date,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
       `).run(payload);
       if (file) {
         db.prepare(`
@@ -3205,7 +3289,7 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     if (incident.status === "Đã xử lý tại chỗ") return res.status(400).json({ error: "Sự cố đã xử lý tại chỗ, không chuyển sửa chữa." });
     const existed = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(incident.id);
     if (existed) return res.json({ ok: true, repair_id: existed.id, existed: true });
-    const device = db.prepare("SELECT id,status FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(incident.device_id));
+    const device = db.prepare("SELECT id,status,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(incident.device_id));
     if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
     const otherOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(incident.device_id));
     if (otherOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${otherOpen.id} chưa hoàn thành. Hãy xử lý trên phiếu hiện có.` });
@@ -3228,12 +3312,14 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
       incident_id: Number(incident.id),
       received_at: normalizeDateTime(req.body?.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ""
+      completed_at: "",
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
     };
     const tx = db.transaction(() => {
       const info = db.prepare(`
-        INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
-        VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+        INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at, department_code_snapshot, location_snapshot)
+        VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at, @department_code_snapshot, @location_snapshot)
       `).run(payload);
       db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Hệ thống"), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
@@ -3499,10 +3585,14 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
 
 app.get("/api/inspections", (req, res) => {
   const rows = db.prepare(`
-    SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial, d.name AS department_name, g.name AS group_name
+    SELECT i.*, dv.name AS device_name,
+           COALESCE(NULLIF(i.department_code_snapshot,''), dv.department_code) AS department_code,
+           dv.group_code,
+           COALESCE(NULLIF(i.location_snapshot,''), dv.location) AS location,
+           dv.model, dv.serial, d.name AS department_name, g.name AS group_name
     FROM inspections i
     JOIN devices dv ON dv.id = i.device_id
-    LEFT JOIN departments d ON d.code = dv.department_code
+    LEFT JOIN departments d ON d.code = COALESCE(NULLIF(i.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY COALESCE(i.next_date, i.inspection_date) ASC, i.id DESC
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
@@ -3537,7 +3627,10 @@ app.post("/api/inspections", (req, res) => {
     const payload=buildInspectionPayload(req.body || {});
     const error=validateInspectionPayload(payload);
     if(error) return res.status(400).json({error});
-    const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note)`).run(payload);
+    const device = db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(payload.device_id) || {};
+    payload.department_code_snapshot = String(device.department_code || "").trim();
+    payload.location_snapshot = String(device.location || "").trim();
+    const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note,department_code_snapshot,location_snapshot) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note,@department_code_snapshot,@location_snapshot)`).run(payload);
     writeAudit(requestActor(req), "Tạo kiểm định/hiệu chuẩn", "inspection", info.lastInsertRowid, `${payload.type} | ${payload.certificate_no}`);
     res.json({ id: info.lastInsertRowid });
   } catch(e) {
@@ -3552,9 +3645,12 @@ app.put("/api/inspections/:id", (req, res) => {
     const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
     if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
     const payload=buildInspectionPayload(req.body || {});
+    if (Number(old.device_id) !== Number(payload.device_id)) {
+      return res.status(409).json({error:"Không thể đổi thiết bị của hồ sơ kiểm định/hiệu chuẩn đã lưu."});
+    }
     const error=validateInspectionPayload(payload);
     if(error) return res.status(400).json({error});
-    db.prepare(`UPDATE inspections SET device_id=@device_id, inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note WHERE id=@id`).run({...payload,id});
+    db.prepare(`UPDATE inspections SET inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note WHERE id=@id`).run({...payload,id});
     writeAudit(requestActor(req), "Cập nhật kiểm định/hiệu chuẩn", "inspection", id, `${payload.type} | ${payload.certificate_no}`);
     res.json({ ok: true });
   } catch(e) {
@@ -4318,10 +4414,14 @@ app.get("/api/reports/summary", (req, res) => {
   const frequentRepairs = enriched.filter(d => Number(d.repair.repair_count || 0) >= 2).sort((a,b)=>Number(b.repair.repair_count)-Number(a.repair.repair_count));
   const replaceList = enriched.filter(d => ["Chờ sửa chữa","Ngừng hoạt động","Hoạt động hạn chế"].includes(d.status) || Number(d.quality_level || 3) >= 4 || Number(d.repair.repair_count || 0) >= 3);
   const costByDepartment = db.prepare(`
-    SELECT dv.department_code, d.name AS department_name, COUNT(r.id) repair_count, SUM(COALESCE(r.cost,0)) total_cost
-    FROM repairs r JOIN devices dv ON dv.id=r.device_id LEFT JOIN departments d ON d.code=dv.department_code
+    SELECT COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code) AS department_code,
+           d.name AS department_name, COUNT(r.id) repair_count, SUM(COALESCE(r.cost,0)) total_cost
+    FROM repairs r
+    JOIN devices dv ON dv.id=r.device_id
+    LEFT JOIN departments d ON d.code=COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code)
     WHERE COALESCE(dv.is_archived,0)=0
-    GROUP BY dv.department_code ORDER BY total_cost DESC
+    GROUP BY COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code)
+    ORDER BY total_cost DESC
   `).all();
   const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY status ORDER BY count DESC").all();
   res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, frequentRepairs, replaceList, costByDepartment, statusRatio });
