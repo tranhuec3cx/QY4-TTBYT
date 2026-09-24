@@ -4418,6 +4418,8 @@ app.post("/api/devices/:id/transfer", (req, res) => {
     const rawTransferDate = String(req.body.transfer_datetime || "").trim();
     const at = rawTransferDate ? normalizeDateTime(rawTransferDate) : nowSql();
     if (!at) return res.status(400).json({ error:"Thời gian điều chuyển không hợp lệ." });
+    const maxTransferTime = sqlDateTimeInAppZone(new Date(Date.now()+5*60*1000));
+    if (at > maxTransferTime) return res.status(400).json({ error:"Thời gian điều chuyển không được ở tương lai." });
     const actor = requestActor(req, "");
     const tx = db.transaction(() => {
       const info = db.prepare(`
