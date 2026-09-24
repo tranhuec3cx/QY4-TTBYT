@@ -21,24 +21,24 @@
       <section class="card">
         <div class="detail-head" style="margin-bottom:6px">
           <div><h1 id="detailName" class="detail-title"></h1><div id="detailMeta" class="detail-meta"></div></div>
-          <div class="table-actions"><button class="btn" id="detailQrBtn" type="button">QR</button><div id="detailStatus"></div></div>
+          <div class="table-actions"><button class="btn" id="detailQrBtn" data-technical-write type="button">QR</button><div id="detailStatus"></div></div>
         </div>
         <div id="deviceCurrentState" class="device-current-state"></div>
       </section>
 
       <div class="tabs">
         <button class="tab-btn active" data-tab="tab-general">Thông tin chung</button>
-        <button class="tab-btn" data-tab="tab-technical">Công việc kỹ thuật</button>
-        <button class="tab-btn" data-tab="tab-transfers">Điều chuyển</button>
+        <button class="tab-btn" data-technical-history data-tab="tab-technical">Công việc kỹ thuật</button>
+        <button class="tab-btn" data-technical-history data-tab="tab-transfers">Điều chuyển</button>
       </div>
 
       <section id="tab-general" class="card tab-panel active">
         <div class="section-head">
           <h2 class="section-title">Thông tin chung</h2>
           <div class="table-actions">
-            <button class="btn" id="editGeneralBtn">Cập nhật</button>
-            <button class="btn btn-primary" id="saveGeneralBtn" style="display:none">Lưu</button>
-            <button class="btn" id="cancelGeneralBtn" style="display:none">Hủy</button>
+            <button class="btn" id="editGeneralBtn" data-technical-write>Cập nhật</button>
+            <button class="btn btn-primary" id="saveGeneralBtn" data-technical-write style="display:none">Lưu</button>
+            <button class="btn" id="cancelGeneralBtn" data-technical-write style="display:none">Hủy</button>
           </div>
         </div>
         <div id="infoGeneral" class="info-grid"></div>
@@ -79,7 +79,7 @@
 
 
 
-      <section id="tab-technical" class="card tab-panel">
+      <section id="tab-technical" class="card tab-panel" data-technical-history>
         <div class="section-head"><h2 class="section-title">Công việc kỹ thuật</h2></div>
         <div class="filters" style="grid-template-columns:160px 160px 220px auto auto">
           <label class="field"><span class="field-label">Từ ngày</span><input id="techFromDate" type="date" /></label>
@@ -93,8 +93,8 @@
         </div>
       </section>
 
-      <section id="tab-transfers" class="card tab-panel">
-        <div class="section-head"><h2 class="section-title">Lịch sử điều chuyển</h2><button class="btn btn-primary" id="toggleTransferBtn" type="button">+ Điều chuyển</button></div>
+      <section id="tab-transfers" class="card tab-panel" data-technical-history>
+        <div class="section-head"><h2 class="section-title">Lịch sử điều chuyển</h2><button class="btn btn-primary" id="toggleTransferBtn" data-technical-write type="button">+ Điều chuyển</button></div>
         <div class="table-wrap scroll-area">
           <table><thead><tr><th>Thời gian</th><th>Từ khoa/vị trí</th><th>Đến khoa/vị trí</th><th>Lý do</th><th>Người thực hiện</th><th>Ghi chú</th></tr></thead><tbody id="transferRows"></tbody></table>
         </div>
