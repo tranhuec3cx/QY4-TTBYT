@@ -51,13 +51,29 @@ if (Test-Path $dbMain) {
     Write-Host "Da sao luu DB truoc cap nhat: $preDir" -ForegroundColor Green
 }
 
-if (-not $SkipInstall) {
-    Write-Host ""
-    Write-Host "Dang dong bo dependency theo package-lock (npm ci)..." -ForegroundColor Yellow
-    npm ci
-    if ($LASTEXITCODE -ne 0) { throw "npm ci khong thanh cong." }
-} elseif (-not (Test-Path "node_modules")) {
-    throw "Da chon -SkipInstall nhung chua co node_modules."
+if ($SkipInstall) {
+    if (-not (Test-Path "node_modules")) {
+        throw "Da chon -SkipInstall nhung chua co node_modules."
+    }
+    Write-Host "Bo qua kiem tra/cai dependency theo yeu cau -SkipInstall." -ForegroundColor Yellow
+}
+else {
+    $needInstall = -not (Test-Path "node_modules")
+    if (-not $needInstall) {
+        npm ls --depth=0 --silent *> $null
+        $needInstall = ($LASTEXITCODE -ne 0)
+    }
+    if ($needInstall) {
+        Write-Host ""
+        Write-Host "Dependency dang thieu/khong khop - dang chay npm ci..." -ForegroundColor Yellow
+        npm ci
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm ci khong thanh cong. Neu may dang offline, hay ket noi nguon npm/cache hoac chep bo node_modules da cai dung package-lock."
+        }
+    }
+    else {
+        Write-Host "Dependency da day du va khop package.json - khong can tai lai." -ForegroundColor Green
+    }
 }
 
 if (-not $env:QY4_ADMIN_PASSWORD) {
