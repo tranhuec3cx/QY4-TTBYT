@@ -2469,7 +2469,9 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       stored_name: file ? file.filename : old.stored_name,
       file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
       file_mime: file ? file.mimetype : old.file_mime,
-      file_size: file ? file.size : (old.file_size || 0)
+      file_size: file ? file.size : (old.file_size || 0),
+      department_code_snapshot:String(old.department_code_snapshot || historicalDeviceContext(deviceId, old.maintenance_date).department_code || "").trim(),
+      location_snapshot:String(old.location_snapshot || historicalDeviceContext(deviceId, old.maintenance_date).location || "").trim()
     };
     if (!payload.maintenance_date || !payload.content) {
       cleanupSingleUpload(req);
@@ -2480,7 +2482,8 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
         UPDATE maintenances SET
           device_id=@device_id, maintenance_date=@maintenance_date, type=@type, content=@content, result=@result,
           performer=@performer, user_confirm=@user_confirm, vendor=@vendor, next_date=@next_date, note=@note,
-          original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
+          original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size,
+          department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot
         WHERE id=@id
       `).run(payload);
       if (file) {
@@ -2605,7 +2608,7 @@ app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
     const p = req.body || {};
     const file = req.file || null;
     const deviceId = Number(p.device_id || 0);
-    const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    const device = db.prepare("SELECT id,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
     if (!device) {
       cleanupSingleUpload(req);
       return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
