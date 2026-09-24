@@ -1,8 +1,8 @@
 let DATA = {}, META = {departments:[], groups:[]}, CURRENT = [], KPI = null, DATA_QUALITY = null;
 const REPORT_NAMES = {
   warrantySoon: "Thiết bị sắp hết bảo hành",
-  maintenanceOverdue: "Thiết bị quá hạn bảo dưỡng",
-  inspectionOverdue: "Thiết bị quá hạn kiểm định",
+  maintenanceOverdue: "Lịch bảo dưỡng quá hạn",
+  inspectionOverdue: "Lịch KĐ/HC/ATBX quá hạn",
   frequentRepairs: "Thiết bị sửa chữa nhiều lần",
   costByDepartment: "Chi phí sửa chữa theo khoa/phòng",
   replaceList: "Đề nghị thay thế/thanh lý",
@@ -10,8 +10,8 @@ const REPORT_NAMES = {
 };
 const REPORT_HINTS = {
   warrantySoon: "Danh sách thiết bị có hạn bảo hành sắp kết thúc trong kỳ theo dõi.",
-  maintenanceOverdue: "Thiết bị đã quá hạn bảo dưỡng, cần ưu tiên lập kế hoạch thực hiện.",
-  inspectionOverdue: "Thiết bị quá hạn kiểm định/hiệu chuẩn, cần xử lý trước khi tiếp tục khai thác nếu có yêu cầu pháp lý/an toàn.",
+  maintenanceOverdue: "Mỗi dòng là một lịch bảo dưỡng theo loại công việc đã quá hạn; cùng một thiết bị có thể có nhiều nghĩa vụ song song.",
+  inspectionOverdue: "Mỗi dòng là một nghĩa vụ KĐ/HC/ATBX theo loại công việc đã quá hạn; một hồ sơ mới của loại khác không che mất nghĩa vụ này.",
   frequentRepairs: "Thiết bị phát sinh sửa chữa nhiều lần, dùng để xem xét sửa chữa lớn, thay thế hoặc thanh lý.",
   costByDepartment: "Tổng hợp số phiếu và chi phí sửa chữa theo khoa/phòng.",
   replaceList: "Danh sách gợi ý thiết bị cần đánh giá thay thế/thanh lý dựa trên trạng thái, chất lượng và số lần sửa chữa.",
@@ -28,26 +28,28 @@ function fmtMinutesKpi(v){
   return `${(n/1440).toFixed(1)} ngày`;
 }
 function norm(v){return String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");}
-function deviceColumns(){return `<tr><th>STT</th><th>Mã TB</th><th>Tên thiết bị</th><th>Khoa/phòng</th><th>Nhóm</th><th>Model</th><th>Tình trạng</th><th>Hạn/Ngày liên quan</th><th>Ghi chú</th></tr>`;}
+function isScheduleReport(type){return type==="maintenanceOverdue"||type==="inspectionOverdue";}
+function deviceColumns(type){const scheduleCol=isScheduleReport(type)?"<th>Loại công việc</th>":"";return `<tr><th>STT</th><th>Mã TB</th><th>Tên thiết bị</th><th>Khoa/phòng</th><th>Nhóm</th><th>Model</th><th>Tình trạng</th>${scheduleCol}<th>Hạn/Ngày liên quan</th><th>Ghi chú</th></tr>`;}
 function deviceRow(r,i,type){
-  let date = r.warranty_end || r.maintenance?.next_date || r.inspection?.next_date || "";
+  let date = type==="maintenanceOverdue" ? (r.maintenance?.next_date||"") : type==="inspectionOverdue" ? (r.inspection?.next_date||"") : type==="warrantySoon" ? (r.warranty_end||"") : (r.warranty_end || r.maintenance?.next_date || r.inspection?.next_date || "");
   let note = "";
   if(type==="frequentRepairs") note = `${r.repair?.repair_count||0} lần sửa chữa · ${formatCurrency(r.repair?.total_cost||0)}`;
   if(type==="replaceList") note = `Cấp CL: ${r.quality_level||""} · Sửa: ${r.repair?.repair_count||0}`;
-  return `<tr><td>${i+1}</td><td class="device-code">${esc(r.device_code)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.department_name||r.department_code)}</td><td>${esc(r.group_name||r.group_code)}</td><td>${esc(r.model||"")}</td><td><span class="tag">${esc(r.status||"")}</span></td><td>${esc(date)}</td><td>${esc(note)}</td></tr>`;
+  const scheduleCell=isScheduleReport(type)?`<td><span class="tag gray">${esc(r.obligation_type||r.maintenance?.type||r.inspection?.type||"")}</span></td>`:"";
+  return `<tr><td>${i+1}</td><td class="device-code">${esc(r.device_code)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.department_name||r.department_code)}</td><td>${esc(r.group_name||r.group_code)}</td><td>${esc(r.model||"")}</td><td><span class="tag">${esc(r.status||"")}</span></td>${scheduleCell}<td>${esc(date)}</td><td>${esc(note)}</td></tr>`;
 }
 function applyFilter(){
   const type=q('reportType').value, dept=q('deptFilter').value, group=q('groupFilter').value, text=norm(q('searchInput').value);
   let rows = DATA[type] || [];
-  if(type!=="costByDepartment" && type!=="statusRatio") rows = rows.filter(r=>(dept==='ALL'||r.department_code===dept)&&(group==='ALL'||r.group_code===group)&&(!text||norm([r.device_code,r.name,r.department_name,r.department_code,r.group_name,r.group_code,r.model,r.insurance_code,r.status].join(' ')).includes(text)));
+  if(type!=="costByDepartment" && type!=="statusRatio") rows = rows.filter(r=>(dept==='ALL'||r.department_code===dept)&&(group==='ALL'||r.group_code===group)&&(!text||norm([r.device_code,r.name,r.department_name,r.department_code,r.group_name,r.group_code,r.model,r.insurance_code,r.status,r.obligation_type].join(' ')).includes(text)));
   else rows = rows.filter(r=>!text||norm(Object.values(r).join(' ')).includes(text));
   CURRENT = rows; render(type, rows);
 }
 function renderCards(){
   const cards = [
     ["Sắp hết bảo hành", DATA.warrantySoon?.length||0, "Thiết bị cần theo dõi gia hạn/kiểm tra bảo hành"],
-    ["Quá hạn bảo dưỡng", DATA.maintenanceOverdue?.length||0, "Cần lập kế hoạch bảo dưỡng"],
-    ["Quá hạn kiểm định", DATA.inspectionOverdue?.length||0, "Ưu tiên xử lý để đảm bảo pháp lý/an toàn"],
+    ["Lịch bảo dưỡng quá hạn", DATA.maintenanceOverdue?.length||0, "Đếm theo thiết bị + loại công việc"],
+    ["Lịch KĐ/HC/ATBX quá hạn", DATA.inspectionOverdue?.length||0, "Đếm riêng từng nghĩa vụ định kỳ"],
     ["Sửa nhiều lần", DATA.frequentRepairs?.length||0, "Thiết bị có nguy cơ kém ổn định"],
     ["Đề nghị thay thế", DATA.replaceList?.length||0, "Thiết bị cần đánh giá thay thế/thanh lý"]
   ];
@@ -66,12 +68,12 @@ function render(type, rows){
     q('rows').innerHTML = rows.length ? rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.status)}</td><td>${r.count}</td><td>${Math.round(Number(r.count||0)*1000/total)/10}%</td></tr>`).join('') : `<tr><td colspan="4" class="center-empty">Chưa có dữ liệu.</td></tr>`;
     return;
   }
-  q('thead').innerHTML = deviceColumns();
-  q('rows').innerHTML = rows.length ? rows.map((r,i)=>deviceRow(r,i,type)).join('') : `<tr><td colspan="9" class="center-empty">Chưa có dữ liệu.</td></tr>`;
+  q('thead').innerHTML = deviceColumns(type);
+  q('rows').innerHTML = rows.length ? rows.map((r,i)=>deviceRow(r,i,type)).join('') : `<tr><td colspan="${isScheduleReport(type)?10:9}" class="center-empty">Chưa có dữ liệu.</td></tr>`;
 }
 async function exportExcel(){
   const type=q('reportType').value;
-  const rows = CURRENT.map((r,i)=> type==='costByDepartment' ? {STT:i+1,'Mã khoa':r.department_code,'Khoa/phòng':r.department_name||r.department_code,'Số phiếu':r.repair_count||0,'Tổng chi phí':r.total_cost||0} : type==='statusRatio' ? {STT:i+1,'Trạng thái':r.status,'Số lượng':r.count} : {STT:i+1,'Mã thiết bị':r.device_code,'Tên thiết bị':r.name,'Khoa/phòng':r.department_name||r.department_code,'Nhóm':r.group_name||r.group_code,'Model':r.model,'Tình trạng':r.status,'Hạn bảo hành':r.warranty_end,'Hạn bảo dưỡng':r.maintenance?.next_date,'Hạn kiểm định':r.inspection?.next_date,'Số lần sửa':r.repair?.repair_count||0,'Chi phí sửa':r.repair?.total_cost||0});
+  const rows = CURRENT.map((r,i)=> type==='costByDepartment' ? {STT:i+1,'Mã khoa':r.department_code,'Khoa/phòng':r.department_name||r.department_code,'Số phiếu':r.repair_count||0,'Tổng chi phí':r.total_cost||0} : type==='statusRatio' ? {STT:i+1,'Trạng thái':r.status,'Số lượng':r.count} : {STT:i+1,'Mã thiết bị':r.device_code,'Tên thiết bị':r.name,'Khoa/phòng':r.department_name||r.department_code,'Nhóm':r.group_name||r.group_code,'Model':r.model,'Tình trạng':r.status,'Loại công việc':r.obligation_type||'','Hạn bảo hành':r.warranty_end,'Hạn bảo dưỡng':r.maintenance?.next_date,'Hạn KĐ/HC/ATBX':r.inspection?.next_date,'Số lần sửa':r.repair?.repair_count||0,'Chi phí sửa':r.repair?.total_cost||0});
   await exportXlsx(`${type}_${todayISO()}.xlsx`,[{name:REPORT_NAMES[type].slice(0,30),rows}]);
 }
 function dataQualityReasons(r){
