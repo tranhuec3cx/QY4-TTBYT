@@ -45,15 +45,15 @@ function renderRows() {
   q("deviceRows").innerHTML = FILTERED.map((d, i) => `
     <tr>
       <td class="col-stt">${i+1}</td>
-      <td class="device-code">${d.device_code}</td>
-      <td class="device-name-cell"><div class="device-name" title="${escapeHtml(d.name || "")}">${d.name || ""}</div></td>
+      <td class="device-code">${escapeHtml(d.device_code || "")}</td>
+      <td class="device-name-cell"><div class="device-name" title="${escapeHtml(d.name || "")}">${escapeHtml(d.name || "")}</div></td>
       <td class="department-cell"><b>${escapeHtml(d.department_code || "")}</b><div class="small">${escapeHtml(d.department_name || departmentName(d.department_code) || "")}</div></td>
-      <td>${d.manufacturer || ""}</td>
-      <td>${d.model || ""}</td>
-      <td>${d.serial || ""}</td>
-      <td>${d.year_in_use || ""}</td>
-      <td>${d.location || ""}</td>
-      <td><span class="tag ${statusTagClass(d.status)}">${d.status || ""}</span></td>
+      <td>${escapeHtml(d.manufacturer || "")}</td>
+      <td>${escapeHtml(d.model || "")}</td>
+      <td>${escapeHtml(d.serial || "")}</td>
+      <td>${escapeHtml(d.year_in_use || "")}</td>
+      <td>${escapeHtml(d.location || "")}</td>
+      <td><span class="tag ${statusTagClass(d.status)}">${escapeHtml(d.status || "")}</span></td>
       <td>
         <div class="table-actions device-row-actions">
           <a class="btn btn-sm" href="/device-detail.html?id=${d.id}">Xem hồ sơ</a>
