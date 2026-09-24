@@ -205,7 +205,7 @@ File `start-qy4-production.cmd` tự gọi PowerShell với ExecutionPolicy phù
 - bật xác thực;
 - tắt legacy QR;
 - đặt timezone +07, giới hạn đăng nhập sai, QR rate limit và backup retention;
-- **sao lưu file SQLite/WAL/SHM hiện có trước khi server chạy migration** vào `backups/prestart_YYYYMMDD_HHMMSS/`;
+- **sao lưu file SQLite/WAL/SHM hiện có trước khi server chạy migration** vào `backups/prestart_YYYYMMDD_HHMMSS/`; mặc định chỉ giữ 10 bản prestart gần nhất để tránh đầy ổ đĩa;
 - kiểm tra dependency cục bộ bằng `npm ls`; nếu đã đủ và đúng phiên bản thì **không tải lại**, phù hợp máy chạy LAN/offline; chỉ chạy `npm ci` khi dependency thiếu hoặc lệch;
 - hỏi mật khẩu Quản trị viên lần đầu mà không ghi mật khẩu vào source.
 
@@ -233,6 +233,7 @@ $env:QY4_SESSION_HOURS="12"
 $env:QY4_AUTH_LOGIN_LIMIT="8"
 $env:QY4_AUTH_LOGIN_WINDOW_MS="900000"
 $env:QY4_BACKUP_KEEP="30"
+$env:QY4_PRESTART_KEEP="10"
 $env:QY4_BACKUP_MIRROR_DIR="D:\\QY4_Backup_Secondary"
 $env:QY4_QR_RATE_LIMIT="20"
 $env:QY4_QR_RATE_WINDOW_MS="60000"
@@ -255,6 +256,7 @@ QY4_SESSION_HOURS=12 \
 QY4_AUTH_LOGIN_LIMIT=8 \
 QY4_AUTH_LOGIN_WINDOW_MS=900000 \
 QY4_BACKUP_KEEP=30 \
+QY4_PRESTART_KEEP=10 \
 QY4_BACKUP_MIRROR_DIR=/mnt/qy4_backup_secondary \
 QY4_QR_RATE_LIMIT=20 \
 QY4_QR_RATE_WINDOW_MS=60000 \
