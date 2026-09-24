@@ -1912,6 +1912,13 @@ app.put("/api/devices/:id", (req, res) => {
     const payload = buildDevicePayload(req.body || {}, old);
     const error = validateDevicePayload(payload);
     if (error) return res.status(400).json({ error });
+    const departmentChanged = String(payload.department_code || "") !== String(old.department_code || "");
+    const locationChanged = String(payload.location || "") !== String(old.location || "");
+    if (departmentChanged || locationChanged) {
+      return res.status(409).json({
+        error:"Khoa sử dụng và vị trí chỉ được thay đổi bằng chức năng Điều chuyển để bảo toàn lịch sử."
+      });
+    }
     if (payload.device_code) {
       payload.device_code = normalizeDeviceCode(payload.device_code, payload.department_code, payload.group_code) || payload.device_code;
       const duplicateCode = db.prepare("SELECT id FROM devices WHERE device_code=? AND id<>? LIMIT 1").get(payload.device_code, Number(req.params.id));
