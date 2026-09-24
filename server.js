@@ -4575,6 +4575,7 @@ app.get("/api/system/readiness", (req, res) => {
   const latestMirrorStatus = inspectMirrorBackup(latestBackup);
   const origins = getLanQrOrigins(req);
   const recommendedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const requestIsHttps = Boolean(req.secure || String(req.headers["x-forwarded-proto"] || "").toLowerCase()==="https");
   const totalDevices = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
   const missingSerial = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))=''").get().c;
   const missingModel = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(model,''))=''").get().c;
@@ -4648,6 +4649,16 @@ app.get("/api/system/readiness", (req, res) => {
       level:AUTH_REQUIRED && activeAdmins>0 ? "Đạt" : "Cần xử lý",
       title:"Đăng nhập và quản trị",
       detail:AUTH_REQUIRED ? (activeAdmins>0 ? `Đã bật xác thực; có ${activeAdmins} Quản trị viên hoạt động.` : "Đã bật xác thực nhưng chưa có Quản trị viên có mật khẩu.") : "QY4_AUTH_REQUIRED đang tắt."
+    },
+    {
+      key:"transport_security",
+      level:AUTH_REQUIRED && !requestIsHttps ? "Lưu ý" : "Đạt",
+      title:"Mã hóa đường truyền đăng nhập",
+      detail:AUTH_REQUIRED
+        ? (requestIsHttps
+            ? "Phiên truy cập hiện được nhận diện qua HTTPS."
+            : "Đăng nhập đang chạy qua HTTP. Có thể dùng để thử nghiệm trong LAN tin cậy, nhưng khi triển khai nhiều khoa nên đặt HTTPS/reverse proxy để bảo vệ mật khẩu và phiên đăng nhập.")
+        : "Xác thực đang tắt; kiểm tra HTTPS khi chuyển sang chế độ triển khai chính thức."
     },
     {
       key:"backup",
@@ -4764,6 +4775,7 @@ app.get("/api/system/readiness", (req, res) => {
     checks,
     system:{
       time_zone:APP_TIME_ZONE,
+      https:Boolean(requestIsHttps),
       database_size_bytes:dbSize,
       database_integrity:liveDbIntegrity,
       foreign_keys_enabled:Number(db.pragma("foreign_keys",{simple:true}) || 0)===1,
