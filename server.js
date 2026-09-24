@@ -2002,7 +2002,7 @@ app.post("/api/repairs", (req, res) => {
       repair_date: normalizeDateTime(p.repair_date || ""),
       issue: p.issue || "",
       work: p.work || "",
-      person: String(p.person || requestActor(req, "Khoa Trang bị")).trim(),
+      person: String(p.person || requestActor(req)).trim(),
       priority: ["Bình thường","Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(p.priority || "").trim()) ? String(p.priority).trim() : "Bình thường",
       reporter: String(p.reporter || "").trim(),
       note: String(p.note || ""),
@@ -2115,7 +2115,7 @@ app.put("/api/repairs/:id", (req, res) => {
       repair_date: normalizeDateTime(p.repair_date || ""),
       issue: p.issue || "",
       work: p.work || "",
-      person: String(p.person ?? old.person ?? requestActor(req, "Khoa Trang bị")).trim(),
+      person: String(p.person ?? old.person ?? requestActor(req)).trim(),
       priority: ["Bình thường","Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(p.priority ?? old.priority ?? "").trim()) ? String(p.priority ?? old.priority).trim() : "Bình thường",
       reporter: String(p.reporter ?? old.reporter ?? "").trim(),
       note: String(p.note ?? old.note ?? ""),
@@ -3155,7 +3155,7 @@ app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) 
     `).run(payload);
     if (deviceChanged) replaceIncidentSnapshot(Number(req.params.id), payload.device_id, payload.reporter);
     else touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
-    const receivingActor = String(req.authUser?.full_name || p.acknowledged_by || "Khoa Trang bị").trim();
+    const receivingActor = String(req.authUser?.full_name || p.acknowledged_by || requestActor(req)).trim();
     if (payload.status === "Đã tiếp nhận" && !old.acknowledged_at) {
       db.prepare("UPDATE incidents SET acknowledged_at=?, acknowledged_by=? WHERE id=?").run(nowSql(), receivingActor, Number(req.params.id));
     }
@@ -3179,7 +3179,7 @@ app.post("/api/incidents/:id/acknowledge", (req, res) => {
     if (incident.status === "Đã chuyển sửa chữa" || incident.status === "Đã xử lý tại chỗ") {
       return res.status(400).json({ error:"Sự cố đã được xử lý/chuyển sửa chữa." });
     }
-    const actor = requestActor(req, "Khoa Trang bị");
+    const actor = requestActor(req);
     const at = incident.acknowledged_at || nowSql();
     db.prepare("UPDATE incidents SET status='Đã tiếp nhận', acknowledged_at=?, acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), updated_at=?, updated_by=? WHERE id=?")
       .run(at, actor, nowSql(), actor, incident.id);
@@ -3202,13 +3202,13 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
     const otherOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(incident.device_id));
     if (otherOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${otherOpen.id} chưa hoàn thành. Hãy xử lý trên phiếu hiện có.` });
-    const actor = requestActor(req, "Khoa Trang bị");
+    const actor = requestActor(req);
     const payload = {
       device_id: Number(incident.device_id),
       repair_date: normalizeDateTime(req.body?.repair_date || incident.incident_datetime || nowSql()),
       issue: incident.description || "",
       work: "Chờ kiểm tra và xử lý kỹ thuật",
-      person: actor || "Khoa Trang bị",
+      person: actor,
       priority: ["Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(incident.severity || "").trim()) ? String(incident.severity).trim() : "Bình thường",
       reporter: String(incident.reporter || "").trim(),
       note: String(incident.note || ""),
@@ -3228,10 +3228,10 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
         INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at)
         VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
       `).run(payload);
-      db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Khoa Trang bị"), incident.id);
+      db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Hệ thống"), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
       writeHistory("repair", info.lastInsertRowid, "Hệ thống", "Tạo từ sự cố", "", payload.processing_status, `Tạo phiếu sửa chữa từ sự cố ${incident.incident_code || ('#' + incident.id)}`, 0, "Tự động", payload.received_at);
-      writeAudit(actor || "Khoa Trang bị", "Chuyển sự cố sang sửa chữa", "incident", incident.id, `Phiếu sửa chữa #${info.lastInsertRowid}`);
+      writeAudit(actor, "Chuyển sự cố sang sửa chữa", "incident", incident.id, `Phiếu sửa chữa #${info.lastInsertRowid}`);
       return info.lastInsertRowid;
     });
     const repairId = tx();
