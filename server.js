@@ -2485,8 +2485,8 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       `).run(payload);
       if (file) {
         db.prepare(`
-          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
         `).run({
           device_id: deviceId,
           name: `Tài liệu bảo dưỡng - ${payload.maintenance_date.slice(0,10)}`,
@@ -2498,7 +2498,9 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
           stored_name: file.filename,
           file_path: payload.file_path,
           file_mime: file.mimetype,
-          file_size: file.size
+          file_size: file.size,
+          department_code_snapshot: payload.department_code_snapshot || "",
+          location_snapshot: payload.location_snapshot || ""
         });
       }
       writeHistory("maintenance", id, payload.performer, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
@@ -2954,8 +2956,8 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       `).run(payload);
       if (file) {
         db.prepare(`
-          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
         `).run({
           device_id: deviceId,
           name: `Tài liệu bảo dưỡng - ${payload.maintenance_date.slice(0,10)}`,
@@ -2967,7 +2969,9 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
           stored_name: file.filename,
           file_path: payload.file_path,
           file_mime: file.mimetype,
-          file_size: file.size
+          file_size: file.size,
+          department_code_snapshot: payload.department_code_snapshot || "",
+          location_snapshot: payload.location_snapshot || ""
         });
       }
       writeHistory("maintenance", info.lastInsertRowid, payload.performer, "Tạo mới", "", payload.result || "", payload.content || payload.note || "");
@@ -3135,9 +3139,9 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
 
       for (const file of files) {
         db.prepare(`
-          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        `).run(deviceId, `Ảnh/Video kiểm tra - ${day}`, "Kiểm tra", day, inspector, p.note || description || "Tệp đính kèm từ kiểm tra", file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, `Ảnh/Video kiểm tra - ${day}`, "Kiểm tra", day, inspector, p.note || description || "Tệp đính kèm từ kiểm tra", file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size, device.department_code || "", device.location || "");
       }
 
       writeHistory("check", info.lastInsertRowid, inspector, "Tạo từ QR", "", resultText, description || p.note || "Kiểm tra nhanh thiết bị");
@@ -3205,9 +3209,9 @@ app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) 
 
       for (const file of files) {
         db.prepare(`
-          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        `).run(deviceId, `Ảnh/Video sự cố QR - ${day}`, "Sự cố QR", day, reporter, note || description, file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, `Ảnh/Video sự cố QR - ${day}`, "Sự cố QR", day, reporter, note || description, file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size, device.department_code || "", device.location || "");
       }
       writeAudit(reporter, "Báo sự cố QR", "incident", incidentId, description);
       return incidentId;
