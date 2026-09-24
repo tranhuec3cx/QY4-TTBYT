@@ -786,6 +786,7 @@ jobs:
           curl -fsS "$BASE/api/devices/$REQUIRED_DEVICE" >/tmp/required-device-detail.json
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/required-ops-created.json
           curl -fsS "$BASE/api/reports/summary" >/tmp/required-report-created.json
+          curl -fsS "$BASE/api/system/readiness" >/tmp/required-readiness-created.json
 
           REQUIRED_DEVICE="$REQUIRED_DEVICE" node - <<'NODE'
           const fs=require("fs");
@@ -793,11 +794,14 @@ jobs:
           const after=JSON.parse(fs.readFileSync("/tmp/required-ops-created.json","utf8"));
           const device=JSON.parse(fs.readFileSync("/tmp/required-device-detail.json","utf8"));
           const report=JSON.parse(fs.readFileSync("/tmp/required-report-created.json","utf8"));
+          const readiness=JSON.parse(fs.readFileSync("/tmp/required-readiness-created.json","utf8"));
           const id=Number(process.env.REQUIRED_DEVICE);
           if(JSON.stringify(device.inspection_required_types)!==JSON.stringify(["Kiểm định","Hiệu chuẩn"])) throw new Error("Required inspection types were not persisted");
           if(Number(after.missingInspectionSchedule)!==Number(before.missingInspectionSchedule)+2) throw new Error("Two required schedules should be missing after device creation");
           const gaps=(report.inspectionMissingSchedule||[]).filter(x=>Number(x.id)===id || Number(x.device_id)===id);
           if(gaps.length!==2 || gaps.some(x=>x.schedule_issue!=="Chưa có hồ sơ")) throw new Error("Initial missing schedule state incorrect: "+JSON.stringify(gaps));
+          const readyCheck=(readiness.checks||[]).find(x=>x.key==="inspection_schedule");
+          if(readyCheck?.level!=="Cần xử lý" || Number(readiness.system?.missing_inspection_schedules||0)<2) throw new Error("Readiness did not block incomplete required schedules");
           NODE
 
           DEVICE_ID="$REQUIRED_DEVICE" RUN_DATE="$TODAY" TYPE="Kiểm định" node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.env.DEVICE_ID),inspection_date:process.env.RUN_DATE+" 08:00:00",type:process.env.TYPE,organization:"CI",certificate_no:"REQ-KD-1",result:"Đạt",next_date:"",note:"Có hồ sơ nhưng chưa đặt hạn"}))' >/tmp/required-kd-no-next.json
@@ -832,15 +836,19 @@ jobs:
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data @/tmp/required-kd-final.json >/tmp/required-kd-final-out.json
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/required-ops-final.json
           curl -fsS "$BASE/api/reports/summary" >/tmp/required-report-final.json
+          curl -fsS "$BASE/api/system/readiness" >/tmp/required-readiness-final.json
           REQUIRED_DEVICE="$REQUIRED_DEVICE" node - <<'NODE'
           const fs=require("fs");
           const before=JSON.parse(fs.readFileSync("/tmp/required-ops-before.json","utf8"));
           const after=JSON.parse(fs.readFileSync("/tmp/required-ops-final.json","utf8"));
           const report=JSON.parse(fs.readFileSync("/tmp/required-report-final.json","utf8"));
+          const readiness=JSON.parse(fs.readFileSync("/tmp/required-readiness-final.json","utf8"));
           const id=Number(process.env.REQUIRED_DEVICE);
           if(Number(after.missingInspectionSchedule)!==Number(before.missingInspectionSchedule)) throw new Error("All required schedules should be complete");
           const gaps=(report.inspectionMissingSchedule||[]).filter(x=>Number(x.id)===id || Number(x.device_id)===id);
           if(gaps.length) throw new Error("Completed required schedules still reported missing");
+          const readyCheck=(readiness.checks||[]).find(x=>x.key==="inspection_schedule");
+          if(readyCheck?.level!=="Đạt") throw new Error("Readiness did not clear after completing required schedules");
           NODE
 
           curl -fsS "$BASE/api/excel-template/devices" -o /tmp/device-template.xlsx
