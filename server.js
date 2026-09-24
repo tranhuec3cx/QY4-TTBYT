@@ -2614,6 +2614,67 @@ function latestDeviceInspection(deviceId) {
     LIMIT 1
   `).get(deviceId) || null;
 }
+function normalizeScheduleText(value) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+}
+function normalizeInspectionScheduleType(value) {
+  const raw = String(value || "").trim();
+  const key = normalizeScheduleText(raw);
+  if (!key) return "Kiểm định";
+  if (key === "atbx" || key.includes("an toan buc xa")) return "Kiểm định an toàn bức xạ";
+  if (key.includes("kiem xa")) return "Kiểm xạ";
+  if (key.includes("hieu chuan")) return "Hiệu chuẩn";
+  if (key.includes("kiem dinh")) return "Kiểm định";
+  return raw;
+}
+function normalizeMaintenanceScheduleType(value) {
+  const raw = String(value || "").trim();
+  const key = normalizeScheduleText(raw);
+  if (!key || key === "bao duong" || key === "bao duong dinh ky") return "Bảo dưỡng định kỳ";
+  return raw;
+}
+function latestScheduledRows(rows, dateField, typeNormalizer) {
+  const latest = new Map();
+  for (const row of (rows || [])) {
+    const deviceId = Number(row.device_id || 0);
+    if (!deviceId) continue;
+    const scheduleType = typeNormalizer(row.type);
+    const key = `${deviceId}|${scheduleType}`;
+    const rowKey = `${String(row[dateField] || "")}|${String(Number(row.id || 0)).padStart(12,"0")}`;
+    const current = latest.get(key);
+    const currentKey = current ? `${String(current[dateField] || "")}|${String(Number(current.id || 0)).padStart(12,"0")}` : "";
+    if (!current || rowKey > currentKey) latest.set(key, { ...row, schedule_type:scheduleType });
+  }
+  return Array.from(latest.values());
+}
+function activeInspectionSchedules() {
+  const rows = db.prepare(`
+    SELECT i.*, COALESCE(dv.is_archived,0) AS is_archived
+    FROM inspections i
+    JOIN devices dv ON dv.id=i.device_id
+    WHERE COALESCE(dv.is_archived,0)=0
+  `).all();
+  return latestScheduledRows(rows, "inspection_date", normalizeInspectionScheduleType);
+}
+function activeMaintenanceSchedules() {
+  const rows = db.prepare(`
+    SELECT m.*, COALESCE(dv.is_archived,0) AS is_archived
+    FROM maintenances m
+    JOIN devices dv ON dv.id=m.device_id
+    WHERE COALESCE(dv.is_archived,0)=0
+  `).all();
+  return latestScheduledRows(rows, "maintenance_date", normalizeMaintenanceScheduleType);
+}
+function latestScheduleByDate(rows, dateField) {
+  let latest = null;
+  for (const row of (rows || [])) {
+    const rowKey = `${String(row?.[dateField] || "")}|${String(Number(row?.id || 0)).padStart(12,"0")}`;
+    const latestKey = latest ? `${String(latest?.[dateField] || "")}|${String(Number(latest?.id || 0)).padStart(12,"0")}` : "";
+    if (!latest || rowKey > latestKey) latest = row;
+  }
+  return latest;
+}
+
 function openDeviceRepair(deviceId) {
   return db.prepare(`
     SELECT id, processing_status, issue, received_at, repair_date
@@ -4066,32 +4127,9 @@ app.get("/api/dashboard/operations", (req, res) => {
     FROM repairs r JOIN incidents i ON i.id=r.incident_id
     WHERE r.completed_at IS NOT NULL AND r.completed_at<>'' AND i.incident_datetime IS NOT NULL
   `).get().v || 0);
-  const dueInspection = db.prepare(`
-    SELECT COUNT(*) c
-    FROM inspections i
-    JOIN devices d ON d.id=i.device_id
-    WHERE COALESCE(d.is_archived,0)=0
-      AND i.id=(
-        SELECT i2.id FROM inspections i2
-        WHERE i2.device_id=i.device_id
-        ORDER BY COALESCE(NULLIF(i2.inspection_date,''),'') DESC, i2.id DESC
-        LIMIT 1
-      )
-      AND i.next_date>=? AND i.next_date<=?
-  `).get(today,plus30).c;
-  const overdueInspection = db.prepare(`
-    SELECT COUNT(*) c
-    FROM inspections i
-    JOIN devices d ON d.id=i.device_id
-    WHERE COALESCE(d.is_archived,0)=0
-      AND i.id=(
-        SELECT i2.id FROM inspections i2
-        WHERE i2.device_id=i.device_id
-        ORDER BY COALESCE(NULLIF(i2.inspection_date,''),'') DESC, i2.id DESC
-        LIMIT 1
-      )
-      AND i.next_date<?
-  `).get(today).c;
+  const inspectionSchedules = activeInspectionSchedules();
+  const dueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
+  const overdueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
   const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs r JOIN devices d ON d.id=r.device_id WHERE COALESCE(d.is_archived,0)=0 AND r.processing_status='Chờ linh kiện'").get().c;
   const qrChecksToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=?").get(today).c;
   const qrIssuesToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=? AND result='Có vấn đề'").get(today).c;
@@ -4419,58 +4457,12 @@ app.get("/api/leadership-dashboard", (req, res) => {
   const old10 = devices.filter(d=>Number(d.year_in_use||0) && (currentYear - Number(d.year_in_use)) > 10).length;
   const today = localDateISO();
   const plus30 = localDatePlusDays(30);
-  const dueInspections = db.prepare(`
-    SELECT COUNT(*) c
-    FROM inspections i
-    JOIN devices dv ON dv.id=i.device_id
-    WHERE COALESCE(dv.is_archived,0)=0
-      AND i.id=(
-        SELECT i2.id FROM inspections i2
-        WHERE i2.device_id=i.device_id
-        ORDER BY COALESCE(NULLIF(i2.inspection_date,''),'') DESC, i2.id DESC
-        LIMIT 1
-      )
-      AND i.next_date >= ? AND i.next_date <= ?
-  `).get(today, plus30).c;
-  const overdueInspections = db.prepare(`
-    SELECT COUNT(*) c
-    FROM inspections i
-    JOIN devices dv ON dv.id=i.device_id
-    WHERE COALESCE(dv.is_archived,0)=0
-      AND i.id=(
-        SELECT i2.id FROM inspections i2
-        WHERE i2.device_id=i.device_id
-        ORDER BY COALESCE(NULLIF(i2.inspection_date,''),'') DESC, i2.id DESC
-        LIMIT 1
-      )
-      AND i.next_date < ?
-  `).get(today).c;
-  const dueMaint = db.prepare(`
-    SELECT COUNT(*) c
-    FROM maintenances m
-    JOIN devices dv ON dv.id=m.device_id
-    WHERE COALESCE(dv.is_archived,0)=0
-      AND m.id=(
-        SELECT m2.id FROM maintenances m2
-        WHERE m2.device_id=m.device_id
-        ORDER BY COALESCE(NULLIF(m2.maintenance_date,''),'') DESC, m2.id DESC
-        LIMIT 1
-      )
-      AND m.next_date >= ? AND m.next_date <= ?
-  `).get(today, plus30).c;
-  const overdueMaint = db.prepare(`
-    SELECT COUNT(*) c
-    FROM maintenances m
-    JOIN devices dv ON dv.id=m.device_id
-    WHERE COALESCE(dv.is_archived,0)=0
-      AND m.id=(
-        SELECT m2.id FROM maintenances m2
-        WHERE m2.device_id=m.device_id
-        ORDER BY COALESCE(NULLIF(m2.maintenance_date,''),'') DESC, m2.id DESC
-        LIMIT 1
-      )
-      AND m.next_date < ?
-  `).get(today).c;
+  const inspectionSchedules = activeInspectionSchedules();
+  const maintenanceSchedules = activeMaintenanceSchedules();
+  const dueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
+  const overdueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
+  const dueMaint = maintenanceSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
+  const overdueMaint = maintenanceSchedules.filter(x => x.next_date && x.next_date < today).length;
   const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY quality_level ORDER BY quality_level").all();
   const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code AND COALESCE(dv.is_archived,0)=0 GROUP BY d.code,d.name ORDER BY count DESC`).all();
   res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, dueMaint, overdueMaint, quality, byDept });
@@ -4489,34 +4481,53 @@ app.get("/api/reports/summary", (req, res) => {
     WHERE COALESCE(dv.is_archived,0)=0
     ORDER BY dv.id
   `).all().map(enrichDevice);
-  const maint = db.prepare(`
-    SELECT m.device_id, substr(m.maintenance_date,1,10) last_date, m.next_date
-    FROM maintenances m
-    WHERE m.id=(
-      SELECT m2.id FROM maintenances m2
-      WHERE m2.device_id=m.device_id
-      ORDER BY COALESCE(NULLIF(m2.maintenance_date,''),'') DESC, m2.id DESC
-      LIMIT 1
-    )
-  `).all();
-  const insp = db.prepare(`
-    SELECT i.device_id, substr(i.inspection_date,1,10) last_date, i.next_date
-    FROM inspections i
-    WHERE i.id=(
-      SELECT i2.id FROM inspections i2
-      WHERE i2.device_id=i.device_id
-      ORDER BY COALESCE(NULLIF(i2.inspection_date,''),'') DESC, i2.id DESC
-      LIMIT 1
-    )
-  `).all();
+  const maint = activeMaintenanceSchedules().map(x => ({
+    ...x,
+    type:x.schedule_type || x.type,
+    last_date:String(x.maintenance_date || "").slice(0,10)
+  }));
+  const insp = activeInspectionSchedules().map(x => ({
+    ...x,
+    type:x.schedule_type || x.type,
+    last_date:String(x.inspection_date || "").slice(0,10)
+  }));
   const repairs = db.prepare("SELECT device_id, COUNT(*) repair_count, SUM(cost) total_cost FROM repairs GROUP BY device_id").all();
-  const maintMap = new Map(maint.map(x => [Number(x.device_id), x]));
-  const inspMap = new Map(insp.map(x => [Number(x.device_id), x]));
+  const maintMap = new Map();
+  const inspMap = new Map();
+  for (const row of maint) {
+    const id=Number(row.device_id);
+    if(!maintMap.has(id)) maintMap.set(id,[]);
+    maintMap.get(id).push(row);
+  }
+  for (const row of insp) {
+    const id=Number(row.device_id);
+    if(!inspMap.has(id)) inspMap.set(id,[]);
+    inspMap.get(id).push(row);
+  }
   const repairMap = new Map(repairs.map(x => [Number(x.device_id), x]));
-  const enriched = devices.map(d => ({...d, maintenance: maintMap.get(d.id) || {}, inspection: inspMap.get(d.id) || {}, repair: repairMap.get(d.id) || {repair_count:0,total_cost:0}}));
+  const enriched = devices.map(d => {
+    const maintenanceSchedules=maintMap.get(d.id) || [];
+    const inspectionSchedules=inspMap.get(d.id) || [];
+    return {
+      ...d,
+      maintenance_schedules:maintenanceSchedules,
+      inspection_schedules:inspectionSchedules,
+      maintenance:latestScheduleByDate(maintenanceSchedules,"maintenance_date") || {},
+      inspection:latestScheduleByDate(inspectionSchedules,"inspection_date") || {},
+      repair:repairMap.get(d.id) || {repair_count:0,total_cost:0}
+    };
+  });
   const warrantySoon = enriched.filter(d => d.warranty_end && d.warranty_end >= today && d.warranty_end <= future);
-  const maintenanceOverdue = enriched.filter(d => d.maintenance.next_date && d.maintenance.next_date < today);
-  const inspectionOverdue = enriched.filter(d => d.inspection.next_date && d.inspection.next_date < today);
+  const maintenanceOverdue = enriched.flatMap(d =>
+    (d.maintenance_schedules || [])
+      .filter(m => m.next_date && m.next_date < today)
+      .map(m => ({...d, maintenance:m, obligation_type:m.schedule_type || m.type || "Bảo dưỡng"}))
+  );
+  const inspectionOverdue = enriched.flatMap(d =>
+    (d.inspection_schedules || [])
+      .filter(i => i.next_date && i.next_date < today)
+      .map(i => ({...d, inspection:i, obligation_type:i.schedule_type || i.type || "Kiểm định/Hiệu chuẩn"}))
+  );
   const frequentRepairs = enriched.filter(d => Number(d.repair.repair_count || 0) >= 2).sort((a,b)=>Number(b.repair.repair_count)-Number(a.repair.repair_count));
   const replaceList = enriched.filter(d => ["Chờ sửa chữa","Ngừng hoạt động","Hoạt động hạn chế"].includes(d.status) || Number(d.quality_level || 3) >= 4 || Number(d.repair.repair_count || 0) >= 3);
   const costByDepartment = db.prepare(`
