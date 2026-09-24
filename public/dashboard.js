@@ -5,6 +5,18 @@ function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&
 function fmtDate(v){ return v ? String(v).slice(0,10).split("-").reverse().join("/") : ""; }
 function setText(id, value){ const el=q(id); if(el) el.textContent=value; }
 function fmtMinutes(v){ const n=Math.max(0,Number(v||0)); if(!n) return "—"; if(n<60) return Math.round(n)+" phút"; const h=n/60; return h<24 ? h.toFixed(h<10?1:0)+" giờ" : (h/24).toFixed(1)+" ngày"; }
+function latestTechnicalRows(rows,dateField){
+  const map=new Map();
+  for(const row of (rows||[])){
+    const key=Number(row.device_id);
+    if(!key) continue;
+    const cur=map.get(key);
+    const rowKey=`${String(row?.[dateField]||"")}|${String(Number(row.id||0)).padStart(12,"0")}`;
+    const curKey=cur ? `${String(cur?.[dateField]||"")}|${String(Number(cur.id||0)).padStart(12,"0")}` : "";
+    if(!cur || rowKey>curKey) map.set(key,row);
+  }
+  return Array.from(map.values());
+}
 function renderMonthlyIncidents(rows){
   const host=q("incidentMonthBars"); if(!host) return;
   if(!rows?.length){ host.innerHTML='<div class="center-empty">Chưa có dữ liệu sự cố.</div>'; return; }
@@ -46,13 +58,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   setText("dbQrDevicesMonth", monthKpi?.summary?.qr_check_unique_devices || 0);
   setText("dbResponseCompleteness", `${monthKpi?.summary?.response_data_completeness_percent||0}%`);
 
-  const dueMaint = maints.filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
+  const dueMaint = latestTechnicalRows(maints,"maintenance_date")
+    .filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueMaints").innerHTML = dueMaint.length
     ? dueMaint.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <b>${fmtDate(x.next_date)}</b></li>`).join("")
     : "<li>Không có bảo dưỡng sắp đến hạn.</li>";
 
-  const dueIns = inspections.filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
+  const dueIns = latestTechnicalRows(inspections,"inspection_date")
+    .filter(x => x.next_date && x.next_date >= todayISO() && x.next_date <= plusDaysISO(30))
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueInspections").innerHTML = dueIns.length
     ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <b>${fmtDate(x.next_date)}</b></li>`).join("")
