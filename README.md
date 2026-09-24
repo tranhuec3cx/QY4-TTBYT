@@ -187,6 +187,8 @@ http://localhost:5000
 
 ## 5. Chạy chính thức có đăng nhập
 
+> **Bảo mật đường truyền:** `QY4_AUTH_REQUIRED=1` bảo vệ quyền truy cập và phiên đăng nhập, nhưng nếu truy cập bằng `http://` thì đường truyền chưa được mã hóa TLS. Giai đoạn thử nghiệm có thể dùng trong LAN tin cậy; khi triển khai nhiều khoa nên đặt ứng dụng sau HTTPS/reverse proxy nội bộ. Màn **Sẵn sàng triển khai** sẽ hiện cảnh báo nếu đã bật đăng nhập nhưng request vẫn là HTTP.
+
 ## 5.1. Chạy nhanh trên Windows
 
 Repo có script:
@@ -472,6 +474,7 @@ Các nội dung có thể phát triển sau:
 - [ ] Đặt `QY4_TIME_ZONE=Asia/Bangkok` hoặc múi giờ +07 phù hợp.
 - [ ] Giữ `QY4_ALLOW_LEGACY_QR` **tắt**. Chỉ bật tạm `QY4_ALLOW_LEGACY_QR=1` nếu thật sự còn tem QR cũ cần chuyển đổi.
 - [ ] Bật đăng nhập: `QY4_AUTH_REQUIRED=1`.
+- [ ] Khi triển khai nhiều khoa, cấu hình HTTPS/reverse proxy nội bộ; nếu còn HTTP thì ghi nhận cảnh báo tại **Sẵn sàng triển khai**.
 - [ ] Đặt mật khẩu quản trị mạnh.
 - [ ] Tạo tài khoản Kỹ sư và tài khoản khoa.
 - [ ] Chốt IP/hostname máy chủ.
