@@ -3077,6 +3077,9 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       cleanupSingleUpload(req);
       return res.status(400).json({ error: maintenanceError });
     }
+    const maintenanceContext = historicalDeviceContext(deviceId, payload.maintenance_date);
+    payload.department_code_snapshot = String(maintenanceContext.department_code || "").trim();
+    payload.location_snapshot = String(maintenanceContext.location || "").trim();
     const tx = db.transaction(() => {
       const info = db.prepare(`
         INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
