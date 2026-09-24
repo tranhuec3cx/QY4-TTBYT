@@ -806,13 +806,14 @@ jobs:
         run: |
           BASE=http://127.0.0.1:5000
           TODAY=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")).today')
+          SNAP_DAY=$(node -e 'const p=process.argv[1].split("-").map(Number);const d=new Date(Date.UTC(p[0],p[1]-1,p[2]-1,12));process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST","group_code":"TST","name":"Thiết bị sửa snapshot A","manufacturer":"Test","model":"SNAP-A","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SNAP-A-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí snapshot A","note":"","device_code":"TST.TST.0101","insurance_code":"","actor":"CI"}' >/tmp/snap-device-a.json
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị sửa snapshot B","manufacturer":"Test","model":"SNAP-B","year_in_use":2026,"warranty_end":"","status":"Đang hoạt động","quality_level":3,"serial":"SNAP-B-001","country":"Việt Nam","year_manufactured":2026,"cost":0,"funding":"","location":"Vị trí snapshot B","note":"","device_code":"TST2.TST.0102","insurance_code":"","actor":"CI"}' >/tmp/snap-device-b.json
           DEV_A=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/snap-device-a.json","utf8")).id')
           DEV_B=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/snap-device-b.json","utf8")).id')
-          curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_A,\"incident_datetime\":\"$TODAY 13:00\",\"description\":\"Sự cố cần sửa đúng thiết bị\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/snap-incident.json
+          curl -fsS -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_A,\"incident_datetime\":\"$SNAP_DAY 13:00\",\"description\":\"Sự cố cần sửa đúng thiết bị\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/snap-incident.json
           SNAP_INC=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/snap-incident.json","utf8")).id')
-          curl -fsS -X PUT "$BASE/api/incidents/$SNAP_INC" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_B,\"incident_datetime\":\"$TODAY 13:00\",\"description\":\"Sự cố cần sửa đúng thiết bị\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/snap-update.json
+          curl -fsS -X PUT "$BASE/api/incidents/$SNAP_INC" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_B,\"incident_datetime\":\"$SNAP_DAY 13:00\",\"description\":\"Sự cố cần sửa đúng thiết bị\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/snap-update.json
           curl -fsS "$BASE/api/incidents" >/tmp/snap-incidents.json
           node - <<'NODE'
           const fs=require("fs");
@@ -826,7 +827,7 @@ jobs:
           NODE
           curl -fsS -X POST "$BASE/api/incidents/$SNAP_INC/acknowledge" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/snap-ack.json
           curl -fsS -X POST "$BASE/api/incidents/$SNAP_INC/transfer-repair" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/snap-transfer.json
-          CODE=$(curl -s -o /tmp/snap-reject.json -w '%{http_code}' -X PUT "$BASE/api/incidents/$SNAP_INC" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_A,\"incident_datetime\":\"$TODAY 13:00\",\"description\":\"Không được đổi sau sửa chữa\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Đã chuyển sửa chữa\"}")
+          CODE=$(curl -s -o /tmp/snap-reject.json -w '%{http_code}' -X PUT "$BASE/api/incidents/$SNAP_INC" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_A,\"incident_datetime\":\"$SNAP_DAY 13:00\",\"description\":\"Không được đổi sau sửa chữa\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Đã chuyển sửa chữa\"}")
           test "$CODE" = "400"
           echo "Incident snapshot correction rules passed"
 
