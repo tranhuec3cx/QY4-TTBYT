@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
         fd.append('name',q('certificateNo').value.trim() || `Hồ sơ ${q('type').value}`);
         fd.append('type',q('type').value);
         fd.append('doc_date',q('inspectionDate').value.slice(0,10));
-        fd.append('updated_by',window.QY4_AUTH_USER?.full_name || 'Khoa Trang bị');
+        fd.append('updated_by',window.QY4_AUTH_USER?.full_name || '');
         fd.append('note',q('note').value.trim());
         fd.append('file',fileInput.files[0]);
         const res=await fetch('/api/documents',{method:'POST',body:fd});
