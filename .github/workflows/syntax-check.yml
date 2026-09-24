@@ -854,6 +854,7 @@ jobs:
 
           CODE=$(curl -s -o /tmp/bad-date-document.json -w '%{http_code}' -X POST "$BASE/api/documents" -F "device_id=$DATE_DEVICE" -F "name=Tài liệu ngày sai" -F "doc_date=2026-02-30")
           test "$CODE" = "400"
+          curl -fsS -X DELETE "$BASE/api/devices/$DATE_DEVICE" >/tmp/date-extra-device-archive.json
           echo "Strict calendar validation passed"
 
       - name: Smoke test inventory integrity rules
