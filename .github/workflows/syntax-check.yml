@@ -230,6 +230,13 @@ jobs:
           test "$TODAY" = "$EXPECTED_TODAY"
           node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/dashboard-ops.json","utf8")); if(d.timeZone!=="Asia/Bangkok"||Number(d.qrChecksToday)!==1||Number(d.qrIssuesToday)!==0) throw new Error("Dashboard QR/time-zone metrics failed")'
           NOW="$TODAY 12:00"
+          TOMORROW=$(node -e 'const p=process.argv[1].split("-").map(Number);const d=new Date(Date.UTC(p[0],p[1]-1,p[2]+1,12));process.stdout.write(d.toISOString().slice(0,10))' "$TODAY")
+          CODE=$(curl -s -o /tmp/incident-invalid-severity.json -w '%{http_code}' -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Sai mức độ\",\"severity\":\"Khẩn cấp\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/incident-future.json -w '%{http_code}' -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$TOMORROW 08:00\",\"description\":\"Sai thời gian\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/incident-archived-device.json -w '%{http_code}' -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$MIN_DEVICE_ID,\"incident_datetime\":\"$NOW\",\"description\":\"Thiết bị đã lưu trữ\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Mới ghi nhận\"}")
+          test "$CODE" = "400"
           BEFORE_MANUAL_REJECT=$(find uploads/qr -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
           printf '\xFF\xD8\xFF\xD9' >/tmp/rejected-manual.jpg
           CODE=$(curl -s -o /tmp/rejected-manual.json -w '%{http_code}' -X POST "$BASE/api/incidents" -F "device_id=$DEVICE_ID" -F "media=@/tmp/rejected-manual.jpg;type=image/jpeg")
