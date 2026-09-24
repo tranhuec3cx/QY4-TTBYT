@@ -1153,10 +1153,12 @@ jobs:
           const r=JSON.parse(fs.readFileSync("/tmp/auth-readiness.json","utf8"));
           if(!b.filename) throw new Error("Backup failed under auth");
           const m=new Map((r.checks||[]).map(x=>[x.key,x]));
-          for(const key of ["database_integrity","foreign_keys","demo","auth","backup","backup_off_device","qr_uid"]){
+          for(const key of ["database_integrity","foreign_keys","demo","auth","backup","qr_uid"]){
             if(m.get(key)?.level!=="Đạt") throw new Error("Readiness failed for "+key+": "+JSON.stringify(m.get(key)));
           }
           if(r.system?.backup_mirror_configured!==true || r.system?.latest_backup_mirrored!==true) throw new Error("Backup mirror readiness flags failed");
+          if(m.get("backup_off_device")?.level!=="Lưu ý") throw new Error("Same-filesystem CI mirror must remain a warning");
+          if(r.system?.backup_mirror_separate_storage!==false || r.system?.backup_mirror_same_filesystem!==true) throw new Error("Mirror storage separation detection failed");
           console.log("Authenticated readiness checklist passed");
           NODE
           echo "Authentication and role smoke test passed"
