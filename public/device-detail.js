@@ -118,7 +118,7 @@ function resetTransferForm() {
   q("transferDate").value = nowDateTimeLocalValue();
   q("transferDepartment").value = DEVICE.department_code || "";
   q("transferLocation").value = DEVICE.location || "";
-  if(q("transferActor")) q("transferActor").value = window.QY4_AUTH_USER?.full_name || "Khoa Trang bị";
+  if(q("transferActor")) q("transferActor").value = window.QY4_AUTH_USER?.full_name || "";
   showForm("transferFormWrap", false);
 }
 async function saveTransfer(e) {
@@ -157,20 +157,7 @@ function renderAll() {
     <div><span>Kiểm định gần nhất</span><b>${latestInspection ? formatDateTimeVN(latestInspection.inspection_date) : "—"}</b></div>
     <div><span>Sự cố đang mở</span><b>${openIncidents}</b></div>
     <div><span>Phiếu sửa chữa</span><b>${openRepairs}</b></div>`;
-  q("quickAccessories").textContent = DEVICE.accessories.length;
-  q("quickRepairs").textContent = DEVICE.repairs.length;
-  q("quickMaint").textContent = DEVICE.maintenances.length;
-  if (q("quickInspection")) q("quickInspection").textContent = (DEVICE.inspections || []).length;
-  q("quickDocs").textContent = DEVICE.documents.length;
   renderGeneralInfo();
-  renderRows("accessoryRows", DEVICE.accessories, x => `<tr><td>${esc(x.name||"")}</td><td>${esc(x.code||"")}</td><td>${esc(x.maker_country||"")}</td><td>${esc(x.serial||"")}</td><td>${esc(x.note||"")}</td><td>${rowBtns('editAccessory','deleteAccessory',Number(x.id))}</td></tr>`, 6);
-  if (q("addIncidentFromDeviceBtn")) q("addIncidentFromDeviceBtn").href = `/tickets.html?from=device-detail&device_id=${encodeURIComponent(DEVICE_ID)}`;
-  renderRows("incidentRows", DEVICE.incidents || [], x => `<tr><td>${formatDateTimeVN(x.incident_datetime)}</td><td class="wrap-text">${esc(x.description||"")}</td><td>${esc(x.reporter||"")}</td><td><span class="tag ${statusTagClass(x.status)}">${esc(x.status||"")}</span></td><td class="wrap-text">${esc(x.local_resolution_note||"")}</td><td>${x.linked_repair_id ? `<button class="btn btn-sm" onclick="showRepairDetail(${Number(x.linked_repair_id)})">Xem sửa chữa</button>` : "—"}</td></tr>`, 6);
-  renderRows("repairRows", DEVICE.repairs, (x, idx) => `<tr><td>${idx+1}</td><td>${formatDateTimeVN(x.received_at || x.repair_date)}</td><td class="wrap-text">${esc(x.issue||"")}</td><td><span class="tag ${statusTagClass(x.processing_status)}">${esc(x.processing_status||"")}</span></td><td>${formatCurrency(x.cost)}</td><td class="wrap-text">${esc(x.result||"")}</td><td><button class="btn btn-sm" onclick="showRepairDetail(${Number(x.id)})">Xem chi tiết</button></td></tr>`, 7);
-  renderRows("maintRows", DEVICE.maintenances, x => `<tr><td>${formatDateTimeVN(x.maintenance_date)}</td><td>${esc(x.type||"")}</td><td class="wrap-text">${esc(x.content||"")}</td><td>${esc(x.result||"")}</td><td>${esc(x.performer||"")}</td><td>${esc(x.user_confirm||"")}</td><td>${esc(x.vendor||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(x.file_path, x.original_name || x.stored_name)}</td><td><div class="table-actions"><button class="btn" onclick="editMaint(${x.id})">Cập nhật</button><span class="tag gray">Lịch sử</span></div></td></tr>`, 10);
-  if (q("inspectionRows")) renderRows("inspectionRows", DEVICE.inspections || [], x => `<tr><td>${formatDateTimeVN(x.inspection_date)}</td><td>${esc(x.type||"")}</td><td>${esc(x.organization||"")}</td><td>${esc(x.certificate_no||"")}</td><td>${esc(x.result||"")}</td><td>${formatDateVN(x.next_date)}</td><td>${fileDownloadCell(attachedPath(x.file_note), "")}</td><td><div class="table-actions"><button class="btn btn-sm" onclick="editInspection(${Number(x.id)})">Cập nhật</button><span class="tag gray">Lịch sử</span></div></td></tr>`, 8);
-  renderRows("opRows", DEVICE.operation_logs, x => `<tr><td>${esc(x.log_datetime||"")}</td><td>${esc(x.user_name||"")}</td><td>${esc(x.department_code||"")}</td><td>${esc(x.usage_count||"")}</td><td>${esc(x.status_before||"")}</td><td>${esc(x.status_after||"")}</td><td>${esc(x.note||"")}</td><td><div class="table-actions"><button class="btn" onclick="editOp(${Number(x.id)})">Cập nhật</button><span class="tag gray">Lịch sử</span></div></td></tr>`, 8);
-  renderRows("docRows", DEVICE.documents, x => `<tr><td>${esc(x.name||"")}</td><td>${esc(x.type||"")}</td><td>${esc(formatDateVN(x.doc_date))}</td><td>${esc(x.updated_by||"")}</td><td>${docFileLabel(x)}</td><td>${esc(x.note||"")}</td><td>${docExtraBtns(x)}</td></tr>`, 7);
   if (q("transferDepartment")) {
     q("transferDepartment").innerHTML = META.departments.map(x=>`<option value="${esc(x.code)}">${esc(x.code)} - ${esc(x.name)}</option>`).join("");
     q("transferDepartment").value = DEVICE.department_code || "";
@@ -185,7 +172,7 @@ async function loadDevice() {
 }
 async function saveGeneral() {
   const payload = {
-    department_code: q("generalDepartment").value,
+    department_code: DEVICE.department_code,
     group_code: q("generalGroup").value,
     device_code: q("generalDeviceCode").value,
     insurance_code: q("generalInsuranceCode").value.trim(),
@@ -201,7 +188,7 @@ async function saveGeneral() {
     quality_level: Number(q("generalQuality").value || 3),
     cost: Number(q("generalCost").value || 0),
     funding: q("generalFunding").value.trim(),
-    location: q("generalLocation").value.trim(),
+    location: DEVICE.location || "",
     note: q("generalNote").value.trim()
   };
   if (!(await confirmDeviceDuplicate(payload, Number(DEVICE_ID || 0)))) return;
@@ -382,9 +369,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     generalWarranty:"Hạn bảo hành", generalStatus:"Tình trạng", generalQuality:"Cấp chất lượng",
     generalCost:"Nguyên giá", generalFunding:"Nguồn kinh phí", generalLocation:"Vị trí đặt máy", generalNote:"Ghi chú / Nội dung"
   });
-  applyFieldLabels("maintForm", {maintDate:"Thời gian thực hiện", maintType:"Loại bảo dưỡng", maintResult:"Đánh giá", maintContent:"Nội dung bảo dưỡng", maintPerformer:"Người thực hiện", maintUserConfirm:"Người sử dụng xác nhận", maintVendor:"Đơn vị / nhà cung cấp", maintNextDate:"Ngày bảo dưỡng tiếp theo", maintFile:"Tải file đính kèm", maintNote:"Ghi chú"});
-  applyFieldLabels("repairForm", {repairDate:"Thời gian tiếp nhận", repairMethod:"Hình thức sửa chữa", repairPerson:"Người thực hiện", repairIssue:"Tình trạng / nguyên nhân hỏng", repairWork:"Nội dung sửa chữa", repairCost:"Kinh phí", repairResult:"Kết quả sửa chữa", repairStatusAfter:"TTTB sau sửa chữa"});
-  applyFieldLabels("accessoryForm", {accessoryName:"Tên bộ phận / phụ kiện", accessoryCode:"Ký mã hiệu", accessoryMakerCountry:"Hãng, nước sản xuất", accessorySerial:"Số series", accessoryNote:"Ghi chú"});
   if (q("techFromDate")) q("techFromDate").value = firstDayOfYearISO();
   if (q("techToDate")) q("techToDate").value = todayISO();
   await loadDevice();
@@ -395,31 +379,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     btn.classList.add("active");
     q(btn.dataset.tab).classList.add("active");
   }));
-
-  if (q("closeRepairDetailBtn")) q("closeRepairDetailBtn").onclick = () => q("repairDetailDialog").close();
   q("editGeneralBtn").onclick = () => toggleGeneral(true);
   q("saveGeneralBtn").onclick = saveGeneral;
   q("cancelGeneralBtn").onclick = () => toggleGeneral(false);
 
-  q("toggleAccessoryBtn").onclick = () => { resetAccessoryForm(); showForm("accessoryFormWrap", true); };
-  q("cancelAccessoryBtn").onclick = resetAccessoryForm;
-  q("accessoryForm").addEventListener("submit", saveAccessory);
-
-  q("toggleRepairBtn").onclick = () => { resetRepairForm(); showForm("repairFormWrap", true); };
-  q("cancelRepairBtn").onclick = resetRepairForm;
-  q("repairForm").addEventListener("submit", saveRepair);
-
-  q("toggleMaintBtn").onclick = () => { resetMaintForm(); showForm("maintFormWrap", true); };
-  q("cancelMaintBtn").onclick = resetMaintForm;
-  q("maintForm").addEventListener("submit", saveMaint);
-
-  q("toggleOpBtn").onclick = () => { resetOpForm(); showForm("opFormWrap", true); };
-  q("cancelOpBtn").onclick = resetOpForm;
-  q("opForm").addEventListener("submit", saveOp);
-
-  q("toggleDocBtn").onclick = () => { resetDocForm(); showForm("docFormWrap", true); };
-  q("cancelDocBtn").onclick = resetDocForm;
-  q("docForm").addEventListener("submit", saveDoc);
 
   if (q("techFilterBtn")) q("techFilterBtn").onclick = loadTechnicalHistory;
   if (q("techResetBtn")) q("techResetBtn").onclick = async () => {
