@@ -835,7 +835,7 @@ jobs:
           curl -fsS -X POST "$BASE/api/incidents/$SNAP_INC/acknowledge" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/snap-ack.json
           curl -fsS -X POST "$BASE/api/incidents/$SNAP_INC/transfer-repair" -H 'Content-Type: application/json' --data '{"actor":"CI"}' >/tmp/snap-transfer.json
           CODE=$(curl -s -o /tmp/snap-reject.json -w '%{http_code}' -X PUT "$BASE/api/incidents/$SNAP_INC" -H 'Content-Type: application/json' --data "{\"device_id\":$DEV_A,\"incident_datetime\":\"$SNAP_DAY 13:00\",\"description\":\"Không được đổi sau sửa chữa\",\"severity\":\"Trung bình\",\"reporter\":\"CI\",\"status\":\"Đã chuyển sửa chữa\"}")
-          test "$CODE" = "400"
+          test "$CODE" = "409"
           echo "Incident snapshot correction rules passed"
 
       - name: Smoke test repair integrity rules
