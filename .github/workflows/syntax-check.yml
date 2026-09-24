@@ -491,6 +491,10 @@ jobs:
           test "$CODE" = "409"
           test -f ".$MAINT_NEW_PATH"
 
+          CODE=$(curl -s -o /tmp/inspection-missing-org.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 15:40\",\"type\":\"Kiểm định\",\"organization\":\"\",\"result\":\"Đạt\"}")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/inspection-invalid-next.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 15:50\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"result\":\"Đạt\",\"next_date\":\"24/09/2027\"}")
+          test "$CODE" = "400"
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"inspection_date\":\"$TODAY 16:00\",\"type\":\"Kiểm định\",\"organization\":\"CI\",\"certificate_no\":\"CERT-CI\",\"result\":\"Đạt\",\"next_date\":\"\",\"file_note\":\"$MAINT_NEW_PATH\",\"note\":\"Kiểm tra bảo toàn chứng nhận\"}" >/tmp/inspection-evidence.json
           INSPECTION_EVIDENCE_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/inspection-evidence.json","utf8")).id')
           CODE=$(curl -s -o /tmp/inspection-evidence-delete.json -w '%{http_code}' -X DELETE "$BASE/api/inspections/$INSPECTION_EVIDENCE_ID")
