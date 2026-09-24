@@ -592,27 +592,27 @@ jobs:
           curl -fsS -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{"department_code":"TST2","group_code":"TST","name":"Thiết bị khác để thử khóa","manufacturer":"Test","model":"CTX-02","year_in_use":2026,"status":"Đang hoạt động","serial":"CTX-002","country":"Việt Nam","year_manufactured":2026,"cost":0,"location":"Vị trí khác","actor":"CI"}' >/tmp/context-other-device.json
           CTX_OTHER=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-other-device.json","utf8")).id')
 
-          REPAIR_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),repair_date:process.argv[2]+" 08:00",issue:"Kiểm thử snapshot sửa chữa",work:"Hoàn tất",person:"CI",method:"Nội bộ",cost:7654321,result:"Đạt",processing_status:"Đã hoàn thành",status_after:"Đang hoạt động"}))' "$CTX_DEVICE" "$TODAY")
+          REPAIR_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),repair_date:process.argv[2]+" 08:00",issue:"Kiểm thử snapshot sửa chữa",work:"Hoàn tất",person:"CI",method:"Nội bộ",cost:7654321,result:"Đạt",processing_status:"Đã hoàn thành",status_after:"Đang hoạt động"}))' "$CTX_DEVICE" "$HISTORY_DAY")
           curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "$REPAIR_JSON" >/tmp/context-repair.json
           CTX_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-repair.json","utf8")).id')
           curl -fsS -X POST "$BASE/api/maintenances" -F "device_id=$CTX_DEVICE" -F "maintenance_date=$HISTORY_DAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Snapshot bảo dưỡng" -F "result=Đạt" -F "performer=CI" >/tmp/context-maint.json
           CTX_MAINT=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-maint.json","utf8")).id')
-          INSPECTION_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"CTX-CERT",result:"Đạt",next_date:"",file_note:"",note:"Snapshot kiểm định"}))' "$CTX_DEVICE" "$TODAY")
+          INSPECTION_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"CTX-CERT",result:"Đạt",next_date:"",file_note:"",note:"Snapshot kiểm định"}))' "$CTX_DEVICE" "$HISTORY_DAY")
           curl -fsS -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "$INSPECTION_JSON" >/tmp/context-inspection.json
           CTX_INSP=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-inspection.json","utf8")).id')
-          OPERATION_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),log_datetime:process.argv[2]+" 11:00",user_name:"CI",department_code:"TST",usage_count:"1",status_before:"Đang hoạt động",status_after:"Đang hoạt động",note:"Snapshot vận hành"}))' "$CTX_DEVICE" "$TODAY")
+          OPERATION_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),log_datetime:process.argv[2]+" 11:00",user_name:"CI",department_code:"TST",usage_count:"1",status_before:"Đang hoạt động",status_after:"Đang hoạt động",note:"Snapshot vận hành"}))' "$CTX_DEVICE" "$HISTORY_DAY")
           curl -fsS -X POST "$BASE/api/operation-logs" -H 'Content-Type: application/json' --data "$OPERATION_JSON" >/tmp/context-operation.json
           CTX_OP=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-operation.json","utf8")).id')
 
           curl -fsS "$BASE/api/reports/summary" >/tmp/context-summary-before.json
-          TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 12:00:00",to_department_code:"TST2",to_location:"Vị trí hiện tại B",reason:"Kiểm thử đóng băng bối cảnh kỹ thuật",actor:"CI"}))' "$TODAY")
+          TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 12:00:00",to_department_code:"TST2",to_location:"Vị trí hiện tại B",reason:"Kiểm thử đóng băng bối cảnh kỹ thuật",actor:"CI"}))' "$HISTORY_DAY")
           curl -fsS -X POST "$BASE/api/devices/$CTX_DEVICE/transfer" -H 'Content-Type: application/json' --data "$TRANSFER_JSON" >/tmp/context-transfer.json
 
           curl -fsS "$BASE/api/repairs" >/tmp/context-repairs-after.json
           curl -fsS "$BASE/api/maintenances" >/tmp/context-maints-after.json
           curl -fsS "$BASE/api/inspections" >/tmp/context-inspections-after.json
           curl -fsS "$BASE/api/devices/$CTX_DEVICE" >/tmp/context-device-after.json
-          curl -fsS "$BASE/api/devices/$CTX_DEVICE/technical-history?from_date=$TODAY&to_date=$TODAY&type=ALL" >/tmp/context-technical-history.json
+          curl -fsS "$BASE/api/devices/$CTX_DEVICE/technical-history?from_date=$HISTORY_DAY&to_date=$HISTORY_DAY&type=ALL" >/tmp/context-technical-history.json
           curl -fsS "$BASE/api/reports/summary" >/tmp/context-summary-after.json
 
           node - "$CTX_DEVICE" "$CTX_REPAIR" "$CTX_MAINT" "$CTX_INSP" "$CTX_OP" <<'NODE'
@@ -648,10 +648,10 @@ jobs:
 
           CODE=$(curl -s -o /tmp/context-maint-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/maintenances/$CTX_MAINT" -F "device_id=$CTX_OTHER" -F "maintenance_date=$HISTORY_DAY 09:00" -F "type=Bảo dưỡng định kỳ" -F "content=Không được đổi máy" -F "result=Đạt" -F "performer=CI")
           test "$CODE" = "409"
-          INSPECTION_MOVE_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"CTX-CERT",result:"Đạt",next_date:"",file_note:"",note:"Không được đổi máy"}))' "$CTX_OTHER" "$TODAY")
+          INSPECTION_MOVE_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),inspection_date:process.argv[2]+" 10:00",type:"Kiểm định",organization:"CI",certificate_no:"CTX-CERT",result:"Đạt",next_date:"",file_note:"",note:"Không được đổi máy"}))' "$CTX_OTHER" "$HISTORY_DAY")
           CODE=$(curl -s -o /tmp/context-inspection-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/inspections/$CTX_INSP" -H 'Content-Type: application/json' --data "$INSPECTION_MOVE_JSON")
           test "$CODE" = "409"
-          OPERATION_MOVE_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),department_code:"TST2",log_datetime:process.argv[2]+" 11:00",user_name:"CI"}))' "$CTX_OTHER" "$TODAY")
+          OPERATION_MOVE_JSON=$(node -e 'process.stdout.write(JSON.stringify({device_id:Number(process.argv[1]),department_code:"TST2",log_datetime:process.argv[2]+" 11:00",user_name:"CI"}))' "$CTX_OTHER" "$HISTORY_DAY")
           CODE=$(curl -s -o /tmp/context-operation-move-reject.json -w '%{http_code}' -X PUT "$BASE/api/operation-logs/$CTX_OP" -H 'Content-Type: application/json' --data "$OPERATION_MOVE_JSON")
           test "$CODE" = "409"
           echo "Frozen technical context after transfer passed"
