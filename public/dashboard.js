@@ -83,7 +83,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     .sort((a,b)=>String(a.next_date).localeCompare(String(b.next_date))).slice(0,6);
   q("dueInspections").innerHTML = dueIns.length
     ? dueIns.map(x => `<li><a href="/device-detail.html?id=${Number(x.device_id)}">${esc(x.device_code||"")} - ${esc(x.device_name||"")}</a> <span class="tag gray">${esc(x.schedule_type||x.type||"KĐ/HC")}</span> <b>${fmtDate(x.next_date)}</b></li>`).join("")
-    : "<li>Không có kiểm định/hiệu chuẩn sắp đến hạn.</li>";
+    : "<li>Không có KĐ/HC/ATBX sắp đến hạn.</li>";
 
   renderMonthlyIncidents(ops.monthlyIncidents || []);
 });
