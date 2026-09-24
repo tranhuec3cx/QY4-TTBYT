@@ -4819,6 +4819,9 @@ app.get("/api/system/readiness", (req, res) => {
     )
   `).get().c;
   const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
+  const acknowledgedOpenIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Đã tiếp nhận'").get().c;
+  const openRepairs = db.prepare("SELECT COUNT(*) c FROM repairs WHERE COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')").get().c;
+  const openInventorySessions = db.prepare("SELECT COUNT(*) c FROM inventory_sessions WHERE status='Đang kiểm kê'").get().c;
   const inspectionScheduleGaps = requiredInspectionScheduleGaps();
   const failedInspectionRows = failedInspectionSchedules();
   const missingInspectionRecords = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa có hồ sơ").length;
@@ -4980,6 +4983,14 @@ app.get("/api/system/readiness", (req, res) => {
       detail:unacknowledged===0 ? "Không có sự cố mới đang thiếu mốc tiếp nhận." : `Có ${unacknowledged} sự cố mới chưa có mốc tiếp nhận.`
     },
     {
+      key:"open_work",
+      level:(acknowledgedOpenIncidents + openRepairs + openInventorySessions)===0 ? "Đạt" : "Lưu ý",
+      title:"Công việc kỹ thuật đang mở",
+      detail:(acknowledgedOpenIncidents + openRepairs + openInventorySessions)===0
+        ? "Không có phiếu kỹ thuật/kiểm kê đang dang dở."
+        : `Đã tiếp nhận chưa khép sự cố: ${acknowledgedOpenIncidents}; sửa chữa đang mở: ${openRepairs}; đợt kiểm kê đang mở: ${openInventorySessions}. Đây là công việc vận hành bình thường nhưng nên rà trước khi demo/chốt số liệu.`
+    },
+    {
       key:"inspection_schedule",
       level:inspectionScheduleGaps.length===0 ? "Đạt" : "Cần xử lý",
       title:"Lịch KĐ/HC/ATBX bắt buộc",
@@ -5026,7 +5037,10 @@ app.get("/api/system/readiness", (req, res) => {
       missing_inspection_schedules:inspectionScheduleGaps.length,
       missing_inspection_records:missingInspectionRecords,
       missing_inspection_next_dates:missingInspectionNextDates,
-      failed_inspection_schedules:failedInspectionRows.length
+      failed_inspection_schedules:failedInspectionRows.length,
+      open_acknowledged_incidents:acknowledgedOpenIncidents,
+      open_repairs:openRepairs,
+      open_inventory_sessions:openInventorySessions
     }
   });
 });
