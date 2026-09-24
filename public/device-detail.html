@@ -50,8 +50,9 @@
         </div>
         <div id="infoGeneral" class="info-grid"></div>
         <form id="generalForm" style="display:none">
+          <p class="muted-note">Khoa sử dụng và vị trí đặt máy chỉ thay đổi tại tab <b>Điều chuyển</b> để bảo toàn lịch sử.</p>
           <div class="form-grid">
-            <select id="generalDepartment" required></select>
+            <select id="generalDepartment" disabled></select>
             <select id="generalGroup" required></select>
             <input id="generalDeviceCode" placeholder="Mã thiết bị" readonly />
             <input id="generalInsuranceCode" placeholder="Mã bảo hiểm" />
@@ -67,37 +68,12 @@
             <select id="generalQuality"><option value="1">Cấp 1 - Rất tốt</option><option value="2">Cấp 2 - Tốt</option><option value="3">Cấp 3 - Trung bình</option><option value="4">Cấp 4 - Kém</option><option value="5">Cấp 5 - Rất kém</option></select>
             <input id="generalCost" type="number" placeholder="Nguyên giá" />
             <input id="generalFunding" placeholder="Nguồn kinh phí" />
-            <input id="generalLocation" placeholder="Vị trí đặt máy" />
+            <input id="generalLocation" placeholder="Vị trí đặt máy" readonly />
             <textarea id="generalNote" class="span-3" placeholder="Ghi chú"></textarea>
           </div>
         </form>
       </section>
 
-      <section id="tab-accessories" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Phụ kiện đồng bộ</h2>
-          <button class="btn btn-primary" id="toggleAccessoryBtn">+ Thêm phụ kiện</button>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>Tên bộ phận / phụ kiện</th><th>Ký mã hiệu</th><th>Hãng, nước SX</th><th>Số series</th><th>Ghi chú</th><th>Thao tác</th></tr></thead>
-            <tbody id="accessoryRows"></tbody>
-          </table>
-        </div>
-        <div class="inline-form-card" id="accessoryFormWrap" style="display:none">
-          <form id="accessoryForm">
-            <input type="hidden" id="accessoryId" />
-            <div class="form-grid">
-              <input id="accessoryName" placeholder="Tên bộ phận / phụ kiện" required />
-              <input id="accessoryCode" placeholder="Ký mã hiệu" />
-              <input id="accessoryMakerCountry" placeholder="Hãng, nước SX" />
-              <input id="accessorySerial" placeholder="Số series" />
-              <textarea id="accessoryNote" class="span-2" placeholder="Ghi chú"></textarea>
-            </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu phụ kiện</button><button class="btn" type="button" id="cancelAccessoryBtn">Hủy</button></div>
-          </form>
-        </div>
-      </section>
 
 
       <section id="tab-technical" class="card tab-panel">
@@ -134,152 +110,6 @@
         </div>
       </section>
 
-      <section id="tab-incidents" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Sự cố ghi nhận</h2>
-          <a class="btn btn-primary" href="/tickets.html?from=device-detail&device_id=" id="addIncidentFromDeviceBtn">+ Ghi nhận sự cố</a>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>Thời gian ghi nhận</th><th>Mô tả sự cố</th><th>Người ghi nhận</th><th>Trạng thái sự cố</th><th>Nội dung xử lý tại chỗ</th><th>Phiếu sửa chữa</th></tr></thead>
-            <tbody id="incidentRows"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="tab-repairs" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Nhật ký sửa chữa</h2>
-          <button class="btn btn-primary" id="toggleRepairBtn">+ Thêm sửa chữa</button>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>STT</th><th>Thời gian tiếp nhận</th><th>Nguyên nhân hỏng</th><th>Trạng thái</th><th>Kinh phí</th><th>Kết quả</th><th>Thao tác</th></tr></thead>
-            <tbody id="repairRows"></tbody>
-          </table>
-        </div>
-        <div class="inline-form-card" id="repairFormWrap" style="display:none">
-          <form id="repairForm">
-            <input type="hidden" id="repairId" />
-            <div class="form-grid">
-              <input id="repairDate" type="datetime-local" required />
-              <select id="repairMethod"><option>Nội bộ</option><option>Thuê ngoài</option><option>Thay thế linh kiện</option><option>Nâng cấp thiết bị</option></select>
-              <input id="repairPerson" placeholder="Người thực hiện" required />
-              <input id="repairIssue" class="span-3" placeholder="Tình trạng / nguyên nhân hỏng" required />
-              <input id="repairWork" class="span-2" placeholder="Nội dung sửa chữa" required />
-              <input id="repairCost" type="number" placeholder="Kinh phí" />
-              <input id="repairResult" placeholder="Kết quả sửa chữa" />
-              <select id="repairStatusAfter"><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option></select>
-            </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu sửa chữa</button><button class="btn" type="button" id="cancelRepairBtn">Hủy</button></div>
-          </form>
-        </div>
-      </section>
-
-      <section id="tab-maint" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Bảo dưỡng</h2>
-          <button class="btn btn-primary" id="toggleMaintBtn">+ Thêm bảo dưỡng</button>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>Thời gian thực hiện</th><th>Loại thực hiện</th><th>Nội dung thực hiện</th><th>Đánh giá</th><th>Người thực hiện</th><th>Người sử dụng xác nhận</th><th>Đơn vị / NCC</th><th>Đến hạn tiếp theo</th><th>File đính kèm</th><th>Thao tác</th></tr></thead>
-            <tbody id="maintRows"></tbody>
-          </table>
-        </div>
-        <div class="inline-form-card" id="maintFormWrap" style="display:none">
-          <form id="maintForm">
-            <input type="hidden" id="maintId" />
-            <div class="form-grid">
-              <input id="maintDate" type="datetime-local" required />
-              <select id="maintType"><option>Bảo dưỡng định kỳ</option><option>Vệ sinh thiết bị</option><option>Thay vật tư định kỳ</option><option>Kiểm tra an toàn điện</option><option>Kiểm tra chất lượng</option><option>Cập nhật phần mềm</option></select>
-              <select id="maintResult"><option>Đạt</option><option>Đạt có lưu ý</option><option>Không đạt</option><option>Cần theo dõi thêm</option></select>
-              <input id="maintContent" class="span-3" placeholder="Nội dung thực hiện" required />
-              <input id="maintPerformer" placeholder="Người thực hiện" />
-              <input id="maintUserConfirm" placeholder="Người sử dụng xác nhận" />
-              <input id="maintVendor" placeholder="Đơn vị / nhà cung cấp" />
-              <input id="maintNextDate" type="date" />
-              <label class="field"><span class="field-label">Tải file đính kèm</span><input id="maintFile" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip" /></label>
-              <textarea id="maintNote" class="span-2" placeholder="Ghi chú"></textarea>
-            </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu bảo dưỡng</button><button class="btn" type="button" id="cancelMaintBtn">Hủy</button></div>
-          </form>
-        </div>
-      </section>
-
-      <section id="tab-inspections" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Kiểm định / Hiệu chuẩn</h2>
-          <a class="btn btn-primary" href="/inspections.html">+ Thêm kiểm định</a>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>Thời gian thực hiện</th><th>Loại</th><th>Đơn vị thực hiện</th><th>Số chứng nhận</th><th>Kết quả</th><th>Hạn tiếp theo</th><th>File đính kèm</th><th>Thao tác</th></tr></thead>
-            <tbody id="inspectionRows"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="tab-op" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Nhật ký vận hành</h2>
-          <button class="btn btn-primary" id="toggleOpBtn">+ Thêm nhật ký</button>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>Ngày giờ</th><th>Người sử dụng</th><th>Khoa/Phòng</th><th>Số giờ / số ca</th><th>TT trước sử dụng</th><th>TT sau sử dụng</th><th>Ghi chú bất thường</th><th>Thao tác</th></tr></thead>
-            <tbody id="opRows"></tbody>
-          </table>
-        </div>
-        <div class="inline-form-card" id="opFormWrap" style="display:none">
-          <form id="opForm">
-            <input type="hidden" id="opId" />
-            <div class="form-grid">
-              <input id="opDatetime" type="datetime-local" required />
-              <input id="opUser" placeholder="Người sử dụng" required />
-              <input id="opDepartmentCode" placeholder="Khoa/Phòng" />
-              <input id="opUsageCount" placeholder="Số giờ / số ca" />
-              <input id="opBefore" placeholder="TT trước sử dụng" />
-              <input id="opAfter" placeholder="TT sau sử dụng" />
-              <textarea id="opNote" class="span-3" placeholder="Ghi chú bất thường"></textarea>
-            </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu nhật ký</button><button class="btn" type="button" id="cancelOpBtn">Hủy</button></div>
-          </form>
-        </div>
-      </section>
-
-      <dialog id="repairDetailDialog" class="wide-dialog repair-detail-dialog">
-        <div class="history-dialog-head"><h3>Chi tiết sửa chữa</h3><button class="btn" type="button" id="closeRepairDetailBtn">Đóng</button></div>
-        <div id="repairDetailBody"></div>
-      </dialog>
-
-      <section id="tab-docs" class="card tab-panel" style="display:none">
-        <div class="section-head">
-          <h2 class="section-title">Hồ sơ / Tài liệu</h2>
-          <button class="btn btn-primary" id="toggleDocBtn">+ Thêm tài liệu</button>
-        </div>
-        <div class="table-wrap scroll-area">
-          <table>
-            <thead><tr><th>Tên tài liệu</th><th>Loại tài liệu</th><th>Ngày cập nhật</th><th>Người cập nhật</th><th>File đính kèm</th><th>Ghi chú</th><th>Thao tác</th></tr></thead>
-            <tbody id="docRows"></tbody>
-          </table>
-        </div>
-        <div class="inline-form-card" id="docFormWrap" style="display:none">
-          <form id="docForm">
-            <input type="hidden" id="docId" />
-            <div class="form-grid">
-              <input id="docName" placeholder="Tên tài liệu" required />
-              <input id="docType" placeholder="Loại tài liệu" />
-              <input id="docDate" type="date" />
-              <input id="docBy" placeholder="Người cập nhật" />
-              <input id="docFile" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip" />
-              <div id="docCurrentFile" class="muted-note">Chưa có file đính kèm.</div>
-              <textarea id="docNote" class="span-2" placeholder="Ghi chú"></textarea>
-            </div>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu tài liệu</button><button class="btn" type="button" id="cancelDocBtn">Hủy</button></div>
-          </form>
-        </div>
-      </section>
     </main>
   </div>
   <script src="/api.js"></script>
