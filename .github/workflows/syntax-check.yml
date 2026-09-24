@@ -46,6 +46,19 @@ jobs:
           }
           console.log("Device detail single-workflow guard passed");
           NODE
+      - name: Check Windows production launcher
+        shell: pwsh
+        run: |
+          $content = Get-Content -Raw -Path "./start-qy4-production.ps1"
+          [void][ScriptBlock]::Create($content)
+          if (-not (Test-Path "./start-qy4-production.cmd")) { throw "Missing Windows CMD launcher" }
+          if ($content -notmatch 'QY4_DEMO_SEED = "0"') { throw "Production launcher must disable demo seed" }
+          if ($content -notmatch 'QY4_AUTH_REQUIRED = "1"') { throw "Production launcher must enable auth" }
+          if ($content -notmatch 'QY4_ALLOW_LEGACY_QR = "0"') { throw "Production launcher must disable legacy QR" }
+          if ($content -notmatch 'npm ci') { throw "Production launcher must synchronize dependencies" }
+          if ($content -notmatch 'prestart_') { throw "Production launcher must create pre-migration DB backup" }
+          Write-Host "Windows production launcher check passed"
+
       - name: Install dependencies
         run: npm ci
       - name: Prepare legacy quality-rating schema
