@@ -41,6 +41,9 @@ jobs:
           if(js.includes('department_code: q("generalDepartment").value')) throw new Error("General form can bypass transfer department history");
           if(js.includes('location: q("generalLocation").value.trim()')) throw new Error("General form can bypass transfer location history");
           if(!js.includes('/api/devices/${DEVICE_ID}/transfer')) throw new Error("Transfer workflow missing");
+          for(const legacyApi of ["/api/accessories","/api/repairs","/api/maintenances","/api/operation-logs","/api/documents"]){
+            if(js.includes(legacyApi)) throw new Error("Legacy device-detail write path remains: "+legacyApi);
+          }
           console.log("Device detail single-workflow guard passed");
           NODE
       - name: Install dependencies
