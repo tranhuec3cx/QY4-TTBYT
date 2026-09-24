@@ -4135,6 +4135,14 @@ app.post("/api/devices/:id/transfer", (req, res) => {
     if (openRepair) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${openRepair.id} chưa hoàn thành; chưa điều chuyển khoa quản lý.` });
     const openIncident = db.prepare("SELECT id FROM incidents WHERE device_id=? AND status IN ('Mới ghi nhận','Đã tiếp nhận') ORDER BY id DESC LIMIT 1").get(id);
     if (openIncident) return res.status(400).json({ error: `Thiết bị đang có sự cố #${openIncident.id} chưa hoàn tất; chưa điều chuyển khoa quản lý.` });
+    const openInventory = db.prepare(`
+      SELECT s.id
+      FROM inventory_items i
+      JOIN inventory_sessions s ON s.id=i.session_id
+      WHERE i.device_id=? AND s.status='Đang kiểm kê'
+      ORDER BY s.id DESC LIMIT 1
+    `).get(id);
+    if (openInventory) return res.status(409).json({ error: `Thiết bị đang nằm trong đợt kiểm kê #${openInventory.id}; hãy hoàn thành kiểm kê trước khi điều chuyển.` });
 
     const at = normalizeDateTime(req.body.transfer_datetime || nowSql()) || nowSql();
     const actor = requestActor(req, "");
