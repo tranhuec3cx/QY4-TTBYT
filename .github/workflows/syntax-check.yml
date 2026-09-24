@@ -1079,6 +1079,9 @@ jobs:
           test "$CODE" = "200"
           curl -fsS -b /tmp/engineer-cookie.txt "$BASE/api/system/qr-origins" >/tmp/engineer-qr-origins.json
           node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/engineer-qr-origins.json","utf8")); if(!Array.isArray(x.origins)||!x.origins.length) throw new Error("QR origin access failed")'
+          CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-own-upload.pdf -w '%{http_code}' "$BASE$OWN_UPLOAD")
+          test "$CODE" = "200"
+          test -s /tmp/engineer-own-upload.pdf
           curl -fsS -b /tmp/engineer-cookie.txt -X POST "$BASE/api/incidents" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"incident_datetime\":\"$(date '+%Y-%m-%d %H:%M')\",\"description\":\"Kiểm thử quyền kỹ sư\",\"severity\":\"Trung bình\",\"reporter\":\"Kỹ sư CI\",\"status\":\"Mới ghi nhận\"}" >/tmp/engineer-incident.json
           ENGINEER_ID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/engineer-user.json","utf8")).id')
           curl -fsS -b /tmp/admin-cookie.txt -X PUT "$BASE/api/users/$ENGINEER_ID" -H 'Content-Type: application/json' --data '{"full_name":"Kỹ sư CI","username":"engineer","role":"Kỹ sư TTBYT","department_code":"C10","status":"Hoạt động","phone":"","password":"Engineer456!"}' >/tmp/engineer-password-reset.json
@@ -1119,8 +1122,7 @@ jobs:
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-write.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{}')
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/own-upload.pdf -w '%{http_code}' "$BASE$OWN_UPLOAD")
-          test "$CODE" = "200"
-          test -s /tmp/own-upload.pdf
+          test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/other-upload.pdf -w '%{http_code}' "$BASE$OTHER_UPLOAD")
           test "$CODE" = "403"
 
