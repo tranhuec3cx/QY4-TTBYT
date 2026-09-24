@@ -1374,6 +1374,45 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ ok: true });
 });
 
+function ensureQualityRatingHistorySchema() {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='quality_ratings'").get();
+  if (!table) return;
+  const sql = String(table.sql || "");
+  const hasLegacyDeviceUnique = /device_id\s+INTEGER\s+NOT\s+NULL\s+UNIQUE/i.test(sql);
+  if (hasLegacyDeviceUnique) {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE quality_ratings_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER NOT NULL,
+          rating_date TEXT,
+          age_score INTEGER DEFAULT 0,
+          performance_score INTEGER DEFAULT 0,
+          repair_score INTEGER DEFAULT 0,
+          inspection_score INTEGER DEFAULT 0,
+          sparepart_score INTEGER DEFAULT 0,
+          total_score INTEGER DEFAULT 0,
+          grade TEXT,
+          recommendation TEXT,
+          evaluator TEXT,
+          note TEXT,
+          FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        INSERT INTO quality_ratings_history
+          (id,device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note)
+        SELECT
+          id,device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note
+        FROM quality_ratings;
+        DROP TABLE quality_ratings;
+        ALTER TABLE quality_ratings_history RENAME TO quality_ratings;
+      `);
+    });
+    migrate();
+    console.log("Đã chuyển quality_ratings sang mô hình lịch sử nhiều lần đánh giá.");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_quality_ratings_device_date ON quality_ratings(device_id, rating_date DESC, id DESC)");
+}
+
 function initExtendedModules() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS inspections (
@@ -1392,7 +1431,7 @@ function initExtendedModules() {
 
     CREATE TABLE IF NOT EXISTS quality_ratings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      device_id INTEGER NOT NULL UNIQUE,
+      device_id INTEGER NOT NULL,
       rating_date TEXT,
       age_score INTEGER DEFAULT 0,
       performance_score INTEGER DEFAULT 0,
@@ -1419,6 +1458,8 @@ function initExtendedModules() {
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
   `);
+
+  ensureQualityRatingHistorySchema();
 
   if (process.env.QY4_DEMO_SEED !== "1") return;
 
@@ -3526,75 +3567,103 @@ app.delete("/api/inspections/:id", (req, res) => {
 
 app.get("/api/quality-ratings", (req, res) => {
   const rows = db.prepare(`
-    SELECT q.*, dv.name AS device_name, dv.department_code, dv.group_code, d.name AS department_name, g.name AS group_name
+    SELECT
+      q.*,
+      dv.name AS device_name,
+      dv.department_code,
+      dv.group_code,
+      d.name AS department_name,
+      g.name AS group_name,
+      CASE WHEN q.id = (
+        SELECT q2.id
+        FROM quality_ratings q2
+        WHERE q2.device_id=q.device_id
+        ORDER BY COALESCE(q2.rating_date,'') DESC, q2.id DESC
+        LIMIT 1
+      ) THEN 1 ELSE 0 END AS is_latest
     FROM quality_ratings q
     JOIN devices dv ON dv.id = q.device_id
     LEFT JOIN departments d ON d.code = dv.department_code
     LEFT JOIN device_groups g ON g.code = dv.group_code
-    ORDER BY q.total_score ASC, q.id DESC
+    ORDER BY COALESCE(q.rating_date,'') DESC, q.id DESC
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
   res.json(rows);
 });
 
+function buildQualityRatingPayload(input = {}) {
+  const deviceId=Number(input.device_id || 0);
+  const device=db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+  if(!device) return {error:"Thiết bị không tồn tại hoặc đã lưu trữ."};
+  const limits={
+    age_score:25,
+    performance_score:25,
+    repair_score:20,
+    inspection_score:15,
+    sparepart_score:15
+  };
+  const payload={
+    device_id:deviceId,
+    rating_date:String(input.rating_date || localDateISO()).slice(0,10),
+    evaluator:String(input.evaluator || "").trim(),
+    recommendation:String(input.recommendation || "").trim(),
+    note:String(input.note || "")
+  };
+  for(const [key,max] of Object.entries(limits)){
+    const value=Number(input[key] ?? 0);
+    if(!Number.isFinite(value) || value<0 || value>max){
+      return {error:`Điểm ${key} phải từ 0 đến ${max}.`};
+    }
+    payload[key]=Math.round(value);
+  }
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.rating_date)) return {error:"Ngày đánh giá không hợp lệ."};
+  if(!payload.evaluator) return {error:"Vui lòng nhập người đánh giá."};
+  payload.total_score=payload.age_score+payload.performance_score+payload.repair_score+payload.inspection_score+payload.sparepart_score;
+  payload.grade=payload.total_score>=90?"A":payload.total_score>=80?"B":payload.total_score>=65?"C":"D";
+  return {payload};
+}
+
 app.post("/api/quality-ratings", (req, res) => {
   try {
-    const p=req.body || {};
-    const deviceId=Number(p.device_id || 0);
-    const device=db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
-    if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
-
-    const limits={
-      age_score:25,
-      performance_score:25,
-      repair_score:20,
-      inspection_score:15,
-      sparepart_score:15
-    };
-    const payload={
-      device_id:deviceId,
-      rating_date:String(p.rating_date || localDateISO()).slice(0,10),
-      evaluator:String(p.evaluator || "").trim(),
-      recommendation:String(p.recommendation || "").trim(),
-      note:String(p.note || "")
-    };
-    for(const [key,max] of Object.entries(limits)){
-      const value=Number(p[key] ?? 0);
-      if(!Number.isFinite(value) || value<0 || value>max){
-        return res.status(400).json({error:`Điểm ${key} phải từ 0 đến ${max}.`});
-      }
-      payload[key]=Math.round(value);
-    }
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.rating_date)) return res.status(400).json({error:"Ngày đánh giá không hợp lệ."});
-    if(!payload.evaluator) return res.status(400).json({error:"Vui lòng nhập người đánh giá."});
-
-    payload.total_score=payload.age_score+payload.performance_score+payload.repair_score+payload.inspection_score+payload.sparepart_score;
-    payload.grade=payload.total_score>=90?"A":payload.total_score>=80?"B":payload.total_score>=65?"C":"D";
-
-    const old=db.prepare("SELECT * FROM quality_ratings WHERE device_id=?").get(deviceId);
-    let id;
-    if(old){
-      db.prepare(`
-        UPDATE quality_ratings SET
-          rating_date=@rating_date,age_score=@age_score,performance_score=@performance_score,
-          repair_score=@repair_score,inspection_score=@inspection_score,sparepart_score=@sparepart_score,
-          total_score=@total_score,grade=@grade,recommendation=@recommendation,evaluator=@evaluator,note=@note
-        WHERE device_id=@device_id
-      `).run(payload);
-      id=old.id;
-      writeAudit(requestActor(req,payload.evaluator),"Cập nhật đánh giá chất lượng","quality_rating",id,`${old.total_score || 0}/${old.grade || ""} → ${payload.total_score}/${payload.grade}`);
-    } else {
-      const info=db.prepare(`
-        INSERT INTO quality_ratings
-        (device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note)
-        VALUES (@device_id,@rating_date,@age_score,@performance_score,@repair_score,@inspection_score,@sparepart_score,@total_score,@grade,@recommendation,@evaluator,@note)
-      `).run(payload);
-      id=Number(info.lastInsertRowid);
-      writeAudit(requestActor(req,payload.evaluator),"Tạo đánh giá chất lượng","quality_rating",id,`${payload.total_score}/${payload.grade}`);
-    }
+    const built=buildQualityRatingPayload(req.body || {});
+    if(built.error) return res.status(400).json({error:built.error});
+    const payload=built.payload;
+    const info=db.prepare(`
+      INSERT INTO quality_ratings
+      (device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note)
+      VALUES (@device_id,@rating_date,@age_score,@performance_score,@repair_score,@inspection_score,@sparepart_score,@total_score,@grade,@recommendation,@evaluator,@note)
+    `).run(payload);
+    const id=Number(info.lastInsertRowid);
+    writeAudit(requestActor(req,payload.evaluator),"Tạo đánh giá chất lượng","quality_rating",id,`${payload.total_score}/${payload.grade}`);
     res.json({id,total_score:payload.total_score,grade:payload.grade});
   } catch(e) {
     console.error("POST /api/quality-ratings error:",e);
     res.status(400).json({error:e.message || "Không thể lưu đánh giá chất lượng."});
+  }
+});
+
+app.put("/api/quality-ratings/:id", (req, res) => {
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM quality_ratings WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy đánh giá chất lượng."});
+    const built=buildQualityRatingPayload(req.body || {});
+    if(built.error) return res.status(400).json({error:built.error});
+    const payload=built.payload;
+    if(Number(payload.device_id)!==Number(old.device_id)){
+      return res.status(409).json({error:"Không được đổi thiết bị của một mốc đánh giá lịch sử. Hãy tạo đánh giá mới cho thiết bị khác."});
+    }
+    db.prepare(`
+      UPDATE quality_ratings SET
+        rating_date=@rating_date,age_score=@age_score,performance_score=@performance_score,
+        repair_score=@repair_score,inspection_score=@inspection_score,sparepart_score=@sparepart_score,
+        total_score=@total_score,grade=@grade,recommendation=@recommendation,evaluator=@evaluator,note=@note
+      WHERE id=@id
+    `).run({...payload,id});
+    writeAudit(requestActor(req,payload.evaluator),"Cập nhật đánh giá chất lượng","quality_rating",id,`${old.total_score || 0}/${old.grade || ""} → ${payload.total_score}/${payload.grade}`);
+    res.json({id,total_score:payload.total_score,grade:payload.grade});
+  } catch(e) {
+    console.error("PUT /api/quality-ratings/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật đánh giá chất lượng."});
   }
 });
 
