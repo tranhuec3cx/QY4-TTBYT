@@ -1289,7 +1289,7 @@ jobs:
           const r=JSON.parse(fs.readFileSync("/tmp/auth-readiness.json","utf8"));
           if(!b.filename) throw new Error("Backup failed under auth");
           const m=new Map((r.checks||[]).map(x=>[x.key,x]));
-          for(const key of ["database_integrity","foreign_keys","demo","auth","backup","qr_uid"]){
+          for(const key of ["database_integrity","foreign_keys","demo","auth","user_accounts","backup","qr_uid"]){
             if(m.get(key)?.level!=="Đạt") throw new Error("Readiness failed for "+key+": "+JSON.stringify(m.get(key)));
           }
           if(r.system?.backup_mirror_configured!==true || r.system?.latest_backup_mirrored!==true) throw new Error("Backup mirror readiness flags failed");
