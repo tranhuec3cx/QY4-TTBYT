@@ -174,6 +174,13 @@ jobs:
           QR_UID=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/device-create.json","utf8")).qr_uid')
           test -n "$DEVICE_ID"
           test -n "$QR_UID"
+
+          CODE=$(curl -s -o /tmp/repair-missing-issue.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"2026-09-24 08:00\",\"issue\":\"\",\"cost\":0,\"processing_status\":\"Đang xử lý\"}")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/repair-negative-cost.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"2026-09-24 08:00\",\"issue\":\"Kiểm thử chi phí\",\"cost\":-1,\"processing_status\":\"Đang xử lý\"}")
+          test "$CODE" = "400"
+          CODE=$(curl -s -o /tmp/repair-empty-terminal.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"2026-09-24 08:00\",\"issue\":\"Kiểm thử kết thúc rỗng\",\"cost\":0,\"processing_status\":\"Đã hoàn thành\",\"work\":\"\",\"result\":\"\"}")
+          test "$CODE" = "400"
           curl -fsS "$BASE/api/qr/device-uid/$QR_UID" >/tmp/qr-before.json
           node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/qr-before.json","utf8")); if(d.device_code!=="TST.TST.0002") throw new Error("Archived device code was incorrectly reused: "+d.device_code)'
           curl -fsS "$BASE/api/qr-image?data=$(node -p 'encodeURIComponent(`http://10.0.0.10:5000/q/${process.argv[1]}`)' "$QR_UID")" >/tmp/local-qr.svg
