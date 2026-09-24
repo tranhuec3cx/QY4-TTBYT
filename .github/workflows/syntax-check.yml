@@ -104,6 +104,10 @@ jobs:
       - name: Smoke test core APIs
         run: |
           BASE=http://127.0.0.1:5000
+          CODE=$(curl -s -o /tmp/root.html -w '%{http_code}' "$BASE/")
+          test "$CODE" = "302"
+          LOCATION=$(curl -s -I "$BASE/" | tr -d '\r' | awk -F': ' 'tolower($1)=="location"{print $2}' | tail -1)
+          test "$LOCATION" = "/dashboard.html"
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard.json
           curl -fsS "$BASE/api/inventory-sessions" >/tmp/inventory.json
           curl -fsS "$BASE/api/system/backups" >/tmp/backups.json
