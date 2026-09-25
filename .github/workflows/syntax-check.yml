@@ -230,7 +230,14 @@ jobs:
           node - <<'NODE'
           const Database=require("better-sqlite3");
           const db=new Database("/tmp/preflight-bad-catalog.sqlite");
-          db.prepare("UPDATE devices SET department_code='', group_code='MISSING_GROUP' WHERE id=1").run();
+          db.exec("ALTER TABLE devices ADD COLUMN qr_uid TEXT");
+          db.prepare("UPDATE devices SET department_code='', group_code='MISSING_GROUP', qr_uid='duplicate-qr-ci' WHERE id=1").run();
+          db.prepare(`
+            INSERT INTO devices
+              (id,department_code,group_code,name,manufacturer,model,year_in_use,status,quality_level,serial,country,location,device_code,qr_uid)
+            VALUES
+              (2,'A2','MON','Thiết bị trùng QR CI','CI','QR-DUP',2020,'Đang hoạt động',3,'R15-QR-DUP','VN','P2','A2.MON.0002','duplicate-qr-ci')
+          `).run();
           db.prepare("UPDATE device_transfers SET document_file_size=999 WHERE id=1").run();
           db.close();
           NODE
@@ -243,9 +250,11 @@ jobs:
           const r=JSON.parse(require("fs").readFileSync("/tmp/preflight-bad-catalog.json","utf8"));
           if(r.ok!==false || Number(r.stats?.missing_device_department||0)<1) throw new Error("Missing device department was not detected by preflight");
           if(Number(r.stats?.unknown_device_group_refs||0)<1) throw new Error("Orphan device group was not detected by preflight");
+          if(Number(r.stats?.duplicate_qr_uid_groups||0)<1) throw new Error("Duplicate QR UID was not detected by preflight");
           if(Number(r.stats?.referenced_file_size_mismatches||0)<1) throw new Error("Attachment size mismatch was not detected by preflight");
           if(!(r.blockers||[]).some(x=>String(x).includes("dữ liệu định danh lõi"))) throw new Error("Core device identity blocker missing");
           if(!(r.blockers||[]).some(x=>String(x).includes("danh mục không tồn tại"))) throw new Error("Orphan catalog-reference blocker missing");
+          if(!(r.blockers||[]).some(x=>String(x).includes("QR UID bị trùng"))) throw new Error("Duplicate QR UID blocker missing");
           if(!(r.blockers||[]).some(x=>String(x).includes("kích thước không khớp"))) throw new Error("Attachment-size blocker missing");
           console.log("Invalid catalog + attachment metadata preflight blocking passed");
           NODE
@@ -1744,9 +1753,10 @@ jobs:
           const r=JSON.parse(fs.readFileSync("/tmp/auth-readiness.json","utf8"));
           if(!b.filename) throw new Error("Backup failed under auth");
           const m=new Map((r.checks||[]).map(x=>[x.key,x]));
-          for(const key of ["database_integrity","foreign_keys","demo","auth","user_accounts","backup","qr_uid"]){
+          for(const key of ["database_integrity","foreign_keys","demo","auth","user_accounts","backup","qr_uid","device_catalog_integrity"]){
             if(m.get(key)?.level!=="Đạt") throw new Error("Readiness failed for "+key+": "+JSON.stringify(m.get(key)));
           }
+          if(Number(r.system?.duplicate_qr_uid_groups||0)!==0) throw new Error("Authenticated readiness found duplicate QR UID");
           if(r.system?.backup_mirror_configured!==true || r.system?.latest_backup_mirrored!==true) throw new Error("Backup mirror readiness flags failed");
           if(r.system?.latest_backup_mirror_integrity!=="ok" || Number(r.system?.latest_backup_mirror_sessions||0)!==0) throw new Error("Mirror integrity/session checks failed");
           if(r.system?.latest_backup_mirror_files_match!==true) throw new Error("Mirror attachment snapshot does not match local backup");
