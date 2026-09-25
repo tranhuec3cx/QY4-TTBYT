@@ -5297,7 +5297,6 @@ app.get("/api/system/readiness", (req, res) => {
     FROM repairs r
     JOIN incidents i ON i.id=r.incident_id
     WHERE r.incident_id IS NOT NULL
-      AND Number(r.device_id) IS NOT NULL
       AND r.device_id<>i.device_id
   `).get().c;
   const incidentsWithMultipleRepairs = db.prepare(`
