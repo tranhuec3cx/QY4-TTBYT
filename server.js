@@ -1646,6 +1646,9 @@ function ensureTechnicalContextSnapshots() {
   backfill("inspections", "inspection_date");
   backfill("operation_logs", "log_datetime", "department_code");
   backfill("documents", "COALESCE(NULLIF(doc_date,''), datetime('now'))");
+  // daily_checks legacy (R15) chưa có snapshot; sau migration cột đã được thêm
+  // ở ensureCoreManagementSchema nên có thể suy lại đúng khoa/vị trí theo mốc điều chuyển.
+  backfill("daily_checks", "check_datetime");
 }
 
 function initExtendedModules() {
