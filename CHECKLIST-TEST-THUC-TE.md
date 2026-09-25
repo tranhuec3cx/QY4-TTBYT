@@ -11,6 +11,8 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Tạo **bản sao dữ liệu thật để test**; không chạy các thao tác thử trên bộ dữ liệu đang dùng vận hành.
 - [ ] Nếu có thể, cấu hình `QY4_BACKUP_MIRROR_DIR` sang ổ/thư mục thứ hai.
 - [ ] Double-click `start-qy4-production.cmd`.
+- [ ] Launcher chạy **preflight dữ liệu** và kết thúc với `KET QUA: DAT PREFLIGHT`; nếu có dòng `[CHAN]`, dừng test và xử lý trước, không bỏ qua.
+- [ ] Nếu preflight báo schema legacy R15 ở mức **Lưu ý**, tiếp tục khởi động; RC phải tự migration mà không mất lịch sử điều chuyển/đánh giá.
 - [ ] Đăng nhập bằng tài khoản Quản trị viên.
 - [ ] Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai**.
 - [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup hoặc **nhất quán phiếu sửa chữa/trạng thái thiết bị**.
@@ -143,6 +145,6 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 5. File chứng nhận/biên bản mở được sau khi lưu.
 6. Backup bundle tạo thành công.
 7. Dashboard/KPI phản ánh đúng thao tác test.
-8. CI GitHub vẫn xanh.
+8. CI GitHub vẫn xanh, bao gồm **Preflight legacy R15 fixture** và migration điều chuyển schema cũ.
 9. **Sẵn sàng triển khai → Nhất quán phiếu sửa chữa và trạng thái thiết bị** ở mức **Đạt**.
 10. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
