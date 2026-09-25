@@ -2404,6 +2404,13 @@ app.put("/api/repairs/:id", (req, res) => {
     if (Number(old.device_id) !== Number(p.device_id)) {
       return res.status(400).json({ error: "Không thể đổi thiết bị của phiếu sửa chữa đã tạo. Nếu là phiếu độc lập tạo nhầm, hãy xóa phiếu khi còn đủ điều kiện và tạo lại." });
     }
+    const oldProcessingStatus=normalizeRepairStatus(old.processing_status || "Đang xử lý");
+    const requestedProcessingStatus=normalizeRepairStatus(p.processing_status || old.processing_status || "Đang xử lý");
+    if (isTerminalRepairStatus(oldProcessingStatus) && requestedProcessingStatus !== oldProcessingStatus) {
+      return res.status(409).json({
+        error:`Phiếu sửa chữa đã kết thúc ở trạng thái “${oldProcessingStatus}”; không được mở lại hoặc đổi kết quả kết thúc. Có thể hiệu chỉnh nội dung, chi phí và ghi chú nhưng phải giữ nguyên trạng thái kết thúc.`
+      });
+    }
     const payload = {
       device_id: Number(p.device_id),
       repair_date: normalizeDateTime(p.repair_date || ""),
@@ -2417,7 +2424,7 @@ app.put("/api/repairs/:id", (req, res) => {
       cost: Number(p.cost || 0),
       result: p.result || "",
       status_after: statusAfterFromRepairStatus(p.processing_status || old.processing_status || "Đang xử lý", p.status_after || old.status_after || "Đang hoạt động"),
-      processing_status: normalizeRepairStatus(p.processing_status || old.processing_status || "Đang xử lý"),
+      processing_status: requestedProcessingStatus,
       incident_id: old.incident_id || null,
       received_at: normalizeDateTime(p.received_at || old.received_at || old.repair_date || p.repair_date || nowSql()),
       updated_at: nowSql(),
