@@ -108,6 +108,18 @@ jobs:
             );
 
             -- Schema thiết bị/điều chuyển legacy lấy từ gói R15 trước RC.
+            CREATE TABLE IF NOT EXISTS departments (
+              code TEXT PRIMARY KEY,
+              name TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS device_groups (
+              code TEXT PRIMARY KEY,
+              name TEXT NOT NULL
+            );
+            INSERT INTO departments(code,name) VALUES
+              ('A12','Khoa HSTC'),('A2','Khoa Nội tim mạch');
+            INSERT INTO device_groups(code,name) VALUES
+              ('MON','Monitor');
             CREATE TABLE IF NOT EXISTS devices (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               department_code TEXT,
@@ -211,7 +223,7 @@ jobs:
           node - <<'NODE'
           const Database=require("better-sqlite3");
           const db=new Database("/tmp/preflight-bad-catalog.sqlite");
-          db.prepare("UPDATE devices SET department_code='' WHERE id=1").run();
+          db.prepare("UPDATE devices SET department_code='', group_code='MISSING_GROUP' WHERE id=1").run();
           db.prepare("UPDATE device_transfers SET document_file_size=999 WHERE id=1").run();
           db.close();
           NODE
@@ -223,8 +235,10 @@ jobs:
           node - <<'NODE'
           const r=JSON.parse(require("fs").readFileSync("/tmp/preflight-bad-catalog.json","utf8"));
           if(r.ok!==false || Number(r.stats?.missing_device_department||0)<1) throw new Error("Missing device department was not detected by preflight");
+          if(Number(r.stats?.unknown_device_group_refs||0)<1) throw new Error("Orphan device group was not detected by preflight");
           if(Number(r.stats?.referenced_file_size_mismatches||0)<1) throw new Error("Attachment size mismatch was not detected by preflight");
           if(!(r.blockers||[]).some(x=>String(x).includes("dữ liệu định danh lõi"))) throw new Error("Core device identity blocker missing");
+          if(!(r.blockers||[]).some(x=>String(x).includes("danh mục không tồn tại"))) throw new Error("Orphan catalog-reference blocker missing");
           if(!(r.blockers||[]).some(x=>String(x).includes("kích thước không khớp"))) throw new Error("Attachment-size blocker missing");
           console.log("Invalid catalog + attachment metadata preflight blocking passed");
           NODE
@@ -266,7 +280,7 @@ jobs:
           curl -fsS "$BASE/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
           node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<10||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt"||r.system?.foreign_keys_enabled!==true||Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
           node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="repair_consistency"); if(!c||c.level!=="Đạt"||Number(r.system?.duplicate_open_repair_devices||0)!==0||Number(r.system?.open_repair_status_mismatches||0)!==0) throw new Error("Repair consistency readiness baseline invalid: "+JSON.stringify(c)); console.log("Repair consistency readiness baseline passed")'
-          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="device_catalog_integrity"); if(!c||c.level!=="Đạt"||Number(r.system?.missing_device_name||0)!==0||Number(r.system?.missing_device_department||0)!==0||Number(r.system?.missing_device_group||0)!==0) throw new Error("Device catalog integrity readiness invalid: "+JSON.stringify(c)); console.log("Device catalog integrity readiness passed")'
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="device_catalog_integrity"); if(!c||c.level!=="Đạt"||Number(r.system?.missing_device_name||0)!==0||Number(r.system?.missing_device_department||0)!==0||Number(r.system?.missing_device_group||0)!==0||Number(r.system?.unknown_device_department_refs||0)!==0||Number(r.system?.unknown_device_group_refs||0)!==0) throw new Error("Device catalog integrity readiness invalid: "+JSON.stringify(c)); console.log("Device catalog integrity readiness passed")'
           curl -fsS "$BASE/api/devices/1/transfers" >/tmp/legacy-r15-transfers.json
           node - <<'NODE'
           const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-transfers.json","utf8"));
