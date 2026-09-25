@@ -58,16 +58,25 @@ function renderGeneralInfo() {
     <div class="info-section"><h3>Tài chính / tình trạng</h3>${infoItem("Nguyên giá", esc(formatCurrency(DEVICE.cost)))}${infoItem("Nguồn kinh phí", esc(DEVICE.funding))}${infoItem("Tình trạng", esc(DEVICE.status))}${infoItem("Cấp chất lượng", DEVICE.quality_level ? `Cấp ${Number(DEVICE.quality_level)}` : "—")}${infoItem("Ghi chú", esc(DEVICE.note || "—"))}</div>
   `;
 }
+function transferFileHref(x) {
+  const p=String(x?.document_file_path || "").trim();
+  return /^\/uploads\//.test(p) ? p : "";
+}
 function renderTransfers() {
   const rows = DEVICE.transfers || [];
-  renderRows("transferRows", rows, x => `<tr>
-    <td>${formatDateTimeVN(x.transfer_datetime)}</td>
-    <td><b>${esc(x.from_department_code||"—")}</b><div class="small">${esc(x.from_location||"")}</div></td>
-    <td><b>${esc(x.to_department_code||"—")}</b><div class="small">${esc(x.to_location||"")}</div></td>
-    <td class="wrap-text">${esc(x.reason||"")}</td>
-    <td>${esc(x.actor||"")}</td>
-    <td class="wrap-text">${esc(x.note||"")}</td>
-  </tr>`, 6);
+  renderRows("transferRows", rows, x => {
+    const fileHref=transferFileHref(x);
+    const legacyType=String(x.movement_type || "").trim();
+    return `<tr>
+      <td>${formatDateTimeVN(x.transfer_datetime)}${legacyType && legacyType!=="Điều chuyển" ? `<div class="small">${esc(legacyType)}</div>` : ""}</td>
+      <td><b>${esc(x.from_department_code||"—")}</b><div class="small">${esc(x.from_location||"")}</div></td>
+      <td><b>${esc(x.to_department_code||"—")}</b><div class="small">${esc(x.to_location||"")}</div></td>
+      <td class="wrap-text">${esc(x.reason||"")}</td>
+      <td>${esc(x.actor||"")}</td>
+      <td class="wrap-text">${esc(x.note||"")}</td>
+      <td>${fileHref ? `<a class="btn btn-secondary btn-sm" href="${esc(fileHref)}" target="_blank" rel="noopener">Mở</a>` : "—"}</td>
+    </tr>`;
+  }, 7);
 }
 function technicalRecordHref(x) {
   const id=Number(x?.record_id || 0);
