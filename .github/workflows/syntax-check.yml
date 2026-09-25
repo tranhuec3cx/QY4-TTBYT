@@ -1631,6 +1631,10 @@ jobs:
           curl -fsS -c /tmp/engineer-cookie.txt -X POST "$BASE/api/auth/login" -H 'Content-Type: application/json' --data '{"username":"engineer","password":"Engineer123!"}' >/tmp/engineer-login.json
           CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-users.json -w '%{http_code}' "$BASE/api/users")
           test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-create-user.json -w '%{http_code}' -X POST "$BASE/api/users" -H 'Content-Type: application/json' --data '{"full_name":"Không được tạo","username":"forbiddenuser","role":"Kỹ sư TTBYT","department_code":"C10","status":"Hoạt động","password":"Forbidden123!"}')
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-backup.json -w '%{http_code}' -X POST "$BASE/api/system/backup" -H 'Content-Type: application/json' --data '{}')
+          test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-settings.html -w '%{http_code}' "$BASE/settings.html")
           test "$CODE" = "302"
           CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-dashboard.html -w '%{http_code}' "$BASE/dashboard.html")
@@ -1678,6 +1682,18 @@ jobs:
           if(!d.device_code || !d.name || d.department_code!=="TST") throw new Error("Required department device fields missing");
           NODE
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-write.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{}')
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-repair-write.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{"device_id":$DEVICE_ID}")
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-maintenance-write.json -w '%{http_code}' -X POST "$BASE/api/maintenances" -H 'Content-Type: application/json' --data "{"device_id":$DEVICE_ID}")
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-inspection-write.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{"device_id":$DEVICE_ID}")
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-transfer-write.json -w '%{http_code}' -X POST "$BASE/api/devices/$DEVICE_ID/transfer" -H 'Content-Type: application/json' --data '{"to_department_code":"TST2","reason":"Không được phép"}')
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-transfer-history.json -w '%{http_code}' "$BASE/api/devices/$DEVICE_ID/transfers")
+          test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-documents.json -w '%{http_code}' "$BASE/api/documents")
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/own-upload.pdf -w '%{http_code}' "$BASE$OWN_UPLOAD")
           test "$CODE" = "403"
