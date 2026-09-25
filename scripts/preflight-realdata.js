@@ -115,6 +115,34 @@ try {
       emit("BLOCK", `Thiết bị thiếu dữ liệu định danh lõi: tên=${missingName}, khoa/phòng=${missingDepartment}, nhóm=${missingGroup}.`);
     }
 
+    let unknownDepartmentRefs=0;
+    let unknownGroupRefs=0;
+    if (dcols.has("department_code") && hasTable("departments")) {
+      unknownDepartmentRefs=Number(db.prepare(`
+        SELECT COUNT(*) c
+        FROM devices dv
+        LEFT JOIN departments d ON d.code=dv.department_code
+        WHERE ${activeClause}TRIM(COALESCE(dv.department_code,''))<>'' AND d.code IS NULL
+      `).get().c || 0);
+    } else if (dcols.has("department_code") && !hasTable("departments")) {
+      unknownDepartmentRefs=Number(db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(department_code,''))<>''`).get().c || 0);
+    }
+    if (dcols.has("group_code") && hasTable("device_groups")) {
+      unknownGroupRefs=Number(db.prepare(`
+        SELECT COUNT(*) c
+        FROM devices dv
+        LEFT JOIN device_groups g ON g.code=dv.group_code
+        WHERE ${activeClause}TRIM(COALESCE(dv.group_code,''))<>'' AND g.code IS NULL
+      `).get().c || 0);
+    } else if (dcols.has("group_code") && !hasTable("device_groups")) {
+      unknownGroupRefs=Number(db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(group_code,''))<>''`).get().c || 0);
+    }
+    stats.unknown_device_department_refs=unknownDepartmentRefs;
+    stats.unknown_device_group_refs=unknownGroupRefs;
+    if (unknownDepartmentRefs || unknownGroupRefs) {
+      emit("BLOCK", `Thiết bị tham chiếu danh mục không tồn tại: khoa/phòng=${unknownDepartmentRefs}, nhóm=${unknownGroupRefs}.`);
+    }
+
     if (dcols.has("serial")) {
       const dup = db.prepare(`
         SELECT lower(trim(serial)) k, COUNT(*) c
