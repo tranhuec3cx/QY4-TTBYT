@@ -5,7 +5,8 @@
   "description": "Phần mềm quản lý trang thiết bị y tế - Bệnh viện Quân y 4",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "preflight:realdata": "node scripts/preflight-realdata.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
