@@ -63,6 +63,8 @@ function resetRepairForm() {
   q("repairForm").reset();
   q("repairId").value = "";
   q("sourceIncidentId").value = "";
+  q("repairStatus").disabled = false;
+  q("repairStatus").title = "";
   q("repairDeviceSearch").readOnly = false;
   clearSelectedDevice();
   q("repairDialogTitle").textContent = "Tạo phiếu sửa chữa";
@@ -193,9 +195,16 @@ function editRepair(id) {
   q("cost").value = r.cost || 0;
   q("result").value = r.result || "";
   q("statusAfter").value = r.status_after || "Đang hoạt động";
-  q("repairStatus").value = normalizeRepairStatus(r.processing_status);
+  const normalizedStatus = normalizeRepairStatus(r.processing_status);
+  q("repairStatus").value = normalizedStatus;
+  const isTerminal = ["Đã hoàn thành","Không sửa được"].includes(normalizedStatus);
+  q("repairStatus").disabled = isTerminal;
+  q("repairStatus").title = isTerminal ? "Phiếu đã kết thúc; trạng thái xử lý được khóa để bảo toàn lịch sử." : "";
+  if (isTerminal) {
+    q("repairDialogSubtitle").textContent = "Có thể hiệu chỉnh nội dung/chi phí/ghi chú; trạng thái kết thúc được khóa để bảo toàn lịch sử";
+  }
   syncRepairDeviceStatus();
-  if (normalizeRepairStatus(r.processing_status)==="Đã hoàn thành" && ["Đang hoạt động","Hoạt động hạn chế"].includes(r.status_after)) q("statusAfter").value=r.status_after;
+  if (normalizedStatus==="Đã hoàn thành" && ["Đang hoạt động","Hoạt động hạn chế"].includes(r.status_after)) q("statusAfter").value=r.status_after;
   openRepairDialog("edit");
 }
 async function deleteRepair(id) {
