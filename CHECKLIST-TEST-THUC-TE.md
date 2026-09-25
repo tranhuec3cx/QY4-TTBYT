@@ -15,7 +15,7 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Nếu preflight báo schema legacy R15 ở mức **Lưu ý**, tiếp tục khởi động; RC phải tự migration mà không mất lịch sử điều chuyển/đánh giá.
 - [ ] Đăng nhập bằng tài khoản Quản trị viên.
 - [ ] Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai**.
-- [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup, **định danh lõi danh mục thiết bị** hoặc **nhất quán phiếu sửa chữa/trạng thái thiết bị**.
+- [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup, **định danh lõi danh mục thiết bị**, **nhất quán phiếu sửa chữa/trạng thái thiết bị**, **liên kết Sự cố – Sửa chữa** hoặc **lịch sử Điều chuyển**.
 - [ ] Ghi lại IP LAN server được in trong cửa sổ chạy, ví dụ `http://192.168.x.x:5000`.
 
 ## 2. Kiểm tra dữ liệu thiết bị — 5–10 máy đại diện
@@ -61,7 +61,9 @@ Thực hiện trên **bản sao dữ liệu thật** hoặc một thiết bị t
 - [ ] Kỹ sư bấm **Tiếp nhận**.
 - [ ] Người tiếp nhận là tài khoản kỹ sư đang đăng nhập.
 - [ ] Bấm **Chuyển sửa chữa**.
-- [ ] Phiếu sửa chữa liên kết đúng sự cố.
+- [ ] Phiếu sửa chữa liên kết đúng sự cố và đúng chính thiết bị của sự cố.
+- [ ] Mỗi sự cố chỉ có tối đa **01 phiếu sửa chữa liên kết**; không có phiếu trỏ tới sự cố đã mất/xóa.
+- [ ] **Sẵn sàng triển khai → Nhất quán liên kết sự cố – sửa chữa** ở mức **Đạt**.
 - [ ] Khi phiếu sửa chữa đang mở, tình trạng thiết bị là **Chờ sửa chữa**.
 - [ ] Không thể tạo thêm phiếu sửa chữa đang mở thứ hai cho cùng thiết bị.
 - [ ] Cập nhật nội dung xử lý.
@@ -95,6 +97,8 @@ Chỉ thực hiện nếu có trường hợp điều chuyển thật hoặc tr�
 - [ ] QR UID không đổi.
 - [ ] Sự cố/Bảo dưỡng/Kiểm định cũ vẫn hiển thị khoa/vị trí tại thời điểm phát sinh.
 - [ ] Trên thiết bị test, thử nhập thời điểm điều chuyển **sớm hơn hồ sơ kỹ thuật gần nhất**; hệ thống phải từ chối và không thay đổi khoa/vị trí hiện tại.
+- [ ] **Sẵn sàng triển khai → Nhất quán lịch sử điều chuyển** không ở mức **Cần xử lý**. Nếu chỉ có **Lưu ý** vì khoa/vị trí hiện tại khác điểm đến cuối, đối chiếu thủ công biên bản/dữ liệu legacy trước khi chốt.
+- [ ] Với dữ liệu nâng từ R15: bản ghi điều chuyển cũ vẫn đúng thời gian, từ/đến khoa-vị trí; nếu có file biên bản legacy thì nút **Mở** truy cập được.
 
 ## 7. Test kiểm kê
 
@@ -148,4 +152,6 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 8. CI GitHub vẫn xanh, bao gồm **Preflight legacy R15 fixture** và migration điều chuyển schema cũ.
 9. **Sẵn sàng triển khai → Định danh lõi danh mục thiết bị** ở mức **Đạt** (không thiếu tên, khoa/phòng, nhóm).
 10. **Sẵn sàng triển khai → Nhất quán phiếu sửa chữa và trạng thái thiết bị** ở mức **Đạt**.
-11. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
+11. **Sẵn sàng triển khai → Nhất quán liên kết sự cố – sửa chữa** ở mức **Đạt**.
+12. **Sẵn sàng triển khai → Nhất quán lịch sử điều chuyển** không có mức **Cần xử lý**; mọi mức **Lưu ý** đã được đối chiếu thủ công.
+13. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
