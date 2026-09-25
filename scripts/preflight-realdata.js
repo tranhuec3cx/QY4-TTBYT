@@ -100,6 +100,21 @@ try {
       if (missingQr) emit("WARN", `Có ${missingQr} thiết bị đang quản lý chưa có QR UID; RC sẽ tự bổ sung khi migration.`);
     }
 
+    const activeClause = dcols.has("is_archived") ? "COALESCE(is_archived,0)=0 AND " : "";
+    const missingName = db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(name,''))=''`).get().c;
+    const missingDepartment = dcols.has("department_code")
+      ? db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(department_code,''))=''`).get().c
+      : devices.length;
+    const missingGroup = dcols.has("group_code")
+      ? db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(group_code,''))=''`).get().c
+      : devices.length;
+    stats.missing_device_name = Number(missingName || 0);
+    stats.missing_device_department = Number(missingDepartment || 0);
+    stats.missing_device_group = Number(missingGroup || 0);
+    if (missingName || missingDepartment || missingGroup) {
+      emit("BLOCK", `Thiết bị thiếu dữ liệu định danh lõi: tên=${missingName}, khoa/phòng=${missingDepartment}, nhóm=${missingGroup}.`);
+    }
+
     if (dcols.has("serial")) {
       const dup = db.prepare(`
         SELECT lower(trim(serial)) k, COUNT(*) c
