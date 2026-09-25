@@ -5164,6 +5164,22 @@ app.get("/api/system/readiness", (req, res) => {
   const missingDeviceName = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(name,''))=''").get().c;
   const missingDeviceDepartment = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(department_code,''))=''").get().c;
   const missingDeviceGroup = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(group_code,''))=''").get().c;
+  const unknownDeviceDepartmentRefs = db.prepare(`
+    SELECT COUNT(*) c
+    FROM devices dv
+    LEFT JOIN departments d ON d.code=dv.department_code
+    WHERE COALESCE(dv.is_archived,0)=0
+      AND trim(COALESCE(dv.department_code,''))<>''
+      AND d.code IS NULL
+  `).get().c;
+  const unknownDeviceGroupRefs = db.prepare(`
+    SELECT COUNT(*) c
+    FROM devices dv
+    LEFT JOIN device_groups g ON g.code=dv.group_code
+    WHERE COALESCE(dv.is_archived,0)=0
+      AND trim(COALESCE(dv.group_code,''))<>''
+      AND g.code IS NULL
+  `).get().c;
   const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(qr_uid,''))=''").get().c;
   const duplicateSerialGroups = db.prepare(`
     SELECT COUNT(*) c FROM (
@@ -5178,6 +5194,15 @@ app.get("/api/system/readiness", (req, res) => {
   const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
   const activeUsersMissingPassword = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND trim(COALESCE(password_hash,''))=''").get().c;
   const departmentUsersMissingDepartment = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND role='Người dùng khoa' AND trim(COALESCE(department_code,''))=''").get().c;
+  const departmentUsersUnknownDepartment = db.prepare(`
+    SELECT COUNT(*) c
+    FROM users u
+    LEFT JOIN departments d ON d.code=u.department_code
+    WHERE u.status='Hoạt động'
+      AND u.role='Người dùng khoa'
+      AND trim(COALESCE(u.department_code,''))<>''
+      AND d.code IS NULL
+  `).get().c;
   const duplicateUsernameGroups = db.prepare(`
     SELECT COUNT(*) c FROM (
       SELECT lower(trim(username)) username_key
@@ -5265,9 +5290,9 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"user_accounts",
-      level:duplicateUsernameGroups>0 || departmentUsersMissingDepartment>0 || (AUTH_REQUIRED && activeUsersMissingPassword>0) ? "Cần xử lý" : "Đạt",
+      level:duplicateUsernameGroups>0 || departmentUsersMissingDepartment>0 || departmentUsersUnknownDepartment>0 || (AUTH_REQUIRED && activeUsersMissingPassword>0) ? "Cần xử lý" : "Đạt",
       title:"Tính toàn vẹn tài khoản",
-      detail:`Trùng username không phân biệt hoa/thường: ${duplicateUsernameGroups}; tài khoản khoa chưa gán khoa: ${departmentUsersMissingDepartment}; tài khoản hoạt động chưa có mật khẩu: ${activeUsersMissingPassword}.`
+      detail:`Trùng username không phân biệt hoa/thường: ${duplicateUsernameGroups}; tài khoản khoa chưa gán khoa: ${departmentUsersMissingDepartment}; tài khoản khoa tham chiếu mã khoa không tồn tại: ${departmentUsersUnknownDepartment}; tài khoản hoạt động chưa có mật khẩu: ${activeUsersMissingPassword}.`
     },
     {
       key:"transport_security",
@@ -5357,11 +5382,11 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"device_catalog_integrity",
-      level:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup)===0 ? "Đạt" : "Cần xử lý",
+      level:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup + unknownDeviceDepartmentRefs + unknownDeviceGroupRefs)===0 ? "Đạt" : "Cần xử lý",
       title:"Định danh lõi danh mục thiết bị",
-      detail:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup)===0
-        ? "Toàn bộ thiết bị đang quản lý đều có tên, khoa/phòng và nhóm thiết bị."
-        : `Thiếu tên: ${missingDeviceName}; thiếu khoa/phòng: ${missingDeviceDepartment}; thiếu nhóm: ${missingDeviceGroup}. Đây là dữ liệu bắt buộc cho phân quyền và mã hóa thiết bị.`
+      detail:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup + unknownDeviceDepartmentRefs + unknownDeviceGroupRefs)===0
+        ? "Toàn bộ thiết bị đang quản lý đều có tên, khoa/phòng, nhóm và tham chiếu đúng danh mục."
+        : `Thiếu tên: ${missingDeviceName}; thiếu khoa/phòng: ${missingDeviceDepartment}; thiếu nhóm: ${missingDeviceGroup}; mã khoa không tồn tại: ${unknownDeviceDepartmentRefs}; mã nhóm không tồn tại: ${unknownDeviceGroupRefs}. Đây là dữ liệu bắt buộc cho phân quyền và mã hóa thiết bị.`
     },
     {
       key:"qr_uid",
@@ -5434,6 +5459,9 @@ app.get("/api/system/readiness", (req, res) => {
       missing_device_name:missingDeviceName,
       missing_device_department:missingDeviceDepartment,
       missing_device_group:missingDeviceGroup,
+      unknown_device_department_refs:unknownDeviceDepartmentRefs,
+      unknown_device_group_refs:unknownDeviceGroupRefs,
+      department_users_unknown_department:departmentUsersUnknownDepartment,
       recommended_qr_origin:recommendedOrigin,
       backups:backups.length,
       latest_backup:latestBackup,
