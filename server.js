@@ -36,8 +36,6 @@ app.use((req,res,next)=>{
   }
   next();
 });
-app.use(express.json({ limit: "10mb" }));
-
 function parseCookies(header = "") {
   const out = {};
   String(header || "").split(";").forEach(part => {
@@ -120,6 +118,11 @@ function authApiGuard(req, res, next) {
   next();
 }
 app.use(authApiGuard);
+
+// Chỉ parse JSON sau khi request API đã qua lớp xác thực/phân quyền.
+// Public auth/QR được authApiGuard cho qua rõ ràng; request không đủ quyền
+// bị từ chối trước khi server đọc/parse body lớn hoặc JSON lỗi.
+app.use(express.json({ limit: "10mb" }));
 
 const qrWriteRate = new Map();
 function qrPublicWriteLimiter(req, res, next) {
