@@ -259,6 +259,27 @@ jobs:
           console.log("Invalid catalog + attachment metadata preflight blocking passed");
           NODE
 
+          cp db/qy4_ttbyt.sqlite /tmp/preflight-bad-transfer.sqlite
+          node - <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("/tmp/preflight-bad-transfer.sqlite");
+          db.prepare(`
+            INSERT INTO device_transfers
+              (device_id,transfer_date,from_department,to_department,from_location,to_location,reason,created_at,movement_type,giver)
+            VALUES
+              (1,'2026-09-07','SAI_KHOA','A2','Sai vị trí','P1','CI tạo đứt chuỗi legacy','2026-09-07 08:00:00','Điều chuyển','CI')
+          `).run();
+          db.close();
+          NODE
+          node scripts/preflight-realdata.js --db /tmp/preflight-bad-transfer.sqlite --uploads uploads --json >/tmp/preflight-bad-transfer.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/preflight-bad-transfer.json","utf8"));
+          if(r.ok!==true || (r.blockers||[]).length) throw new Error("Transfer-chain anomaly should warn, not block pre-migration");
+          if(Number(r.stats?.transfer_chain_mismatches||0)<1) throw new Error("Legacy transfer-chain break was not detected");
+          if(!(r.warnings||[]).some(x=>String(x).includes("đứt chuỗi"))) throw new Error("Transfer-chain warning text missing");
+          console.log("Legacy transfer-chain preflight warning passed");
+          NODE
+
       - name: Start server
         run: |
           QY4_DEMO_SEED=0 node server.js > /tmp/qy4-server.log 2>&1 &
@@ -297,6 +318,50 @@ jobs:
           node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<10||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt"||r.system?.foreign_keys_enabled!==true||Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
           node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="repair_consistency"); if(!c||c.level!=="Đạt"||Number(r.system?.duplicate_open_repair_devices||0)!==0||Number(r.system?.open_repair_status_mismatches||0)!==0) throw new Error("Repair consistency readiness baseline invalid: "+JSON.stringify(c)); console.log("Repair consistency readiness baseline passed")'
           node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="device_catalog_integrity"); if(!c||c.level!=="Đạt"||Number(r.system?.missing_device_name||0)!==0||Number(r.system?.missing_device_department||0)!==0||Number(r.system?.missing_device_group||0)!==0||Number(r.system?.unknown_device_department_refs||0)!==0||Number(r.system?.unknown_device_group_refs||0)!==0) throw new Error("Device catalog integrity readiness invalid: "+JSON.stringify(c)); console.log("Device catalog integrity readiness passed")'
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="transfer_history"); if(!c||c.level!=="Đạt"||Number(r.system?.transfer_chain_mismatches||0)!==0||Number(r.system?.transfer_current_context_mismatches||0)!==0) throw new Error("Transfer history readiness baseline invalid: "+JSON.stringify(c)); console.log("Transfer history readiness baseline passed")'
+
+          node - <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.pragma("busy_timeout=5000");
+          db.prepare(`
+            INSERT INTO device_transfers
+              (device_id,transfer_datetime,from_department_code,from_location,to_department_code,to_location,reason,actor,note)
+            VALUES
+              (1,'2026-09-07 08:00:00','SAI_KHOA','Sai vị trí','A2','P1','CI tạo đứt chuỗi readiness','CI','')
+          `).run();
+          db.close();
+          NODE
+          curl -fsS "$BASE/api/system/readiness" >/tmp/transfer-dirty-readiness.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/transfer-dirty-readiness.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="transfer_history");
+          if(c?.level!=="Cần xử lý" || Number(r.system?.transfer_chain_mismatches||0)<1) throw new Error("Broken transfer chain was not blocked by readiness: "+JSON.stringify(c));
+          console.log("Broken transfer-chain readiness detection passed");
+          NODE
+          node - <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.prepare("DELETE FROM device_transfers WHERE reason='CI tạo đứt chuỗi readiness'").run();
+          db.prepare("UPDATE devices SET location='P1-direct-edit' WHERE id=1").run();
+          db.close();
+          NODE
+          curl -fsS "$BASE/api/system/readiness" >/tmp/transfer-current-warning.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/transfer-current-warning.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="transfer_history");
+          if(c?.level!=="Lưu ý" || Number(r.system?.transfer_chain_mismatches||0)!==0 || Number(r.system?.transfer_current_context_mismatches||0)<1) throw new Error("Current-context transfer mismatch should be a warning: "+JSON.stringify(c));
+          console.log("Transfer current-context warning passed");
+          NODE
+          node - <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.prepare("UPDATE devices SET location='P1' WHERE id=1").run();
+          db.close();
+          NODE
+          curl -fsS "$BASE/api/system/readiness" >/tmp/transfer-clean-readiness.json
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/transfer-clean-readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="transfer_history"); if(c?.level!=="Đạt") throw new Error("Transfer readiness did not return to clean baseline");'
+
           curl -fsS "$BASE/api/devices/1/transfers" >/tmp/legacy-r15-transfers.json
           node - <<'NODE'
           const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-transfers.json","utf8"));
