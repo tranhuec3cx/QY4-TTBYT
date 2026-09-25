@@ -72,6 +72,13 @@ jobs:
           if ($content -notmatch 'npm ci') { throw "Production launcher must synchronize dependencies" }
           if ($content -notmatch 'prestart_') { throw "Production launcher must create pre-migration DB backup" }
           if ($content -notmatch 'QY4_PRESTART_KEEP') { throw "Production launcher must cap pre-start backup retention" }
+          if (-not (Test-Path "./scripts/preflight-realdata.js")) { throw "Missing real-data preflight script" }
+          $npmCiIndex = $content.IndexOf("npm ci")
+          $preflightIndex = $content.IndexOf("scripts\preflight-realdata.js")
+          $npmStartIndex = $content.LastIndexOf("npm start")
+          if ($npmCiIndex -lt 0 -or $preflightIndex -lt 0 -or $npmStartIndex -lt 0) { throw "Launcher dependency/preflight/start sequence missing" }
+          if ($preflightIndex -le $npmCiIndex) { throw "Preflight must run after dependency synchronization" }
+          if ($preflightIndex -ge $npmStartIndex) { throw "Preflight must run before server migration/start" }
           Write-Host "Windows production launcher check passed"
 
       - name: Install dependencies
