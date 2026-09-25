@@ -139,6 +139,7 @@ jobs:
           NODE
           curl -fsS "$BASE/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
           node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<10||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt"||r.system?.foreign_keys_enabled!==true||Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="repair_consistency"); if(!c||c.level!=="Đạt"||Number(r.system?.duplicate_open_repair_devices||0)!==0||Number(r.system?.open_repair_status_mismatches||0)!==0) throw new Error("Repair consistency readiness baseline invalid: "+JSON.stringify(c)); console.log("Repair consistency readiness baseline passed")'
 
       - name: Smoke test QR incident repair lifecycle
         run: |
@@ -612,6 +613,11 @@ jobs:
           CTX_OP=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/context-operation.json","utf8")).id')
 
           curl -fsS "$BASE/api/reports/summary" >/tmp/context-summary-before.json
+          BACKDATED_TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 10:30:00",to_department_code:"TST2",to_location:"Vị trí sai thời gian",reason:"Không được chèn trước hồ sơ kỹ thuật mới nhất",actor:"CI"}))' "$HISTORY_DAY")
+          CODE=$(curl -s -o /tmp/context-backdated-transfer-reject.json -w '%{http_code}' -X POST "$BASE/api/devices/$CTX_DEVICE/transfer" -H 'Content-Type: application/json' --data "$BACKDATED_TRANSFER_JSON")
+          test "$CODE" = "409"
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/context-backdated-transfer-reject.json","utf8")); if(!String(x.error||"").includes("hồ sơ kỹ thuật gần nhất")) throw new Error("Backdated transfer rejection did not explain chronology lock")'
+
           TRANSFER_JSON=$(node -e 'process.stdout.write(JSON.stringify({transfer_datetime:process.argv[1]+" 12:00:00",to_department_code:"TST2",to_location:"Vị trí hiện tại B",reason:"Kiểm thử đóng băng bối cảnh kỹ thuật",actor:"CI"}))' "$HISTORY_DAY")
           curl -fsS -X POST "$BASE/api/devices/$CTX_DEVICE/transfer" -H 'Content-Type: application/json' --data "$TRANSFER_JSON" >/tmp/context-transfer.json
 
@@ -860,6 +866,41 @@ jobs:
 
           CODE=$(curl -s -o /tmp/duplicate-open-repair.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:05\",\"issue\":\"Phiếu mở trùng\",\"processing_status\":\"Đang xử lý\"}")
           test "$CODE" = "400"
+
+          DIRTY_REPAIR=$(node - "$DEVICE_ID" "$TODAY" <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.pragma("busy_timeout=5000");
+          const deviceId=Number(process.argv[2]);
+          const day=process.argv[3];
+          const info=db.prepare(`
+            INSERT INTO repairs
+              (device_id,repair_date,issue,work,person,cost,result,status_after,status_before,processing_status,received_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(deviceId,day+" 16:06:00","Dữ liệu bẩn legacy CI","","CI",0,"","Chờ sửa chữa","Đang hoạt động","Đang xử lý",day+" 16:06:00",day+" 16:06:00");
+          db.prepare("UPDATE devices SET status='Đang hoạt động' WHERE id=?").run(deviceId);
+          db.close();
+          process.stdout.write(String(info.lastInsertRowid));
+          NODE
+          )
+          test -n "$DIRTY_REPAIR"
+          curl -fsS "$BASE/api/system/readiness" >/tmp/repair-dirty-readiness.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/repair-dirty-readiness.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="repair_consistency");
+          if(!c||c.level!=="Cần xử lý") throw new Error("Readiness did not block dirty repair data: "+JSON.stringify(c));
+          if(Number(r.system?.duplicate_open_repair_devices||0)<1) throw new Error("Duplicate open repair device was not detected");
+          if(Number(r.system?.open_repair_status_mismatches||0)<1) throw new Error("Open repair/device status mismatch was not detected");
+          console.log("Dirty legacy repair readiness detection passed");
+          NODE
+          node - "$DIRTY_REPAIR" "$DEVICE_ID" <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.pragma("busy_timeout=5000");
+          db.prepare("DELETE FROM repairs WHERE id=?").run(Number(process.argv[2]));
+          db.prepare("UPDATE devices SET status='Chờ sửa chữa' WHERE id=?").run(Number(process.argv[3]));
+          db.close();
+          NODE
 
           curl -fsS -X DELETE "$BASE/api/repairs/$STANDALONE_REPAIR" >/tmp/standalone-delete.json
           curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-delete-repair.json
