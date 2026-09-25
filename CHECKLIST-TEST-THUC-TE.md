@@ -13,7 +13,7 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Double-click `start-qy4-production.cmd`.
 - [ ] Đăng nhập bằng tài khoản Quản trị viên.
 - [ ] Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai**.
-- [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID hoặc backup.
+- [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup hoặc **nhất quán phiếu sửa chữa/trạng thái thiết bị**.
 - [ ] Ghi lại IP LAN server được in trong cửa sổ chạy, ví dụ `http://192.168.x.x:5000`.
 
 ## 2. Kiểm tra dữ liệu thiết bị — 5–10 máy đại diện
@@ -60,6 +60,8 @@ Thực hiện trên **bản sao dữ liệu thật** hoặc một thiết bị t
 - [ ] Người tiếp nhận là tài khoản kỹ sư đang đăng nhập.
 - [ ] Bấm **Chuyển sửa chữa**.
 - [ ] Phiếu sửa chữa liên kết đúng sự cố.
+- [ ] Khi phiếu sửa chữa đang mở, tình trạng thiết bị là **Chờ sửa chữa**.
+- [ ] Không thể tạo thêm phiếu sửa chữa đang mở thứ hai cho cùng thiết bị.
 - [ ] Cập nhật nội dung xử lý.
 - [ ] Hoàn thành phiếu.
 - [ ] Tình trạng máy sau sửa đúng: Đang hoạt động / Hoạt động hạn chế.
@@ -89,6 +91,7 @@ Chỉ thực hiện nếu có trường hợp điều chuyển thật hoặc tr�
 - [ ] Khoa/vị trí hiện tại thay đổi.
 - [ ] QR UID không đổi.
 - [ ] Sự cố/Bảo dưỡng/Kiểm định cũ vẫn hiển thị khoa/vị trí tại thời điểm phát sinh.
+- [ ] Trên thiết bị test, thử nhập thời điểm điều chuyển **sớm hơn hồ sơ kỹ thuật gần nhất**; hệ thống phải từ chối và không thay đổi khoa/vị trí hiện tại.
 
 ## 7. Test kiểm kê
 
@@ -139,3 +142,4 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 6. Backup bundle tạo thành công.
 7. Dashboard/KPI phản ánh đúng thao tác test.
 8. CI GitHub vẫn xanh.
+9. **Sẵn sàng triển khai → Nhất quán phiếu sửa chữa và trạng thái thiết bị** ở mức **Đạt**.
