@@ -15,7 +15,7 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Nếu preflight báo schema legacy R15 ở mức **Lưu ý**, tiếp tục khởi động; RC phải tự migration mà không mất lịch sử điều chuyển/đánh giá.
 - [ ] Đăng nhập bằng tài khoản Quản trị viên.
 - [ ] Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai**.
-- [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup hoặc **nhất quán phiếu sửa chữa/trạng thái thiết bị**.
+- [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup, **định danh lõi danh mục thiết bị** hoặc **nhất quán phiếu sửa chữa/trạng thái thiết bị**.
 - [ ] Ghi lại IP LAN server được in trong cửa sổ chạy, ví dụ `http://192.168.x.x:5000`.
 
 ## 2. Kiểm tra dữ liệu thiết bị — 5–10 máy đại diện
@@ -146,5 +146,6 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 6. Backup bundle tạo thành công.
 7. Dashboard/KPI phản ánh đúng thao tác test.
 8. CI GitHub vẫn xanh, bao gồm **Preflight legacy R15 fixture** và migration điều chuyển schema cũ.
-9. **Sẵn sàng triển khai → Nhất quán phiếu sửa chữa và trạng thái thiết bị** ở mức **Đạt**.
-10. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
+9. **Sẵn sàng triển khai → Định danh lõi danh mục thiết bị** ở mức **Đạt** (không thiếu tên, khoa/phòng, nhóm).
+10. **Sẵn sàng triển khai → Nhất quán phiếu sửa chữa và trạng thái thiết bị** ở mức **Đạt**.
+11. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
