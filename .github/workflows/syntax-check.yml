@@ -190,6 +190,25 @@ jobs:
           console.log("Legacy R15 read-only preflight passed");
           NODE
 
+          cp db/qy4_ttbyt.sqlite /tmp/preflight-bad-catalog.sqlite
+          node - <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("/tmp/preflight-bad-catalog.sqlite");
+          db.prepare("UPDATE devices SET department_code='' WHERE id=1").run();
+          db.close();
+          NODE
+          set +e
+          node scripts/preflight-realdata.js --db /tmp/preflight-bad-catalog.sqlite --uploads uploads --json >/tmp/preflight-bad-catalog.json
+          PREFLIGHT_CODE=$?
+          set -e
+          test "$PREFLIGHT_CODE" = "2"
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/preflight-bad-catalog.json","utf8"));
+          if(r.ok!==false || Number(r.stats?.missing_device_department||0)<1) throw new Error("Missing device department was not detected by preflight");
+          if(!(r.blockers||[]).some(x=>String(x).includes("dữ liệu định danh lõi"))) throw new Error("Core device identity blocker missing");
+          console.log("Invalid device catalog preflight blocking passed");
+          NODE
+
       - name: Start server
         run: |
           QY4_DEMO_SEED=0 node server.js > /tmp/qy4-server.log 2>&1 &
@@ -227,6 +246,7 @@ jobs:
           curl -fsS "$BASE/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
           node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<10||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt"||r.system?.foreign_keys_enabled!==true||Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
           node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="repair_consistency"); if(!c||c.level!=="Đạt"||Number(r.system?.duplicate_open_repair_devices||0)!==0||Number(r.system?.open_repair_status_mismatches||0)!==0) throw new Error("Repair consistency readiness baseline invalid: "+JSON.stringify(c)); console.log("Repair consistency readiness baseline passed")'
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="device_catalog_integrity"); if(!c||c.level!=="Đạt"||Number(r.system?.missing_device_name||0)!==0||Number(r.system?.missing_device_department||0)!==0||Number(r.system?.missing_device_group||0)!==0) throw new Error("Device catalog integrity readiness invalid: "+JSON.stringify(c)); console.log("Device catalog integrity readiness passed")'
           curl -fsS "$BASE/api/devices/1/transfers" >/tmp/legacy-r15-transfers.json
           node - <<'NODE'
           const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-transfers.json","utf8"));
