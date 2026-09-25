@@ -200,28 +200,46 @@ try {
   }
 
   const fileRefs = [];
-  function collectFileRefs(table, field) {
+  function collectFileRefs(table, field, sizeField = "") {
     if (!hasTable(table) || !columnSet(table).has(field)) return;
-    for (const row of db.prepare(`SELECT id,${field} file_path FROM ${table} WHERE TRIM(COALESCE(${field},''))<>''`).all()) {
-      fileRefs.push({ table, id: row.id, file_path: String(row.file_path || "") });
+    const cols=columnSet(table);
+    const sizeExpr=sizeField && cols.has(sizeField) ? `, COALESCE(${sizeField},0) expected_size` : ", 0 expected_size";
+    for (const row of db.prepare(`SELECT id,${field} file_path${sizeExpr} FROM ${table} WHERE TRIM(COALESCE(${field},''))<>''`).all()) {
+      fileRefs.push({
+        table,
+        id: row.id,
+        file_path: String(row.file_path || ""),
+        expected_size: Math.max(0, Number(row.expected_size || 0))
+      });
     }
   }
-  collectFileRefs("incident_files","file_path");
-  collectFileRefs("maintenances","file_path");
-  collectFileRefs("documents","file_path");
-  collectFileRefs("device_transfers","document_file_path");
+  collectFileRefs("incident_files","file_path","file_size");
+  collectFileRefs("maintenances","file_path","file_size");
+  collectFileRefs("documents","file_path","file_size");
+  collectFileRefs("device_transfers","document_file_path","document_file_size");
   stats.referenced_files = fileRefs.length;
   let missingFiles = 0;
+  let fileSizeMismatches = 0;
   for (const ref of fileRefs) {
     let rel = ref.file_path.replace(/\\/g,"/").replace(/^\/+/, "");
     if (rel.toLowerCase().startsWith("uploads/")) rel = rel.slice("uploads/".length);
     const target = path.join(uploadsRoot, rel);
-    if (!fs.existsSync(target)) missingFiles += 1;
+    if (!fs.existsSync(target)) {
+      missingFiles += 1;
+      continue;
+    }
+    if (ref.expected_size > 0) {
+      let actualSize=0;
+      try { actualSize=Number(fs.statSync(target).size || 0); } catch {}
+      if (actualSize !== ref.expected_size) fileSizeMismatches += 1;
+    }
   }
   stats.missing_referenced_files = missingFiles;
+  stats.referenced_file_size_mismatches = fileSizeMismatches;
   if (missingFiles) emit("BLOCK", `Thiếu ${missingFiles}/${fileRefs.length} file đang được database tham chiếu.`);
-  else if (fileRefs.length) emit("OK", `Đủ ${fileRefs.length} file được database tham chiếu.`);
-  else emit("WARN", "Database không có file_path đính kèm để đối chiếu.");
+  if (fileSizeMismatches) emit("BLOCK", `Có ${fileSizeMismatches} file đính kèm tồn tại nhưng kích thước không khớp metadata trong database.`);
+  if (!missingFiles && !fileSizeMismatches && fileRefs.length) emit("OK", `Đủ ${fileRefs.length} file được database tham chiếu và kích thước khớp metadata.`);
+  else if (!fileRefs.length) emit("WARN", "Database không có file_path đính kèm để đối chiếu.");
 
 } catch (e) {
   emit("BLOCK", `Preflight gặp lỗi khi đọc dữ liệu: ${e.message}`);
