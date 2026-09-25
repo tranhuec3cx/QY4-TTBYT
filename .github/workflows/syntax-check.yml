@@ -175,6 +175,18 @@ jobs:
             throw new Error("Dependency audit has High/Critical vulnerabilities");
           }
           NODE
+      - name: Preflight legacy R15 fixture
+        run: |
+          node scripts/preflight-realdata.js --db db/qy4_ttbyt.sqlite --uploads uploads --json >/tmp/preflight-r15.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/preflight-r15.json","utf8"));
+          if(r.ok!==true || (r.blockers||[]).length) throw new Error("Legacy R15 preflight unexpectedly blocked: "+JSON.stringify(r.blockers));
+          if(r.stats?.legacy_transfer_schema!==true) throw new Error("Legacy transfer schema was not detected by preflight");
+          if(r.stats?.legacy_quality_unique!==true) throw new Error("Legacy quality schema was not detected by preflight");
+          if(r.stats?.quick_check!=="ok" || Number(r.stats?.foreign_key_violations||0)!==0) throw new Error("Legacy fixture integrity preflight failed");
+          console.log("Legacy R15 read-only preflight passed");
+          NODE
+
       - name: Start server
         run: |
           QY4_DEMO_SEED=0 node server.js > /tmp/qy4-server.log 2>&1 &
