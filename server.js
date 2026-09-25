@@ -5161,6 +5161,9 @@ app.get("/api/system/readiness", (req, res) => {
   const missingModel = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(model,''))=''").get().c;
   const missingLocation = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(location,''))=''").get().c;
   const missingYear = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND COALESCE(year_in_use,0)<=0").get().c;
+  const missingDeviceName = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(name,''))=''").get().c;
+  const missingDeviceDepartment = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(department_code,''))=''").get().c;
+  const missingDeviceGroup = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(group_code,''))=''").get().c;
   const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(qr_uid,''))=''").get().c;
   const duplicateSerialGroups = db.prepare(`
     SELECT COUNT(*) c FROM (
@@ -5353,6 +5356,14 @@ app.get("/api/system/readiness", (req, res) => {
       detail:`${completePercent}% (${completeCore}/${totalDevices}). Thiếu Serial: ${missingSerial}; Model: ${missingModel}; vị trí: ${missingLocation}; năm sử dụng: ${missingYear}.`
     },
     {
+      key:"device_catalog_integrity",
+      level:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup)===0 ? "Đạt" : "Cần xử lý",
+      title:"Định danh lõi danh mục thiết bị",
+      detail:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup)===0
+        ? "Toàn bộ thiết bị đang quản lý đều có tên, khoa/phòng và nhóm thiết bị."
+        : `Thiếu tên: ${missingDeviceName}; thiếu khoa/phòng: ${missingDeviceDepartment}; thiếu nhóm: ${missingDeviceGroup}. Đây là dữ liệu bắt buộc cho phân quyền và mã hóa thiết bị.`
+    },
+    {
       key:"qr_uid",
       level:missingQr===0 ? "Đạt" : "Cần xử lý",
       title:"QR UID cố định",
@@ -5420,6 +5431,9 @@ app.get("/api/system/readiness", (req, res) => {
       foreign_key_violations:foreignKeyViolations.length,
       active_users:activeUsers,
       total_devices:totalDevices,
+      missing_device_name:missingDeviceName,
+      missing_device_department:missingDeviceDepartment,
+      missing_device_group:missingDeviceGroup,
       recommended_qr_origin:recommendedOrigin,
       backups:backups.length,
       latest_backup:latestBackup,
