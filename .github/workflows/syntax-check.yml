@@ -974,7 +974,20 @@ jobs:
           node -e 'const d=JSON.parse(require("fs").readFileSync("/tmp/device-after-delete-repair.json","utf8")); const x=JSON.parse(require("fs").readFileSync("/tmp/standalone-delete.json","utf8")); if(d.status!=="Đang hoạt động"||x.restored_device_status!=="Đang hoạt động") throw new Error("Pre-repair device status was not restored")'
 
           curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:30\",\"issue\":\"Kiểm thử hoạt động hạn chế\",\"work\":\"Đã xử lý nhưng cần theo dõi\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Theo dõi\",\"processing_status\":\"Đã hoàn thành\",\"status_after\":\"Hoạt động hạn chế\"}" >/tmp/limited-repair.json
+          LIMITED_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/limited-repair.json","utf8")).id')
+          CODE=$(curl -s -o /tmp/limited-repair-reopen-reject.json -w '%{http_code}' -X PUT "$BASE/api/repairs/$LIMITED_REPAIR" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:30\",\"issue\":\"Kiểm thử hoạt động hạn chế\",\"work\":\"Thử mở lại phiếu đã hoàn thành\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Theo dõi\",\"processing_status\":\"Đang xử lý\",\"status_after\":\"Đang hoạt động\"}")
+          test "$CODE" = "409"
+          curl -fsS "$BASE/api/repairs" >/tmp/limited-repairs-after-reopen.json
           curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-limited-repair.json
+          node - "$LIMITED_REPAIR" <<'NODE'
+          const fs=require("fs");
+          const id=Number(process.argv[2]);
+          const repair=JSON.parse(fs.readFileSync("/tmp/limited-repairs-after-reopen.json","utf8")).find(x=>Number(x.id)===id);
+          const device=JSON.parse(fs.readFileSync("/tmp/device-after-limited-repair.json","utf8"));
+          if(!repair || repair.processing_status!=="Đã hoàn thành" || !String(repair.completed_at||"").trim()) throw new Error("Terminal repair was reopened or lost completion time");
+          if(device.status!=="Hoạt động hạn chế") throw new Error("Rejected repair reopen changed device status");
+          console.log("Terminal repair reopen lock passed");
+          NODE
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard-after-limited.json
           node - <<'NODE'
           const fs=require("fs");
