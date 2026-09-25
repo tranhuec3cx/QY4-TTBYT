@@ -4852,14 +4852,31 @@ function backupMirrorStorageStatus(){
   }
 }
 function inspectMirrorBackup(filename){
-  if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false,...backupMirrorStorageStatus()};
-  return {
+  if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false,integrity:"missing",sessions:0,...backupMirrorStorageStatus()};
+  const mirrorDb=path.join(backupMirrorDir,filename||"");
+  const out={
     configured:true,
-    exists:fs.existsSync(path.join(backupMirrorDir,filename||"")),
+    exists:fs.existsSync(mirrorDb),
     files_exists:fs.existsSync(mirrorFilesDirFor(filename)),
+    integrity:"missing",
+    sessions:0,
     path:backupMirrorDir,
     ...backupMirrorStorageStatus()
   };
+  if(!out.exists) return out;
+  let checkDb=null;
+  try{
+    checkDb=new Database(mirrorDb,{readonly:true,fileMustExist:true});
+    const row=checkDb.prepare("PRAGMA quick_check").get();
+    out.integrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "ok" : "error";
+    const hasSessions=checkDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get();
+    out.sessions=hasSessions ? Number(checkDb.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c || 0) : 0;
+  }catch{
+    out.integrity="error";
+  }finally{
+    if(checkDb) checkDb.close();
+  }
+  return out;
 }
 function pruneMirrorBackups(){
   if(!backupMirrorDir || !fs.existsSync(backupMirrorDir)) return;
@@ -5113,7 +5130,7 @@ app.get("/api/system/readiness", (req, res) => {
       key:"backup_off_device",
       level:!backupMirrorDir
         ? "Lưu ý"
-        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists)
+        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists) || latestMirrorStatus.integrity!=="ok" || latestMirrorStatus.sessions>0
             ? "Cần xử lý"
             : (latestMirrorStatus.separate_storage ? "Đạt" : "Lưu ý")),
       title:"Bản sao lưu thứ cấp ngoài máy chủ",
@@ -5121,9 +5138,13 @@ app.get("/api/system/readiness", (req, res) => {
         ? "Chưa cấu hình QY4_BACKUP_MIRROR_DIR. Backup hiện vẫn nằm trên cùng máy chủ; nên sao chép định kỳ sang USB/ổ khác/thư mục mạng được phép."
         : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists)
             ? `Đã cấu hình ${backupMirrorDir} nhưng gói backup mới nhất chưa có đủ database + file đính kèm tại vị trí thứ cấp.`
-            : (latestMirrorStatus.separate_storage
-                ? `Gói backup mới nhất đã được sao sang storage khác: ${backupMirrorDir}.`
-                : `Gói backup đã được sao sang ${backupMirrorDir} nhưng vị trí này vẫn cùng filesystem/ổ với backup cục bộ; chưa bảo vệ được tình huống hỏng ổ.`))
+            : (latestMirrorStatus.integrity!=="ok"
+                ? `Bản SQLite mirror mới nhất tại ${backupMirrorDir} không vượt qua quick_check; chưa được coi là bản sao an toàn.`
+                : (latestMirrorStatus.sessions>0
+                    ? `Bản mirror mới nhất còn ${latestMirrorStatus.sessions} session đăng nhập; hãy tạo lại backup bằng phiên bản hiện tại.`
+                    : (latestMirrorStatus.separate_storage
+                        ? `Gói backup mới nhất đã được sao sang storage khác và quick_check=ok: ${backupMirrorDir}.`
+                        : `Gói backup mirror quick_check=ok tại ${backupMirrorDir} nhưng vị trí này vẫn cùng filesystem/ổ với backup cục bộ; chưa bảo vệ được tình huống hỏng ổ.`))))
     },
     {
       key:"qr_origin",
@@ -5239,6 +5260,8 @@ app.get("/api/system/readiness", (req, res) => {
       backup_mirror_configured:Boolean(backupMirrorDir),
       backup_mirror_dir:backupMirrorDir,
       latest_backup_mirrored:Boolean(latestMirrorStatus.exists && latestMirrorStatus.files_exists),
+      latest_backup_mirror_integrity:latestMirrorStatus.integrity,
+      latest_backup_mirror_sessions:latestMirrorStatus.sessions,
       backup_mirror_separate_storage:Boolean(latestMirrorStatus.separate_storage),
       backup_mirror_same_filesystem:latestMirrorStatus.same_filesystem,
       missing_inspection_schedules:inspectionScheduleGaps.length,
