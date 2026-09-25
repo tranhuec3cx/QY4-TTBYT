@@ -210,6 +210,8 @@ File `start-qy4-production.cmd` tự gọi PowerShell với ExecutionPolicy phù
 - tắt legacy QR;
 - đặt timezone +07, giới hạn đăng nhập sai, QR rate limit và backup retention;
 - **sao lưu file SQLite/WAL/SHM hiện có trước khi server chạy migration** vào `backups/prestart_YYYYMMDD_HHMMSS/`; mặc định chỉ giữ 10 bản prestart gần nhất để tránh đầy ổ đĩa;
+- chạy **preflight đọc-only** trên database hiện có trước migration: `quick_check`, khóa ngoại, trùng phiếu sửa chữa mở, trạng thái máy, username và file đính kèm; lỗi mức chặn sẽ dừng launcher trước khi sửa database;
+- tự nhận diện schema legacy R15 (điều chuyển cũ và `quality_ratings UNIQUE(device_id)`) là dạng được hỗ trợ để migration, chỉ cảnh báo chứ không chặn oan;
 - kiểm tra dependency cục bộ bằng `npm ls`; nếu đã đủ và đúng phiên bản thì **không tải lại**, phù hợp máy chạy LAN/offline; chỉ chạy `npm ci` khi dependency thiếu hoặc lệch;
 - hỏi mật khẩu Quản trị viên lần đầu mà không ghi mật khẩu vào source.
 
@@ -225,6 +227,23 @@ Set-ExecutionPolicy -Scope Process Bypass
 Chỉ dùng `-SkipInstall` khi chắc chắn `node_modules` đã khớp đúng phiên bản source hiện tại. Nếu máy hoàn toàn offline mà dependency còn thiếu, cần chuẩn bị sẵn `node_modules` đúng `package-lock.json` hoặc npm cache trước khi triển khai.
 
 
+
+
+### Kiểm tra dữ liệu trước migration thủ công
+
+Có thể chạy độc lập trên **bản sao** database trước khi mở phần mềm:
+
+```bash
+npm run preflight:realdata
+```
+
+Hoặc chỉ định đường dẫn:
+
+```bash
+node scripts/preflight-realdata.js --db db/qy4_ttbyt.sqlite --uploads uploads
+```
+
+Preflight **không ghi/sửa database**. Mục `[CHAN]` phải xử lý trước khi triển khai; `[LUU Y]` có thể là schema legacy mà RC đã có migration tương thích.
 
 ### Windows PowerShell — lần đầu
 
