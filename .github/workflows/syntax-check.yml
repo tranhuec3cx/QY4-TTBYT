@@ -136,6 +136,15 @@ jobs:
               document_file_mime TEXT,
               document_file_size INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS daily_checks (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              device_id INTEGER NOT NULL,
+              check_datetime TEXT,
+              inspector TEXT,
+              content TEXT,
+              result TEXT,
+              note TEXT
+            );
             INSERT INTO devices
               (id,department_code,group_code,name,manufacturer,model,year_in_use,status,quality_level,serial,country,location,device_code)
             VALUES
@@ -144,6 +153,10 @@ jobs:
               (device_id,transfer_date,from_department,to_department,from_location,to_location,reason,approved_by,receiver,note,created_at,movement_type,giver,status_before,status_after)
             VALUES
               (1,'2026-09-06','A12','A2','Buồng HSTC 2','P1','Điều chuyển legacy R15','C','B','Giữ lịch sử R15','2026-09-06 12:14:46','Điều chuyển','A','Đang hoạt động','Đang hoạt động');
+            INSERT INTO daily_checks
+              (device_id,check_datetime,inspector,content,result,note)
+            VALUES
+              (1,'2026-09-05 09:00:00','CI R15','Kiểm tra trước điều chuyển','Đạt','Legacy check');
           `);
           db.close();
           NODE
@@ -209,6 +222,14 @@ jobs:
           if(t.from_location!=="Buồng HSTC 2" || t.to_location!=="P1") throw new Error("Legacy transfer locations changed");
           if(t.actor!=="A") throw new Error("Legacy transfer actor backfill failed: "+t.actor);
           console.log("Legacy R15 transfer schema migration passed");
+          NODE
+          curl -fsS "$BASE/api/checks?preset=custom&from_date=2026-09-05&to_date=2026-09-05" >/tmp/legacy-r15-checks.json
+          node - <<'NODE'
+          const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-checks.json","utf8"));
+          const c=rows.find(x=>Number(x.device_id)===1 && x.check_datetime==="2026-09-05 09:00:00");
+          if(!c) throw new Error("Legacy R15 daily check missing after migration");
+          if(c.department_code!=="A12" || c.location!=="Buồng HSTC 2") throw new Error("Legacy daily-check historical context was not backfilled: "+JSON.stringify(c));
+          console.log("Legacy R15 daily-check context migration passed");
           NODE
 
       - name: Smoke test QR incident repair lifecycle
