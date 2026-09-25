@@ -1264,81 +1264,138 @@ function ensureCoreManagementSchema() {
   `);
 
   // Migration cho schema điều chuyển cũ (R15 và các bản trước RC).
-  // Không đổi tên/xóa cột legacy để bảo toàn dữ liệu và file biên bản cũ;
-  // chỉ bổ sung cột chuẩn mới rồi backfill trước khi tạo index/đọc lịch sử.
-  const transferCols = db.prepare("PRAGMA table_info(device_transfers)").all().map(c => c.name);
-  const ensureTransferColumn = (name, definition = "TEXT") => {
-    if (!transferCols.includes(name)) {
-      db.exec(`ALTER TABLE device_transfers ADD COLUMN ${name} ${definition}`);
-      transferCols.push(name);
-    }
-  };
-  ensureTransferColumn("transfer_datetime");
-  ensureTransferColumn("from_department_code");
-  ensureTransferColumn("from_location");
-  ensureTransferColumn("to_department_code");
-  ensureTransferColumn("to_location");
-  ensureTransferColumn("reason");
-  ensureTransferColumn("actor");
-  ensureTransferColumn("note");
+  // R15 có transfer_date/to_department NOT NULL. Chỉ ALTER ADD COLUMN sẽ khiến
+  // các phiếu điều chuyển mới lỗi NOT NULL, vì vậy phải rebuild bảng một lần.
+  // Các cột metadata/biên bản legacy vẫn được giữ ở bảng mới để không mất lịch sử.
+  const transferInfo = db.prepare("PRAGMA table_info(device_transfers)").all();
+  const transferColumns = new Set(transferInfo.map(c => c.name));
+  const canonicalTransferColumns = [
+    "transfer_datetime","from_department_code","from_location",
+    "to_department_code","to_location","reason","actor","note"
+  ];
+  const hasLegacyRequiredColumns = transferInfo.some(c =>
+    ["transfer_date","to_department"].includes(c.name) && Number(c.notnull || 0) === 1
+  );
+  const needsLegacyTransferRebuild =
+    canonicalTransferColumns.some(name => !transferColumns.has(name)) || hasLegacyRequiredColumns;
 
-  const hasTransferColumn = (name) => transferCols.includes(name);
-  if (hasTransferColumn("transfer_date")) {
-    const createdExpr = hasTransferColumn("created_at") ? "NULLIF(TRIM(created_at),'')" : "NULL";
-    db.exec(`
-      UPDATE device_transfers
-      SET transfer_datetime = COALESCE(
-        NULLIF(TRIM(transfer_datetime),''),
-        CASE
-          WHEN LENGTH(TRIM(COALESCE(transfer_date,''))) > 10 THEN TRIM(transfer_date)
-          WHEN LENGTH(TRIM(COALESCE(transfer_date,''))) = 10
-               AND ${createdExpr} IS NOT NULL
-               AND SUBSTR(${createdExpr},1,10)=TRIM(transfer_date)
-            THEN ${createdExpr}
-          WHEN LENGTH(TRIM(COALESCE(transfer_date,''))) = 10
-            THEN TRIM(transfer_date) || ' 00:00:00'
-          ELSE ${createdExpr}
-        END
-      )
-      WHERE transfer_datetime IS NULL OR TRIM(transfer_datetime)=''
-    `);
+  if (needsLegacyTransferRebuild) {
+    const legacyRows = db.prepare("SELECT * FROM device_transfers ORDER BY id").all();
+    const currentDeviceContext = db.prepare("SELECT department_code,location FROM devices WHERE id=?");
+    const migrateTransfers = db.transaction(() => {
+      db.exec("DROP INDEX IF EXISTS idx_device_transfers_device");
+      db.exec("ALTER TABLE device_transfers RENAME TO device_transfers_legacy_migration");
+      db.exec(`
+        CREATE TABLE device_transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER NOT NULL,
+          transfer_datetime TEXT NOT NULL,
+          from_department_code TEXT,
+          from_location TEXT,
+          to_department_code TEXT NOT NULL,
+          to_location TEXT,
+          reason TEXT,
+          actor TEXT,
+          note TEXT,
+          transfer_date TEXT,
+          from_department TEXT,
+          to_department TEXT,
+          approved_by TEXT,
+          receiver TEXT,
+          created_at TEXT,
+          movement_type TEXT,
+          document_no TEXT,
+          handover_condition TEXT,
+          giver TEXT,
+          status_before TEXT,
+          status_after TEXT,
+          document_original_name TEXT,
+          document_stored_name TEXT,
+          document_file_path TEXT,
+          document_file_mime TEXT,
+          document_file_size INTEGER DEFAULT 0,
+          FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+        )
+      `);
+      const insert = db.prepare(`
+        INSERT INTO device_transfers (
+          id,device_id,transfer_datetime,from_department_code,from_location,
+          to_department_code,to_location,reason,actor,note,
+          transfer_date,from_department,to_department,approved_by,receiver,created_at,
+          movement_type,document_no,handover_condition,giver,status_before,status_after,
+          document_original_name,document_stored_name,document_file_path,document_file_mime,document_file_size
+        ) VALUES (
+          @id,@device_id,@transfer_datetime,@from_department_code,@from_location,
+          @to_department_code,@to_location,@reason,@actor,@note,
+          @transfer_date,@from_department,@to_department,@approved_by,@receiver,@created_at,
+          @movement_type,@document_no,@handover_condition,@giver,@status_before,@status_after,
+          @document_original_name,@document_stored_name,@document_file_path,@document_file_mime,@document_file_size
+        )
+      `);
+
+      for (const row of legacyRows) {
+        const current = currentDeviceContext.get(Number(row.device_id)) || {};
+        const legacyTransferDate = String(row.transfer_date || "").trim();
+        const legacyCreatedAt = normalizeDateTime(row.created_at || "");
+        let transferDatetime = normalizeDateTime(row.transfer_datetime || "");
+        if (!transferDatetime && legacyTransferDate) {
+          const normalizedLegacy = normalizeDateTime(legacyTransferDate);
+          if (legacyTransferDate.length === 10) {
+            transferDatetime = legacyCreatedAt && legacyCreatedAt.slice(0,10) === legacyTransferDate
+              ? legacyCreatedAt
+              : `${legacyTransferDate} 00:00:00`;
+          } else {
+            transferDatetime = normalizedLegacy;
+          }
+        }
+        transferDatetime = transferDatetime || legacyCreatedAt || "1970-01-01 00:00:00";
+
+        const fromDepartment = String(row.from_department_code || row.from_department || "").trim();
+        const toDepartment = String(
+          row.to_department_code || row.to_department || current.department_code || "NN"
+        ).trim() || "NN";
+        const actor = String(
+          row.actor || row.giver || row.approved_by || row.receiver || "Dữ liệu cũ"
+        ).trim() || "Dữ liệu cũ";
+
+        insert.run({
+          id:Number(row.id),
+          device_id:Number(row.device_id),
+          transfer_datetime:transferDatetime,
+          from_department_code:fromDepartment,
+          from_location:String(row.from_location || "").trim(),
+          to_department_code:toDepartment,
+          to_location:String(row.to_location || current.location || "").trim(),
+          reason:String(row.reason || ""),
+          actor,
+          note:String(row.note || ""),
+          transfer_date:legacyTransferDate || transferDatetime.slice(0,10),
+          from_department:String(row.from_department || fromDepartment),
+          to_department:String(row.to_department || toDepartment),
+          approved_by:String(row.approved_by || ""),
+          receiver:String(row.receiver || ""),
+          created_at:String(row.created_at || transferDatetime),
+          movement_type:String(row.movement_type || "Điều chuyển"),
+          document_no:String(row.document_no || ""),
+          handover_condition:String(row.handover_condition || ""),
+          giver:String(row.giver || ""),
+          status_before:String(row.status_before || ""),
+          status_after:String(row.status_after || ""),
+          document_original_name:row.document_original_name || null,
+          document_stored_name:row.document_stored_name || null,
+          document_file_path:row.document_file_path || null,
+          document_file_mime:row.document_file_mime || null,
+          document_file_size:Math.max(0,Number(row.document_file_size || 0))
+        });
+      }
+      db.exec("DROP TABLE device_transfers_legacy_migration");
+    });
+    migrateTransfers();
+    if (legacyRows.length) {
+      console.log(`Đã nâng schema điều chuyển legacy và bảo toàn ${legacyRows.length} bản ghi.`);
+    }
   }
-  if (hasTransferColumn("from_department")) {
-    db.exec(`
-      UPDATE device_transfers
-      SET from_department_code=COALESCE(NULLIF(TRIM(from_department_code),''),NULLIF(TRIM(from_department),''))
-      WHERE from_department_code IS NULL OR TRIM(from_department_code)=''
-    `);
-  }
-  if (hasTransferColumn("to_department")) {
-    db.exec(`
-      UPDATE device_transfers
-      SET to_department_code=COALESCE(NULLIF(TRIM(to_department_code),''),NULLIF(TRIM(to_department),''))
-      WHERE to_department_code IS NULL OR TRIM(to_department_code)=''
-    `);
-  }
-  const actorCandidates = ["giver","approved_by","receiver"].filter(hasTransferColumn);
-  if (actorCandidates.length) {
-    const actorExpr = actorCandidates.map(c => `NULLIF(TRIM(${c}),'')`).join(",");
-    db.exec(`
-      UPDATE device_transfers
-      SET actor=COALESCE(NULLIF(TRIM(actor),''),${actorExpr},'Dữ liệu cũ')
-      WHERE actor IS NULL OR TRIM(actor)=''
-    `);
-  }
-  db.exec(`
-    UPDATE device_transfers
-    SET transfer_datetime=COALESCE(NULLIF(TRIM(transfer_datetime),''),'1970-01-01 00:00:00'),
-        to_department_code=COALESCE(
-          NULLIF(TRIM(to_department_code),''),
-          (SELECT NULLIF(TRIM(dv.department_code),'') FROM devices dv WHERE dv.id=device_transfers.device_id),
-          'NN'
-        ),
-        actor=COALESCE(NULLIF(TRIM(actor),''),'Dữ liệu cũ')
-    WHERE transfer_datetime IS NULL OR TRIM(transfer_datetime)=''
-       OR to_department_code IS NULL OR TRIM(to_department_code)=''
-       OR actor IS NULL OR TRIM(actor)=''
-  `);
+
   db.prepare("CREATE INDEX IF NOT EXISTS idx_device_transfers_device ON device_transfers(device_id, transfer_datetime)").run();
 
   db.exec(`
