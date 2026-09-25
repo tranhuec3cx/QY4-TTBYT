@@ -1364,11 +1364,15 @@ ensureAuthSchema();
 ensureDeviceCodeColumnsAndData();
 normalizeIncidentStatusesInDb();
 try {
-  db.prepare("UPDATE repairs SET processing_status='Đang xử lý' WHERE processing_status IN ('Mới tiếp nhận','Đang kiểm tra','Đang sửa chữa')").run();
-  db.prepare("UPDATE repairs SET processing_status='Đã hoàn thành' WHERE processing_status IN ('Đã sửa xong','Bàn giao sử dụng')").run();
+  // Chuẩn hóa dữ liệu sửa chữa cũ ngay khi mở database để mọi kiểm tra "đang mở"
+  // dùng cùng một tập trạng thái. Bản ghi legacy để trống được coi là chưa hoàn tất,
+  // tránh lọt qua các chốt lưu trữ/điều chuyển hoặc tạo trùng phiếu.
+  db.prepare("UPDATE repairs SET processing_status='Đang xử lý' WHERE processing_status IS NULL OR trim(processing_status)='' OR processing_status IN ('Mới tiếp nhận','Đang kiểm tra','Đang sửa chữa')").run();
+  db.prepare("UPDATE repairs SET processing_status='Đã hoàn thành' WHERE processing_status IN ('Đã sửa xong','Bàn giao sử dụng','Hoàn thành')").run();
+  db.prepare("UPDATE repairs SET processing_status='Không sửa được' WHERE processing_status IN ('Hủy','Không thể sửa')").run();
   db.prepare("UPDATE repairs SET received_at=COALESCE(NULLIF(received_at,''), repair_date) WHERE received_at IS NULL OR received_at=''").run();
   db.prepare("UPDATE repairs SET updated_at=COALESCE(NULLIF(updated_at,''), repair_date) WHERE updated_at IS NULL OR updated_at=''").run();
-  db.prepare("UPDATE repairs SET completed_at=COALESCE(NULLIF(completed_at,''), repair_date) WHERE processing_status IN ('Đã hoàn thành') AND (completed_at IS NULL OR completed_at='')").run();
+  db.prepare("UPDATE repairs SET completed_at=COALESCE(NULLIF(completed_at,''), NULLIF(updated_at,''), repair_date) WHERE processing_status IN ('Đã hoàn thành','Không sửa được') AND (completed_at IS NULL OR completed_at='')").run();
 } catch (e) {}
 
 
@@ -4400,6 +4404,36 @@ app.get("/api/devices/:id/transfers", (req, res) => {
   res.json(rows);
 });
 
+function latestDeviceContextEvent(deviceId) {
+  const id=Number(deviceId);
+  if(!id) return null;
+  return db.prepare(`
+    SELECT event_time, source
+    FROM (
+      SELECT COALESCE(NULLIF(acknowledged_at,''), NULLIF(incident_datetime,'')) AS event_time, 'Sự cố' AS source
+      FROM incidents WHERE device_id=?
+      UNION ALL
+      SELECT COALESCE(NULLIF(completed_at,''), NULLIF(updated_at,''), NULLIF(received_at,''), NULLIF(repair_date,'')) AS event_time, 'Sửa chữa' AS source
+      FROM repairs WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(maintenance_date,'') AS event_time, 'Bảo dưỡng' AS source
+      FROM maintenances WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(inspection_date,'') AS event_time, 'Kiểm định/Hiệu chuẩn' AS source
+      FROM inspections WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(log_datetime,'') AS event_time, 'Nhật ký vận hành' AS source
+      FROM operation_logs WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(check_datetime,'') AS event_time, 'Kiểm tra thiết bị' AS source
+      FROM daily_checks WHERE device_id=?
+    )
+    WHERE event_time IS NOT NULL AND trim(event_time)<>''
+    ORDER BY event_time DESC
+    LIMIT 1
+  `).get(id,id,id,id,id,id) || null;
+}
+
 app.post("/api/devices/:id/transfer", (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -4434,6 +4468,26 @@ app.post("/api/devices/:id/transfer", (req, res) => {
     if (!at) return res.status(400).json({ error:"Thời gian điều chuyển không hợp lệ." });
     const maxTransferTime = sqlDateTimeInAppZone(new Date(Date.now()+5*60*1000));
     if (at > maxTransferTime) return res.status(400).json({ error:"Thời gian điều chuyển không được ở tương lai." });
+
+    const latestTransfer = db.prepare(`
+      SELECT id,transfer_datetime,to_department_code,to_location
+      FROM device_transfers
+      WHERE device_id=?
+      ORDER BY transfer_datetime DESC,id DESC
+      LIMIT 1
+    `).get(id);
+    if (latestTransfer && at <= String(latestTransfer.transfer_datetime || "")) {
+      return res.status(409).json({
+        error:`Thời gian điều chuyển phải sau mốc điều chuyển gần nhất #${latestTransfer.id} (${latestTransfer.transfer_datetime}). Không chèn mốc ngược thời gian vì sẽ làm sai chuỗi lịch sử khoa/vị trí.`
+      });
+    }
+
+    const latestContextEvent = latestDeviceContextEvent(id);
+    if (latestContextEvent && at <= String(latestContextEvent.event_time || "")) {
+      return res.status(409).json({
+        error:`Thời gian điều chuyển phải sau hồ sơ kỹ thuật gần nhất (${latestContextEvent.source}: ${latestContextEvent.event_time}). Hãy dùng thời điểm điều chuyển thực tế sau mốc này để bảo toàn snapshot lịch sử.`
+      });
+    }
     const actor = requestActor(req, "");
     const tx = db.transaction(() => {
       const info = db.prepare(`
@@ -4899,6 +4953,22 @@ app.get("/api/system/readiness", (req, res) => {
   const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
   const acknowledgedOpenIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Đã tiếp nhận'").get().c;
   const openRepairs = db.prepare("SELECT COUNT(*) c FROM repairs WHERE COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')").get().c;
+  const duplicateOpenRepairDevices = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT device_id
+      FROM repairs
+      WHERE COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+      GROUP BY device_id
+      HAVING COUNT(*) > 1
+    )
+  `).get().c;
+  const openRepairStatusMismatches = db.prepare(`
+    SELECT COUNT(DISTINCT r.device_id) c
+    FROM repairs r
+    JOIN devices dv ON dv.id=r.device_id
+    WHERE COALESCE(r.processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+      AND (COALESCE(dv.is_archived,0)=1 OR COALESCE(dv.status,'')<>'Chờ sửa chữa')
+  `).get().c;
   const openInventorySessions = db.prepare("SELECT COUNT(*) c FROM inventory_sessions WHERE status='Đang kiểm kê'").get().c;
   const inspectionScheduleGaps = requiredInspectionScheduleGaps();
   const failedInspectionRows = failedInspectionSchedules();
@@ -5069,6 +5139,14 @@ app.get("/api/system/readiness", (req, res) => {
         : `Đã tiếp nhận chưa khép sự cố: ${acknowledgedOpenIncidents}; sửa chữa đang mở: ${openRepairs}; đợt kiểm kê đang mở: ${openInventorySessions}. Đây là công việc vận hành bình thường nhưng nên rà trước khi demo/chốt số liệu.`
     },
     {
+      key:"repair_consistency",
+      level:(duplicateOpenRepairDevices + openRepairStatusMismatches)===0 ? "Đạt" : "Cần xử lý",
+      title:"Nhất quán phiếu sửa chữa và trạng thái thiết bị",
+      detail:(duplicateOpenRepairDevices + openRepairStatusMismatches)===0
+        ? "Không phát hiện thiết bị có nhiều phiếu sửa chữa đang mở hoặc trạng thái máy lệch với phiếu đang xử lý."
+        : `Thiết bị có nhiều phiếu sửa chữa đang mở: ${duplicateOpenRepairDevices}; thiết bị có phiếu đang mở nhưng trạng thái không phải “Chờ sửa chữa”/đã lưu trữ: ${openRepairStatusMismatches}. Cần xử lý trước khi chạy thật để tránh cập nhật sai trạng thái thiết bị.`
+    },
+    {
       key:"inspection_schedule",
       level:inspectionScheduleGaps.length===0 ? "Đạt" : "Cần xử lý",
       title:"Lịch KĐ/HC/ATBX bắt buộc",
@@ -5118,6 +5196,8 @@ app.get("/api/system/readiness", (req, res) => {
       failed_inspection_schedules:failedInspectionRows.length,
       open_acknowledged_incidents:acknowledgedOpenIncidents,
       open_repairs:openRepairs,
+      duplicate_open_repair_devices:duplicateOpenRepairDevices,
+      open_repair_status_mismatches:openRepairStatusMismatches,
       open_inventory_sessions:openInventorySessions
     }
   });
