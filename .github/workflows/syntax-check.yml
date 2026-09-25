@@ -1546,6 +1546,8 @@ jobs:
           }
           if(r.system?.backup_mirror_configured!==true || r.system?.latest_backup_mirrored!==true) throw new Error("Backup mirror readiness flags failed");
           if(r.system?.latest_backup_mirror_integrity!=="ok" || Number(r.system?.latest_backup_mirror_sessions||0)!==0) throw new Error("Mirror integrity/session checks failed");
+          if(r.system?.latest_backup_mirror_files_match!==true) throw new Error("Mirror attachment snapshot does not match local backup");
+          if(Number(r.system?.latest_backup_mirror_files_count||0)!==Number(r.system?.latest_backup_local_files_count||0)) throw new Error("Mirror/local attachment counts differ");
           if(m.get("backup_off_device")?.level!=="Lưu ý") throw new Error("Same-filesystem CI mirror must remain a warning");
           if(r.system?.backup_mirror_separate_storage!==false || r.system?.backup_mirror_same_filesystem!==true) throw new Error("Mirror storage separation detection failed");
           if(m.get("transport_security")?.level!=="Lưu ý" || r.system?.https!==false) throw new Error("HTTP authenticated deployment must remain a transport-security warning");
@@ -1562,6 +1564,23 @@ jobs:
           console.log("Corrupt mirror detection passed");
           NODE
           mv "/tmp/qy4-backup-mirror/$BACKUP_NAME.good" "/tmp/qy4-backup-mirror/$BACKUP_NAME"
+
+          MIRROR_FILES_DIR="/tmp/qy4-backup-mirror/${BACKUP_NAME%.sqlite}.files"
+          MIRROR_SAMPLE=$(find "$MIRROR_FILES_DIR" -type f | head -1 || true)
+          if [ -n "$MIRROR_SAMPLE" ]; then
+            MIRROR_REL="${MIRROR_SAMPLE#$MIRROR_FILES_DIR/}"
+            mkdir -p /tmp/qy4-mirror-hidden
+            mv "$MIRROR_SAMPLE" "/tmp/qy4-mirror-hidden/sample"
+            curl -fsS -b /tmp/admin-cookie.txt "$BASE/api/system/readiness" >/tmp/auth-readiness-missing-mirror-file.json
+            node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/auth-readiness-missing-mirror-file.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="backup_off_device");
+          if(c?.level!=="Cần xử lý" || r.system?.latest_backup_mirror_files_match!==false) throw new Error("Missing mirror attachment was not blocked by readiness: "+JSON.stringify(c));
+          console.log("Missing mirror attachment detection passed");
+          NODE
+            mkdir -p "$(dirname "$MIRROR_FILES_DIR/$MIRROR_REL")"
+            mv "/tmp/qy4-mirror-hidden/sample" "$MIRROR_FILES_DIR/$MIRROR_REL"
+          fi
           echo "Authentication and role smoke test passed"
 
       - name: Smoke test authenticated demo reset
