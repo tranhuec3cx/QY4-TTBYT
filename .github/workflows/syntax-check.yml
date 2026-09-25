@@ -88,6 +88,62 @@ jobs:
               evaluator TEXT,
               note TEXT
             );
+
+            -- Schema thiết bị/điều chuyển legacy lấy từ gói R15 trước RC.
+            CREATE TABLE IF NOT EXISTS devices (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              department_code TEXT,
+              group_code TEXT,
+              name TEXT NOT NULL,
+              manufacturer TEXT,
+              model TEXT,
+              year_in_use INTEGER,
+              warranty_end TEXT,
+              status TEXT,
+              quality_level INTEGER DEFAULT 3,
+              serial TEXT,
+              country TEXT,
+              year_manufactured INTEGER,
+              cost REAL DEFAULT 0,
+              funding TEXT,
+              location TEXT,
+              note TEXT,
+              device_code TEXT,
+              insurance_code TEXT
+            );
+            CREATE TABLE IF NOT EXISTS device_transfers (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              device_id INTEGER NOT NULL,
+              transfer_date TEXT,
+              from_department TEXT,
+              to_department TEXT,
+              from_location TEXT,
+              to_location TEXT,
+              reason TEXT,
+              approved_by TEXT,
+              receiver TEXT,
+              note TEXT,
+              created_at TEXT,
+              movement_type TEXT,
+              document_no TEXT,
+              handover_condition TEXT,
+              giver TEXT,
+              status_before TEXT,
+              status_after TEXT,
+              document_original_name TEXT,
+              document_stored_name TEXT,
+              document_file_path TEXT,
+              document_file_mime TEXT,
+              document_file_size INTEGER DEFAULT 0
+            );
+            INSERT INTO devices
+              (id,department_code,group_code,name,manufacturer,model,year_in_use,status,quality_level,serial,country,location,device_code)
+            VALUES
+              (1,'A2','MON','Thiết bị legacy R15','CI','R15-LEGACY',2020,'Đang hoạt động',3,'R15-LEGACY-001','VN','P1','A2.MON.0001');
+            INSERT INTO device_transfers
+              (device_id,transfer_date,from_department,to_department,from_location,to_location,reason,approved_by,receiver,note,created_at,movement_type,giver,status_before,status_after)
+            VALUES
+              (1,'2026-09-06','A12','A2','Buồng HSTC 2','P1','Điều chuyển legacy R15','C','B','Giữ lịch sử R15','2026-09-06 12:14:46','Điều chuyển','A','Đang hoạt động','Đang hoạt động');
           `);
           db.close();
           NODE
@@ -143,6 +199,17 @@ jobs:
           curl -fsS "$BASE/api/devices/duplicate-check?serial=__TEST__" >/tmp/duplicate.json
           node -e 'for (const p of ["/tmp/devices.json","/tmp/dashboard.json","/tmp/inventory.json","/tmp/backups.json","/tmp/readiness.json","/tmp/duplicate.json"]) JSON.parse(require("fs").readFileSync(p,"utf8")); const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); if(!Array.isArray(r.checks)||r.checks.length<10||r.system?.time_zone!=="Asia/Bangkok"||r.system?.database_integrity!=="Đạt"||r.system?.foreign_keys_enabled!==true||Number(r.system?.foreign_key_violations||0)!==0) throw new Error("Readiness API invalid"); console.log("Core API smoke test passed")'
           node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="repair_consistency"); if(!c||c.level!=="Đạt"||Number(r.system?.duplicate_open_repair_devices||0)!==0||Number(r.system?.open_repair_status_mismatches||0)!==0) throw new Error("Repair consistency readiness baseline invalid: "+JSON.stringify(c)); console.log("Repair consistency readiness baseline passed")'
+          curl -fsS "$BASE/api/devices/1/transfers" >/tmp/legacy-r15-transfers.json
+          node - <<'NODE'
+          const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-transfers.json","utf8"));
+          const t=rows.find(x=>Number(x.id)===1);
+          if(!t) throw new Error("Legacy R15 transfer was lost during migration");
+          if(t.transfer_datetime!=="2026-09-06 12:14:46") throw new Error("Legacy transfer_datetime backfill failed: "+t.transfer_datetime);
+          if(t.from_department_code!=="A12" || t.to_department_code!=="A2") throw new Error("Legacy department-code backfill failed: "+JSON.stringify(t));
+          if(t.from_location!=="Buồng HSTC 2" || t.to_location!=="P1") throw new Error("Legacy transfer locations changed");
+          if(t.actor!=="A") throw new Error("Legacy transfer actor backfill failed: "+t.actor);
+          console.log("Legacy R15 transfer schema migration passed");
+          NODE
 
       - name: Smoke test QR incident repair lifecycle
         run: |
