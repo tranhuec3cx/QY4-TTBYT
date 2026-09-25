@@ -243,8 +243,9 @@ try {
     const tcols = new Set(info.map(x => x.name));
     const legacyRequired = info.filter(x => ["transfer_date","to_department"].includes(x.name) && Number(x.notnull || 0) === 1);
     const canonical = ["transfer_datetime","from_department_code","to_department_code"].every(x => tcols.has(x));
+    const supportedLegacy = tcols.has("transfer_date") && tcols.has("to_department");
     if (!canonical || legacyRequired.length) {
-      if (tcols.has("transfer_date") && tcols.has("to_department")) {
+      if (supportedLegacy) {
         emit("WARN", "Phát hiện schema điều chuyển legacy kiểu R15; RC hiện có migration rebuild bảo toàn lịch sử.");
         stats.legacy_transfer_schema = true;
       } else {
@@ -253,6 +254,76 @@ try {
     } else {
       emit("OK", "Schema điều chuyển đã ở dạng RC.");
       stats.legacy_transfer_schema = false;
+    }
+
+    if (canonical || supportedLegacy) {
+      const expr = (preferred, legacy, fallback = "''") =>
+        tcols.has(preferred) ? preferred : (legacy && tcols.has(legacy) ? legacy : fallback);
+      const fromDepartmentExpr=expr("from_department_code","from_department");
+      const toDepartmentExpr=expr("to_department_code","to_department");
+      const fromLocationExpr=expr("from_location","");
+      const toLocationExpr=expr("to_location","");
+      const timeExpr=expr("transfer_datetime","transfer_date","CAST(id AS TEXT)");
+      const transferRows=db.prepare(`
+        SELECT id,device_id,
+               ${fromDepartmentExpr} AS from_department_code,
+               ${fromLocationExpr} AS from_location,
+               ${toDepartmentExpr} AS to_department_code,
+               ${toLocationExpr} AS to_location
+        FROM device_transfers
+        ORDER BY device_id ASC, ${timeExpr} ASC, id ASC
+      `).all();
+      const norm=value=>String(value ?? "").trim();
+      let previous=null;
+      let chainMismatches=0;
+      const chainDevices=new Set();
+      const latestByDevice=new Map();
+      for(const row of transferRows){
+        if(previous && Number(previous.device_id)===Number(row.device_id)){
+          const departmentMismatch=Boolean(
+            norm(previous.to_department_code) && norm(row.from_department_code)
+            && norm(previous.to_department_code)!==norm(row.from_department_code)
+          );
+          const locationMismatch=Boolean(
+            norm(previous.to_location) && norm(row.from_location)
+            && norm(previous.to_location)!==norm(row.from_location)
+          );
+          if(departmentMismatch || locationMismatch){
+            chainMismatches += 1;
+            chainDevices.add(Number(row.device_id));
+          }
+        }
+        previous=row;
+        latestByDevice.set(Number(row.device_id),row);
+      }
+
+      let currentContextMismatches=0;
+      const deviceCols=hasTable("devices") ? columnSet("devices") : new Set();
+      if(deviceCols.has("department_code")){
+        const locationExpr=deviceCols.has("location") ? "location" : "'' AS location";
+        const deviceRows=db.prepare(`SELECT id,department_code,${locationExpr} FROM devices`).all();
+        const currentByDevice=new Map(deviceRows.map(row=>[Number(row.id),row]));
+        for(const [deviceId,row] of latestByDevice.entries()){
+          const current=currentByDevice.get(deviceId);
+          if(!current) continue;
+          const departmentMismatch=norm(row.to_department_code)!==norm(current.department_code);
+          const locationMismatch=norm(row.to_location)!==norm(current.location);
+          if(departmentMismatch || locationMismatch) currentContextMismatches += 1;
+        }
+      }
+      stats.transfer_history_rows=transferRows.length;
+      stats.transfer_chain_mismatches=chainMismatches;
+      stats.transfer_chain_devices=chainDevices.size;
+      stats.transfer_current_context_mismatches=currentContextMismatches;
+      if(chainMismatches){
+        emit("WARN", `Lịch sử điều chuyển có ${chainMismatches} điểm đứt chuỗi trên ${chainDevices.size} thiết bị; cần đối chiếu biên bản, preflight không tự sửa.`);
+      }
+      if(currentContextMismatches){
+        emit("WARN", `Có ${currentContextMismatches} thiết bị có khoa/vị trí hiện tại khác điểm đến của lần điều chuyển cuối; có thể là dữ liệu legacy từng sửa trực tiếp.`);
+      }
+      if(!chainMismatches && !currentContextMismatches && transferRows.length){
+        emit("OK", `Chuỗi ${transferRows.length} bản ghi điều chuyển nhất quán với trạng thái thiết bị.`);
+      }
     }
   }
 
