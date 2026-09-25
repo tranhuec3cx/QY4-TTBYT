@@ -4410,10 +4410,10 @@ function latestDeviceContextEvent(deviceId) {
   return db.prepare(`
     SELECT event_time, source
     FROM (
-      SELECT COALESCE(NULLIF(acknowledged_at,''), NULLIF(incident_datetime,'')) AS event_time, 'Sự cố' AS source
+      SELECT NULLIF(incident_datetime,'') AS event_time, 'Sự cố' AS source
       FROM incidents WHERE device_id=?
       UNION ALL
-      SELECT COALESCE(NULLIF(completed_at,''), NULLIF(updated_at,''), NULLIF(received_at,''), NULLIF(repair_date,'')) AS event_time, 'Sửa chữa' AS source
+      SELECT COALESCE(NULLIF(received_at,''), NULLIF(repair_date,'')) AS event_time, 'Sửa chữa' AS source
       FROM repairs WHERE device_id=?
       UNION ALL
       SELECT NULLIF(maintenance_date,'') AS event_time, 'Bảo dưỡng' AS source
