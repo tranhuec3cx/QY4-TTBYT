@@ -171,7 +171,7 @@ jobs:
           `);
           db.close();
           fs.mkdirSync("uploads/documents",{recursive:true});
-          fs.writeFileSync("uploads/documents/legacy-transfer.txt","bien ban legacy ci\n");
+          fs.writeFileSync("uploads/documents/legacy-transfer.txt","bien ban legacy ci");
           NODE
       - name: Dependency audit summary
         run: |
@@ -205,6 +205,7 @@ jobs:
           const Database=require("better-sqlite3");
           const db=new Database("/tmp/preflight-bad-catalog.sqlite");
           db.prepare("UPDATE devices SET department_code='' WHERE id=1").run();
+          db.prepare("UPDATE device_transfers SET document_file_size=999 WHERE id=1").run();
           db.close();
           NODE
           set +e
@@ -215,8 +216,10 @@ jobs:
           node - <<'NODE'
           const r=JSON.parse(require("fs").readFileSync("/tmp/preflight-bad-catalog.json","utf8"));
           if(r.ok!==false || Number(r.stats?.missing_device_department||0)<1) throw new Error("Missing device department was not detected by preflight");
+          if(Number(r.stats?.referenced_file_size_mismatches||0)<1) throw new Error("Attachment size mismatch was not detected by preflight");
           if(!(r.blockers||[]).some(x=>String(x).includes("dữ liệu định danh lõi"))) throw new Error("Core device identity blocker missing");
-          console.log("Invalid device catalog preflight blocking passed");
+          if(!(r.blockers||[]).some(x=>String(x).includes("kích thước không khớp"))) throw new Error("Attachment-size blocker missing");
+          console.log("Invalid catalog + attachment metadata preflight blocking passed");
           NODE
 
       - name: Start server
