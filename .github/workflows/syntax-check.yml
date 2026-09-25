@@ -41,6 +41,9 @@ jobs:
           if(js.includes('department_code: q("generalDepartment").value')) throw new Error("General form can bypass transfer department history");
           if(js.includes('location: q("generalLocation").value.trim()')) throw new Error("General form can bypass transfer location history");
           if(!js.includes('/api/devices/${DEVICE_ID}/transfer')) throw new Error("Transfer workflow missing");
+          const maintenanceJs=fs.readFileSync("public/maintenance.js","utf8");
+          if(!maintenanceJs.includes('q("repairStatus").disabled = isTerminal')) throw new Error("Terminal repair status must be locked in edit UI");
+          if(!maintenanceJs.includes('q("repairStatus").disabled = false')) throw new Error("Repair status control must reset for new records");
           for(const legacyApi of ["/api/accessories","/api/repairs","/api/maintenances","/api/operation-logs","/api/documents"]){
             if(js.includes(legacyApi)) throw new Error("Legacy device-detail write path remains: "+legacyApi);
           }
