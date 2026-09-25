@@ -4177,10 +4177,13 @@ function buildInspectionPayload(input = {}) {
     note:String(input.note || "")
   };
 }
-function validateInspectionPayload(payload) {
+function validateInspectionPayload(payload, options = {}) {
   if (!payload.device_id) return "Vui lòng chọn thiết bị.";
-  const device = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
-  if (!device) return "Thiết bị không tồn tại hoặc đã lưu trữ.";
+  const allowArchived=options.allowArchived === true;
+  const device = allowArchived
+    ? db.prepare("SELECT id,is_archived FROM devices WHERE id=?").get(payload.device_id)
+    : db.prepare("SELECT id,is_archived FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
+  if (!device) return allowArchived ? "Thiết bị không tồn tại." : "Thiết bị không tồn tại hoặc đã lưu trữ.";
   if (!payload.inspection_date) return "Vui lòng nhập thời gian thực hiện.";
   if (!payload.type) return "Vui lòng chọn loại kiểm định/hiệu chuẩn.";
   if (!payload.organization) return "Vui lòng nhập đơn vị thực hiện.";
@@ -4215,7 +4218,7 @@ app.put("/api/inspections/:id", (req, res) => {
     if (Number(old.device_id) !== Number(payload.device_id)) {
       return res.status(409).json({error:"Không thể đổi thiết bị của hồ sơ kiểm định/hiệu chuẩn đã lưu."});
     }
-    const error=validateInspectionPayload(payload);
+    const error=validateInspectionPayload(payload,{allowArchived:true});
     if(error) return res.status(400).json({error});
     const inspectionContext = historicalDeviceContext(old.device_id, payload.inspection_date);
     payload.department_code_snapshot = String(inspectionContext.department_code || old.department_code_snapshot || "").trim();
@@ -4263,10 +4266,13 @@ app.get("/api/quality-ratings", (req, res) => {
   res.json(rows);
 });
 
-function buildQualityRatingPayload(input = {}) {
+function buildQualityRatingPayload(input = {}, options = {}) {
   const deviceId=Number(input.device_id || 0);
-  const device=db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
-  if(!device) return {error:"Thiết bị không tồn tại hoặc đã lưu trữ."};
+  const allowArchived=options.allowArchived === true;
+  const device=allowArchived
+    ? db.prepare("SELECT id,is_archived FROM devices WHERE id=?").get(deviceId)
+    : db.prepare("SELECT id,is_archived FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+  if(!device) return {error:allowArchived ? "Thiết bị không tồn tại." : "Thiết bị không tồn tại hoặc đã lưu trữ."};
   const limits={
     age_score:25,
     performance_score:25,
@@ -4319,7 +4325,7 @@ app.put("/api/quality-ratings/:id", (req, res) => {
     const id=Number(req.params.id);
     const old=db.prepare("SELECT * FROM quality_ratings WHERE id=?").get(id);
     if(!old) return res.status(404).json({error:"Không tìm thấy đánh giá chất lượng."});
-    const built=buildQualityRatingPayload(req.body || {});
+    const built=buildQualityRatingPayload(req.body || {},{allowArchived:true});
     if(built.error) return res.status(400).json({error:built.error});
     const payload=built.payload;
     if(Number(payload.device_id)!==Number(old.device_id)){
