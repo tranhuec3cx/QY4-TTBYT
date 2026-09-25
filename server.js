@@ -101,7 +101,7 @@ function isDepartmentUserAllowed(req) {
 function authApiGuard(req, res, next) {
   if (!req.path.startsWith("/api/")) return next();
   if (req.path.startsWith("/api/auth/")
-      || req.path.startsWith("/api/public/")
+      || (req.method === "GET" && req.path.startsWith("/api/public/"))
       || (req.method === "POST" && ["/api/qr/checks","/api/qr/incidents"].includes(req.path))) return next();
   if (!AUTH_REQUIRED) return next();
 
