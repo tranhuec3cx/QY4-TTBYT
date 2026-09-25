@@ -94,6 +94,19 @@ else {
     }
 }
 
+# Kiem tra read-only tren database hien co truoc khi server chay migration.
+# Schema legacy duoc ho tro chi canh bao; loi toan ven/file that lac se chan khoi dong.
+if (Test-Path $dbMain) {
+    Write-Host ""
+    Write-Host "Dang kiem tra preflight du lieu hien co..." -ForegroundColor Cyan
+    $uploadsPath = Join-Path $PSScriptRoot "uploads"
+    node "scripts\preflight-realdata.js" --db "$dbMain" --uploads "$uploadsPath"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Preflight du lieu khong dat. Ban sao prestart da duoc tao; hay xu ly cac muc [CHAN] truoc khi khoi dong lai."
+    }
+    Write-Host "Preflight du lieu dat - co the tiep tuc migration/khoi dong." -ForegroundColor Green
+}
+
 if (-not $env:QY4_ADMIN_PASSWORD) {
     Write-Host ""
     Write-Host "Neu day la lan khoi dong dau tien co xac thuc, nhap mat khau Quan tri vien." -ForegroundColor Yellow
