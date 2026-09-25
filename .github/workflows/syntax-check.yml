@@ -1561,6 +1561,8 @@ jobs:
 
           CODE=$(curl -s -o /tmp/unauth.json -w '%{http_code}' "$BASE/api/devices")
           test "$CODE" = "401"
+          CODE=$(curl -s -o /tmp/unauth-malformed.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data '{bad-json')
+          test "$CODE" = "401"
           CODE=$(curl -s -o /tmp/dashboard-page-unauth.html -w '%{http_code}' "$BASE/dashboard.html")
           test "$CODE" = "302"
           grep -qi 'login.html' /tmp/dashboard-page-unauth.html || true
@@ -1697,13 +1699,15 @@ jobs:
           NODE
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-write.json -w '%{http_code}' -X POST "$BASE/api/devices" -H 'Content-Type: application/json' --data '{}')
           test "$CODE" = "403"
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-malformed-write.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data '{bad-json')
+          test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-repair-write.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{"device_id":$DEVICE_ID}")
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-maintenance-write.json -w '%{http_code}' -X POST "$BASE/api/maintenances" -H 'Content-Type: application/json' --data "{"device_id":$DEVICE_ID}")
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-inspection-write.json -w '%{http_code}' -X POST "$BASE/api/inspections" -H 'Content-Type: application/json' --data "{"device_id":$DEVICE_ID}")
           test "$CODE" = "403"
-          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-transfer-write.json -w '%{http_code}' -X POST "$BASE/api/devices/$DEVICE_ID/transfer" -H 'Content-Type: application/json' --data '{"to_department_code":"TST2","reason":"Không được phép"}')
+          CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-transfer-write.json -w '%{http_code}' -X POST "$BASE/api/devices/$DEVICE_ID/transfer" -H 'Content-Type: application/json' --data '{}')
           test "$CODE" = "403"
           CODE=$(curl -s -b /tmp/dept-cookie.txt -o /tmp/dept-transfer-history.json -w '%{http_code}' "$BASE/api/devices/$DEVICE_ID/transfers")
           test "$CODE" = "403"
