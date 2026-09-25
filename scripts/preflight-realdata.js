@@ -236,6 +236,64 @@ try {
     } else {
       emit("WARN", "Schema repairs cũ chưa có processing_status; RC sẽ bổ sung khi migration.");
     }
+
+    if (rcols.has("incident_id") && hasTable("incidents")) {
+      const icols=columnSet("incidents");
+      const orphanRefs=Number(db.prepare(`
+        SELECT COUNT(*) c
+        FROM repairs r
+        LEFT JOIN incidents i ON i.id=r.incident_id
+        WHERE r.incident_id IS NOT NULL AND i.id IS NULL
+      `).get().c || 0);
+      stats.orphan_repair_incident_refs=orphanRefs;
+      if(orphanRefs) emit("BLOCK", `Có ${orphanRefs} phiếu sửa chữa trỏ tới sự cố không tồn tại.`);
+
+      if(icols.has("device_id")) {
+        const deviceMismatches=Number(db.prepare(`
+          SELECT COUNT(*) c
+          FROM repairs r
+          JOIN incidents i ON i.id=r.incident_id
+          WHERE r.incident_id IS NOT NULL AND r.device_id<>i.device_id
+        `).get().c || 0);
+        stats.incident_repair_device_mismatches=deviceMismatches;
+        if(deviceMismatches) emit("BLOCK", `Có ${deviceMismatches} liên kết Sự cố – Sửa chữa sai thiết bị.`);
+      }
+
+      const multipleLinked=Number(db.prepare(`
+        SELECT COUNT(*) c FROM (
+          SELECT incident_id
+          FROM repairs
+          WHERE incident_id IS NOT NULL
+          GROUP BY incident_id
+          HAVING COUNT(*)>1
+        )
+      `).get().c || 0);
+      stats.incidents_with_multiple_repairs=multipleLinked;
+      if(multipleLinked) emit("BLOCK", `Có ${multipleLinked} sự cố đang liên kết nhiều hơn một phiếu sửa chữa.`);
+
+      if(icols.has("status")) {
+        const statusMismatches=Number(db.prepare(`
+          SELECT COUNT(DISTINCT i.id) c
+          FROM incidents i
+          JOIN repairs r ON r.incident_id=i.id
+          WHERE COALESCE(i.status,'')<>'Đã chuyển sửa chữa'
+        `).get().c || 0);
+        stats.linked_incident_status_mismatches=statusMismatches;
+        if(statusMismatches) emit("WARN", `Có ${statusMismatches} sự cố đã có phiếu sửa chữa nhưng trạng thái legacy chưa chuẩn; RC sẽ chuẩn hóa khi khởi động.`);
+      }
+
+      if(rcols.has("processing_status") && rcols.has("completed_at")) {
+        const missingCompletion=Number(db.prepare(`
+          SELECT COUNT(*) c
+          FROM repairs
+          WHERE incident_id IS NOT NULL
+            AND COALESCE(processing_status,'') IN ('Đã hoàn thành','Không sửa được')
+            AND TRIM(COALESCE(completed_at,''))=''
+        `).get().c || 0);
+        stats.terminal_linked_repairs_missing_completion=missingCompletion;
+        if(missingCompletion) emit("WARN", `Có ${missingCompletion} phiếu sửa chữa liên kết đã kết thúc nhưng thiếu completed_at; RC sẽ cố chuẩn hóa từ mốc cập nhật/ngày sửa chữa.`);
+      }
+    }
   }
 
   if (hasTable("device_transfers")) {
