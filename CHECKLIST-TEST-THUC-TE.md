@@ -64,6 +64,7 @@ Thực hiện trên **bản sao dữ liệu thật** hoặc một thiết bị t
 - [ ] Không thể tạo thêm phiếu sửa chữa đang mở thứ hai cho cùng thiết bị.
 - [ ] Cập nhật nội dung xử lý.
 - [ ] Hoàn thành phiếu.
+- [ ] Mở lại phiếu đã hoàn thành và thử đổi trạng thái về **Đang xử lý**; hệ thống phải từ chối, nhưng vẫn cho hiệu chỉnh nội dung/chi phí/ghi chú khi cần.
 - [ ] Tình trạng máy sau sửa đúng: Đang hoạt động / Hoạt động hạn chế.
 - [ ] Nếu “Không sửa được”, thiết bị chuyển Ngừng hoạt động.
 - [ ] Hồ sơ thiết bị → Công việc kỹ thuật thấy đầy đủ chuỗi trên.
@@ -119,8 +120,9 @@ Chọn một khoa có danh mục nhỏ để test nhanh.
 - [ ] Cài đặt → Hệ thống → **Sao lưu ngay**.
 - [ ] Có file `.sqlite`.
 - [ ] Có thư mục `.files/` cùng tên.
-- [ ] Nếu đã cấu hình mirror: có bản sao ở ổ/thư mục thứ hai.
-- [ ] “Sẵn sàng triển khai” báo backup đạt.
+- [ ] Nếu đã cấu hình mirror: có bản sao `.sqlite` và `.files/` ở ổ/thư mục thứ hai.
+- [ ] **Sẵn sàng triển khai → Bản sao lưu thứ cấp ngoài máy chủ** không báo lỗi `quick_check`; nếu mirror cùng ổ thì chỉ chấp nhận mức **Lưu ý**, không coi là dự phòng hỏng ổ.
+- [ ] “Sẵn sàng triển khai” báo backup cục bộ đạt và không còn mục backup ở mức **Cần xử lý**.
 
 ## 10. Kết thúc phiên test
 
@@ -143,3 +145,4 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 7. Dashboard/KPI phản ánh đúng thao tác test.
 8. CI GitHub vẫn xanh.
 9. **Sẵn sàng triển khai → Nhất quán phiếu sửa chữa và trạng thái thiết bị** ở mức **Đạt**.
+10. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
