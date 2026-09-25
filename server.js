@@ -119,11 +119,6 @@ function authApiGuard(req, res, next) {
 }
 app.use(authApiGuard);
 
-// Chỉ parse JSON sau khi request API đã qua lớp xác thực/phân quyền.
-// Public auth/QR được authApiGuard cho qua rõ ràng; request không đủ quyền
-// bị từ chối trước khi server đọc/parse body lớn hoặc JSON lỗi.
-app.use(express.json({ limit: "10mb" }));
-
 const qrWriteRate = new Map();
 function qrPublicWriteLimiter(req, res, next) {
   if (req.method !== "POST") return next();
@@ -149,6 +144,10 @@ function qrPublicWriteLimiter(req, res, next) {
   next();
 }
 app.use("/api/qr", qrPublicWriteLimiter);
+
+// Chỉ parse JSON sau khi request API đã qua auth và, với QR công khai,
+// qua cả rate-limit. Multipart vẫn được xử lý ở từng route bằng multer.
+app.use(express.json({ limit: "10mb" }));
 
 app.use((req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
