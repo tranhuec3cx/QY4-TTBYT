@@ -5292,6 +5292,12 @@ app.get("/api/system/readiness", (req, res) => {
     WHERE COALESCE(r.processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
       AND (COALESCE(dv.is_archived,0)=1 OR COALESCE(dv.status,'')<>'Chờ sửa chữa')
   `).get().c;
+  const orphanRepairIncidentRefs = db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    LEFT JOIN incidents i ON i.id=r.incident_id
+    WHERE r.incident_id IS NOT NULL AND i.id IS NULL
+  `).get().c;
   const incidentRepairDeviceMismatches = db.prepare(`
     SELECT COUNT(*) c
     FROM repairs r
@@ -5528,11 +5534,11 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"incident_repair_linkage",
-      level:(incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0 ? "Đạt" : "Cần xử lý",
+      level:(orphanRepairIncidentRefs + incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0 ? "Đạt" : "Cần xử lý",
       title:"Nhất quán liên kết sự cố – sửa chữa",
-      detail:(incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0
+      detail:(orphanRepairIncidentRefs + incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0
         ? "Mỗi sự cố liên kết tối đa một phiếu sửa chữa, cùng thiết bị, đúng trạng thái và đủ mốc kết thúc."
-        : `Sai thiết bị giữa sự cố/phiếu sửa chữa: ${incidentRepairDeviceMismatches}; sự cố có nhiều phiếu sửa chữa liên kết: ${incidentsWithMultipleRepairs}; sự cố có phiếu sửa chữa nhưng trạng thái chưa phải “Đã chuyển sửa chữa”: ${linkedIncidentStatusMismatches}; phiếu liên kết đã kết thúc nhưng thiếu completed_at: ${terminalLinkedRepairsMissingCompletion}.`
+        : `Phiếu sửa chữa trỏ tới sự cố không tồn tại: ${orphanRepairIncidentRefs}; sai thiết bị giữa sự cố/phiếu sửa chữa: ${incidentRepairDeviceMismatches}; sự cố có nhiều phiếu sửa chữa liên kết: ${incidentsWithMultipleRepairs}; sự cố có phiếu sửa chữa nhưng trạng thái chưa phải “Đã chuyển sửa chữa”: ${linkedIncidentStatusMismatches}; phiếu liên kết đã kết thúc nhưng thiếu completed_at: ${terminalLinkedRepairsMissingCompletion}.`
     },
     {
       key:"inspection_schedule",
@@ -5598,6 +5604,7 @@ app.get("/api/system/readiness", (req, res) => {
       open_repairs:openRepairs,
       duplicate_open_repair_devices:duplicateOpenRepairDevices,
       open_repair_status_mismatches:openRepairStatusMismatches,
+      orphan_repair_incident_refs:orphanRepairIncidentRefs,
       incident_repair_device_mismatches:incidentRepairDeviceMismatches,
       incidents_with_multiple_repairs:incidentsWithMultipleRepairs,
       linked_incident_status_mismatches:linkedIncidentStatusMismatches,
