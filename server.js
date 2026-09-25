@@ -4483,7 +4483,7 @@ app.post("/api/devices/:id/transfer", (req, res) => {
     }
 
     const latestContextEvent = latestDeviceContextEvent(id);
-    if (latestContextEvent && at <= String(latestContextEvent.event_time || "")) {
+    if (latestContextEvent && at < String(latestContextEvent.event_time || "")) {
       return res.status(409).json({
         error:`Thời gian điều chuyển phải sau hồ sơ kỹ thuật gần nhất (${latestContextEvent.source}: ${latestContextEvent.event_time}). Hãy dùng thời điểm điều chuyển thực tế sau mốc này để bảo toàn snapshot lịch sử.`
       });
