@@ -97,7 +97,7 @@ try {
     } else {
       const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND TRIM(COALESCE(qr_uid,''))=''").get().c;
       stats.missing_qr_uid = Number(missingQr || 0);
-      if (missingQr) emit("BLOCK", `Có ${missingQr} thiết bị đang quản lý chưa có QR UID.`);
+      if (missingQr) emit("WARN", `Có ${missingQr} thiết bị đang quản lý chưa có QR UID; RC sẽ tự bổ sung khi migration.`);
     }
 
     if (dcols.has("serial")) {
