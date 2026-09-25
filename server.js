@@ -5292,6 +5292,36 @@ app.get("/api/system/readiness", (req, res) => {
     WHERE COALESCE(r.processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
       AND (COALESCE(dv.is_archived,0)=1 OR COALESCE(dv.status,'')<>'Chờ sửa chữa')
   `).get().c;
+  const incidentRepairDeviceMismatches = db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    JOIN incidents i ON i.id=r.incident_id
+    WHERE r.incident_id IS NOT NULL
+      AND Number(r.device_id) IS NOT NULL
+      AND r.device_id<>i.device_id
+  `).get().c;
+  const incidentsWithMultipleRepairs = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT incident_id
+      FROM repairs
+      WHERE incident_id IS NOT NULL
+      GROUP BY incident_id
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
+  const linkedIncidentStatusMismatches = db.prepare(`
+    SELECT COUNT(DISTINCT i.id) c
+    FROM incidents i
+    JOIN repairs r ON r.incident_id=i.id
+    WHERE COALESCE(i.status,'')<>'Đã chuyển sửa chữa'
+  `).get().c;
+  const terminalLinkedRepairsMissingCompletion = db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs
+    WHERE incident_id IS NOT NULL
+      AND COALESCE(processing_status,'') IN ('Đã hoàn thành','Không sửa được')
+      AND TRIM(COALESCE(completed_at,''))=''
+  `).get().c;
   const openInventorySessions = db.prepare("SELECT COUNT(*) c FROM inventory_sessions WHERE status='Đang kiểm kê'").get().c;
   const inspectionScheduleGaps = requiredInspectionScheduleGaps();
   const failedInspectionRows = failedInspectionSchedules();
@@ -5498,6 +5528,14 @@ app.get("/api/system/readiness", (req, res) => {
         : `Thiết bị có nhiều phiếu sửa chữa đang mở: ${duplicateOpenRepairDevices}; thiết bị có phiếu đang mở nhưng trạng thái không phải “Chờ sửa chữa”/đã lưu trữ: ${openRepairStatusMismatches}. Cần xử lý trước khi chạy thật để tránh cập nhật sai trạng thái thiết bị.`
     },
     {
+      key:"incident_repair_linkage",
+      level:(incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0 ? "Đạt" : "Cần xử lý",
+      title:"Nhất quán liên kết sự cố – sửa chữa",
+      detail:(incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0
+        ? "Mỗi sự cố liên kết tối đa một phiếu sửa chữa, cùng thiết bị, đúng trạng thái và đủ mốc kết thúc."
+        : `Sai thiết bị giữa sự cố/phiếu sửa chữa: ${incidentRepairDeviceMismatches}; sự cố có nhiều phiếu sửa chữa liên kết: ${incidentsWithMultipleRepairs}; sự cố có phiếu sửa chữa nhưng trạng thái chưa phải “Đã chuyển sửa chữa”: ${linkedIncidentStatusMismatches}; phiếu liên kết đã kết thúc nhưng thiếu completed_at: ${terminalLinkedRepairsMissingCompletion}.`
+    },
+    {
       key:"inspection_schedule",
       level:inspectionScheduleGaps.length===0 ? "Đạt" : "Cần xử lý",
       title:"Lịch KĐ/HC/ATBX bắt buộc",
@@ -5561,6 +5599,10 @@ app.get("/api/system/readiness", (req, res) => {
       open_repairs:openRepairs,
       duplicate_open_repair_devices:duplicateOpenRepairDevices,
       open_repair_status_mismatches:openRepairStatusMismatches,
+      incident_repair_device_mismatches:incidentRepairDeviceMismatches,
+      incidents_with_multiple_repairs:incidentsWithMultipleRepairs,
+      linked_incident_status_mismatches:linkedIncidentStatusMismatches,
+      terminal_linked_repairs_missing_completion:terminalLinkedRepairsMissingCompletion,
       transfer_history_rows:transferConsistency.transfer_rows,
       transfer_chain_mismatches:transferConsistency.chain_mismatches,
       transfer_chain_devices:transferConsistency.chain_devices,
