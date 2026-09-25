@@ -1579,6 +1579,8 @@ jobs:
           test "$CODE" = "401"
           CODE=$(curl -s -o /tmp/unauth-malformed.json -w '%{http_code}' -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data '{bad-json')
           test "$CODE" = "401"
+          CODE=$(curl -s -o /tmp/public-write-unauth.json -w '%{http_code}' -X POST "$BASE/api/public/device-qr/not-a-real-uid" -H 'Content-Type: application/json' --data '{}')
+          test "$CODE" = "401"
           CODE=$(curl -s -o /tmp/dashboard-page-unauth.html -w '%{http_code}' "$BASE/dashboard.html")
           test "$CODE" = "302"
           grep -qi 'login.html' /tmp/dashboard-page-unauth.html || true
