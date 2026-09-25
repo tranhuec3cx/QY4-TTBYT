@@ -137,6 +137,9 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 - Sao lưu SQLite thủ công.
 - Sao lưu tự động hằng ngày.
 - Giới hạn số bản sao lưu được giữ.
+- Backup SQLite cục bộ được kiểm tra bằng `PRAGMA quick_check`, loại bỏ session đăng nhập và đi kèm snapshot `uploads`.
+- Nếu cấu hình `QY4_BACKUP_MIRROR_DIR`, bản mirror cũng được mở và kiểm tra `quick_check`; mirror hỏng sẽ làm **Sẵn sàng triển khai** báo **Cần xử lý**.
+- Mirror đặt cùng filesystem/ổ với backup cục bộ chỉ là bản sao tiện dụng, chưa thay thế dự phòng trên ổ/thư mục mạng khác.
 - Xác thực đăng nhập tùy chọn.
 - Phân quyền Quản trị viên / Kỹ sư TTBYT / Người dùng khoa.
 - Không cho xóa hoặc vô hiệu hóa Quản trị viên cuối cùng khi bật xác thực.
