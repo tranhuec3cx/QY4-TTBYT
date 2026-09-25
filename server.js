@@ -5183,6 +5183,15 @@ app.get("/api/system/readiness", (req, res) => {
       AND g.code IS NULL
   `).get().c;
   const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(qr_uid,''))=''").get().c;
+  const duplicateQrUidGroups = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT trim(qr_uid) qr_key
+      FROM devices
+      WHERE trim(COALESCE(qr_uid,''))<>''
+      GROUP BY trim(qr_uid)
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
   const duplicateSerialGroups = db.prepare(`
     SELECT COUNT(*) c FROM (
       SELECT lower(trim(serial)) k
@@ -5392,9 +5401,11 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"qr_uid",
-      level:missingQr===0 ? "Đạt" : "Cần xử lý",
+      level:(missingQr===0 && duplicateQrUidGroups===0) ? "Đạt" : "Cần xử lý",
       title:"QR UID cố định",
-      detail:missingQr===0 ? `Toàn bộ ${totalDevices} thiết bị đang quản lý đã có QR UID.` : `Còn ${missingQr} thiết bị chưa có QR UID.`
+      detail:(missingQr===0 && duplicateQrUidGroups===0)
+        ? `Toàn bộ ${totalDevices} thiết bị đang quản lý đã có QR UID duy nhất.`
+        : `Thiếu QR UID: ${missingQr}; nhóm QR UID trùng: ${duplicateQrUidGroups}. QR UID trùng phải được xác minh, không tự đổi vì có thể tem đã được in.`
     },
     {
       key:"duplicate_serial",
@@ -5458,6 +5469,7 @@ app.get("/api/system/readiness", (req, res) => {
       foreign_key_violations:foreignKeyViolations.length,
       active_users:activeUsers,
       total_devices:totalDevices,
+      duplicate_qr_uid_groups:duplicateQrUidGroups,
       missing_device_name:missingDeviceName,
       missing_device_department:missingDeviceDepartment,
       missing_device_group:missingDeviceGroup,
