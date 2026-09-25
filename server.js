@@ -5150,6 +5150,55 @@ async function ensureDailyBackup() {
   }
 }
 
+function transferConsistencySummary() {
+  const rows = db.prepare(`
+    SELECT t.id,t.device_id,t.transfer_datetime,
+           t.from_department_code,t.from_location,t.to_department_code,t.to_location,
+           dv.department_code AS current_department_code,dv.location AS current_location
+    FROM device_transfers t
+    JOIN devices dv ON dv.id=t.device_id
+    ORDER BY t.device_id ASC, t.transfer_datetime ASC, t.id ASC
+  `).all();
+  const norm = value => String(value ?? "").trim();
+  let chainMismatches=0;
+  const chainDevices=new Set();
+  const latestByDevice=new Map();
+  let previous=null;
+  for (const row of rows) {
+    if (previous && Number(previous.device_id)===Number(row.device_id)) {
+      const previousDepartment=norm(previous.to_department_code);
+      const nextFromDepartment=norm(row.from_department_code);
+      const previousLocation=norm(previous.to_location);
+      const nextFromLocation=norm(row.from_location);
+      const departmentMismatch=Boolean(previousDepartment && nextFromDepartment && previousDepartment!==nextFromDepartment);
+      const locationMismatch=Boolean(previousLocation && nextFromLocation && previousLocation!==nextFromLocation);
+      if (departmentMismatch || locationMismatch) {
+        chainMismatches += 1;
+        chainDevices.add(Number(row.device_id));
+      }
+    }
+    previous=row;
+    latestByDevice.set(Number(row.device_id),row);
+  }
+  let currentContextMismatches=0;
+  const currentDevices=new Set();
+  for (const [deviceId,row] of latestByDevice.entries()) {
+    const departmentMismatch=norm(row.to_department_code)!==norm(row.current_department_code);
+    const locationMismatch=norm(row.to_location)!==norm(row.current_location);
+    if (departmentMismatch || locationMismatch) {
+      currentContextMismatches += 1;
+      currentDevices.add(deviceId);
+    }
+  }
+  return {
+    transfer_rows:rows.length,
+    chain_mismatches:chainMismatches,
+    chain_devices:chainDevices.size,
+    current_context_mismatches:currentContextMismatches,
+    current_context_devices:currentDevices.size
+  };
+}
+
 app.get("/api/system/readiness", (req, res) => {
   const backups = listDatabaseBackups();
   const latestBackup = backups[0] || "";
@@ -5201,6 +5250,7 @@ app.get("/api/system/readiness", (req, res) => {
       HAVING COUNT(*)>1
     )
   `).get().c;
+  const transferConsistency = transferConsistencySummary();
   const activeAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND trim(COALESCE(password_hash,''))<>''").get().c;
   const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
   const activeUsersMissingPassword = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND trim(COALESCE(password_hash,''))=''").get().c;
@@ -5414,6 +5464,18 @@ app.get("/api/system/readiness", (req, res) => {
       detail:duplicateSerialGroups===0 ? "Không phát hiện nhóm Serial trùng." : `Có ${duplicateSerialGroups} nhóm Serial trùng cần xác minh.`
     },
     {
+      key:"transfer_history",
+      level:transferConsistency.chain_mismatches>0
+        ? "Cần xử lý"
+        : (transferConsistency.current_context_mismatches>0 ? "Lưu ý" : "Đạt"),
+      title:"Nhất quán lịch sử điều chuyển",
+      detail:transferConsistency.chain_mismatches>0
+        ? `Phát hiện ${transferConsistency.chain_mismatches} điểm đứt chuỗi trên ${transferConsistency.chain_devices} thiết bị: nơi kết thúc lần trước không khớp nơi bắt đầu lần sau. Không tự sửa lịch sử; cần đối chiếu biên bản trước khi chạy thật.`
+        : (transferConsistency.current_context_mismatches>0
+            ? `Chuỗi điều chuyển liên tục nhưng có ${transferConsistency.current_context_mismatches} thiết bị có khoa/vị trí hiện tại khác điểm đến của lần điều chuyển cuối. Có thể do dữ liệu legacy từng sửa trực tiếp; cần rà thủ công.`
+            : `Toàn bộ ${transferConsistency.transfer_rows} bản ghi điều chuyển có chuỗi liên tục và điểm đến cuối khớp trạng thái hiện tại.`)
+    },
+    {
       key:"incidents",
       level:unacknowledged===0 ? "Đạt" : "Lưu ý",
       title:"Sự cố chưa tiếp nhận",
@@ -5499,6 +5561,11 @@ app.get("/api/system/readiness", (req, res) => {
       open_repairs:openRepairs,
       duplicate_open_repair_devices:duplicateOpenRepairDevices,
       open_repair_status_mismatches:openRepairStatusMismatches,
+      transfer_history_rows:transferConsistency.transfer_rows,
+      transfer_chain_mismatches:transferConsistency.chain_mismatches,
+      transfer_chain_devices:transferConsistency.chain_devices,
+      transfer_current_context_mismatches:transferConsistency.current_context_mismatches,
+      transfer_current_context_devices:transferConsistency.current_context_devices,
       open_inventory_sessions:openInventorySessions
     }
   });
