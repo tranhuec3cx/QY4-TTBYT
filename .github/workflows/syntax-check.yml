@@ -893,13 +893,51 @@ jobs:
           if(Number(r.system?.open_repair_status_mismatches||0)<1) throw new Error("Open repair/device status mismatch was not detected");
           console.log("Dirty legacy repair readiness detection passed");
           NODE
-          node - "$DIRTY_REPAIR" "$DEVICE_ID" <<'NODE'
+          curl -fsS -X PUT "$BASE/api/repairs/$DIRTY_REPAIR" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:06\",\"issue\":\"Dữ liệu bẩn legacy CI\",\"work\":\"Khép một trong hai phiếu mở\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"Đạt\",\"processing_status\":\"Đã hoàn thành\",\"status_after\":\"Đang hoạt động\"}" >/tmp/dirty-repair-complete.json
+          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-dirty-complete.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const r=JSON.parse(fs.readFileSync("/tmp/dirty-repair-complete.json","utf8"));
+          const d=JSON.parse(fs.readFileSync("/tmp/device-after-dirty-complete.json","utf8"));
+          if(r.device_status!=="Chờ sửa chữa" || d.status!=="Chờ sửa chữa") throw new Error("Completing one duplicate repair incorrectly reopened the device");
+          console.log("Duplicate-open repair completion kept device in repair");
+          NODE
+
+          node - "$DIRTY_REPAIR" "$DEVICE_ID" "$TODAY" <<'NODE'
           const Database=require("better-sqlite3");
           const db=new Database("db/qy4_ttbyt.sqlite");
           db.pragma("busy_timeout=5000");
           db.prepare("DELETE FROM repairs WHERE id=?").run(Number(process.argv[2]));
-          db.prepare("UPDATE devices SET status='Chờ sửa chữa' WHERE id=?").run(Number(process.argv[3]));
+          const deviceId=Number(process.argv[3]);
+          const day=process.argv[4];
+          const info=db.prepare(`
+            INSERT INTO repairs
+              (device_id,repair_date,issue,work,person,cost,result,status_after,status_before,processing_status,received_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(deviceId,day+" 16:07:00","Phiếu legacy nhập nhầm để thử xóa","","CI",0,"","Chờ sửa chữa","Đang hoạt động","Đang xử lý",day+" 16:07:00",day+" 16:07:00");
           db.close();
+          process.stdout.write(String(info.lastInsertRowid));
+          NODE
+          DIRTY_DELETE_REPAIR=$(node - "$DEVICE_ID" "$TODAY" <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.pragma("busy_timeout=5000");
+          const deviceId=Number(process.argv[2]);
+          const day=process.argv[3];
+          const row=db.prepare("SELECT id FROM repairs WHERE device_id=? AND issue=? ORDER BY id DESC LIMIT 1").get(deviceId,"Phiếu legacy nhập nhầm để thử xóa");
+          db.close();
+          if(!row) process.exit(1);
+          process.stdout.write(String(row.id));
+          NODE
+          )
+          curl -fsS -X DELETE "$BASE/api/repairs/$DIRTY_DELETE_REPAIR" >/tmp/dirty-delete-repair.json
+          curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-after-dirty-delete.json
+          node - <<'NODE'
+          const fs=require("fs");
+          const r=JSON.parse(fs.readFileSync("/tmp/dirty-delete-repair.json","utf8"));
+          const d=JSON.parse(fs.readFileSync("/tmp/device-after-dirty-delete.json","utf8"));
+          if(r.restored_device_status!=="Chờ sửa chữa" || d.status!=="Chờ sửa chữa") throw new Error("Deleting one duplicate repair incorrectly restored the pre-repair device status");
+          console.log("Duplicate-open repair deletion kept device in repair");
           NODE
 
           curl -fsS -X DELETE "$BASE/api/repairs/$STANDALONE_REPAIR" >/tmp/standalone-delete.json
