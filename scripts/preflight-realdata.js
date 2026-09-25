@@ -89,6 +89,7 @@ try {
   } else {
     const dcols = columnSet("devices");
     const devices = db.prepare("SELECT * FROM devices").all();
+    const activeClause = dcols.has("is_archived") ? "COALESCE(is_archived,0)=0 AND " : "";
     stats.devices = devices.length;
     emit("OK", `Đọc được ${devices.length} thiết bị.`);
 
@@ -96,7 +97,7 @@ try {
       emit("WARN", "Database chưa có qr_uid; RC hỗ trợ tự sinh QR UID khi migration.");
       stats.duplicate_qr_uid_groups = 0;
     } else {
-      const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND TRIM(COALESCE(qr_uid,''))=''").get().c;
+      const missingQr = db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(qr_uid,''))=''`).get().c;
       const duplicateQr = db.prepare(`
         SELECT COUNT(*) c FROM (
           SELECT TRIM(qr_uid) qr_key
@@ -114,7 +115,6 @@ try {
       }
     }
 
-    const activeClause = dcols.has("is_archived") ? "COALESCE(is_archived,0)=0 AND " : "";
     const missingName = db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(name,''))=''`).get().c;
     const missingDepartment = dcols.has("department_code")
       ? db.prepare(`SELECT COUNT(*) c FROM devices WHERE ${activeClause}TRIM(COALESCE(department_code,''))=''`).get().c
