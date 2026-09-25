@@ -1261,8 +1261,87 @@ function ensureCoreManagementSchema() {
       note TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
     );
-    CREATE INDEX IF NOT EXISTS idx_device_transfers_device ON device_transfers(device_id, transfer_datetime);
+  `);
 
+  // Migration cho schema điều chuyển cũ (R15 và các bản trước RC).
+  // Không đổi tên/xóa cột legacy để bảo toàn dữ liệu và file biên bản cũ;
+  // chỉ bổ sung cột chuẩn mới rồi backfill trước khi tạo index/đọc lịch sử.
+  const transferCols = db.prepare("PRAGMA table_info(device_transfers)").all().map(c => c.name);
+  const ensureTransferColumn = (name, definition = "TEXT") => {
+    if (!transferCols.includes(name)) {
+      db.exec(`ALTER TABLE device_transfers ADD COLUMN ${name} ${definition}`);
+      transferCols.push(name);
+    }
+  };
+  ensureTransferColumn("transfer_datetime");
+  ensureTransferColumn("from_department_code");
+  ensureTransferColumn("from_location");
+  ensureTransferColumn("to_department_code");
+  ensureTransferColumn("to_location");
+  ensureTransferColumn("reason");
+  ensureTransferColumn("actor");
+  ensureTransferColumn("note");
+
+  const hasTransferColumn = (name) => transferCols.includes(name);
+  if (hasTransferColumn("transfer_date")) {
+    const createdExpr = hasTransferColumn("created_at") ? "NULLIF(TRIM(created_at),'')" : "NULL";
+    db.exec(`
+      UPDATE device_transfers
+      SET transfer_datetime = COALESCE(
+        NULLIF(TRIM(transfer_datetime),''),
+        CASE
+          WHEN LENGTH(TRIM(COALESCE(transfer_date,''))) > 10 THEN TRIM(transfer_date)
+          WHEN LENGTH(TRIM(COALESCE(transfer_date,''))) = 10
+               AND ${createdExpr} IS NOT NULL
+               AND SUBSTR(${createdExpr},1,10)=TRIM(transfer_date)
+            THEN ${createdExpr}
+          WHEN LENGTH(TRIM(COALESCE(transfer_date,''))) = 10
+            THEN TRIM(transfer_date) || ' 00:00:00'
+          ELSE ${createdExpr}
+        END
+      )
+      WHERE transfer_datetime IS NULL OR TRIM(transfer_datetime)=''
+    `);
+  }
+  if (hasTransferColumn("from_department")) {
+    db.exec(`
+      UPDATE device_transfers
+      SET from_department_code=COALESCE(NULLIF(TRIM(from_department_code),''),NULLIF(TRIM(from_department),''))
+      WHERE from_department_code IS NULL OR TRIM(from_department_code)=''
+    `);
+  }
+  if (hasTransferColumn("to_department")) {
+    db.exec(`
+      UPDATE device_transfers
+      SET to_department_code=COALESCE(NULLIF(TRIM(to_department_code),''),NULLIF(TRIM(to_department),''))
+      WHERE to_department_code IS NULL OR TRIM(to_department_code)=''
+    `);
+  }
+  const actorCandidates = ["giver","approved_by","receiver"].filter(hasTransferColumn);
+  if (actorCandidates.length) {
+    const actorExpr = actorCandidates.map(c => `NULLIF(TRIM(${c}),'')`).join(",");
+    db.exec(`
+      UPDATE device_transfers
+      SET actor=COALESCE(NULLIF(TRIM(actor),''),${actorExpr},'Dữ liệu cũ')
+      WHERE actor IS NULL OR TRIM(actor)=''
+    `);
+  }
+  db.exec(`
+    UPDATE device_transfers
+    SET transfer_datetime=COALESCE(NULLIF(TRIM(transfer_datetime),''),'1970-01-01 00:00:00'),
+        to_department_code=COALESCE(
+          NULLIF(TRIM(to_department_code),''),
+          (SELECT NULLIF(TRIM(dv.department_code),'') FROM devices dv WHERE dv.id=device_transfers.device_id),
+          'NN'
+        ),
+        actor=COALESCE(NULLIF(TRIM(actor),''),'Dữ liệu cũ')
+    WHERE transfer_datetime IS NULL OR TRIM(transfer_datetime)=''
+       OR to_department_code IS NULL OR TRIM(to_department_code)=''
+       OR actor IS NULL OR TRIM(actor)=''
+  `);
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_device_transfers_device ON device_transfers(device_id, transfer_datetime)").run();
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       action_time TEXT NOT NULL,
