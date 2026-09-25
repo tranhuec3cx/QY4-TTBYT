@@ -159,6 +159,28 @@ try {
 
   if (hasTable("users")) {
     const ucols = columnSet("users");
+    if (ucols.has("role") && ucols.has("department_code")) {
+      let unknownDepartmentUsers=0;
+      if (hasTable("departments")) {
+        unknownDepartmentUsers=Number(db.prepare(`
+          SELECT COUNT(*) c
+          FROM users u
+          LEFT JOIN departments d ON d.code=u.department_code
+          WHERE u.role='Người dùng khoa'
+            AND TRIM(COALESCE(u.department_code,''))<>''
+            AND d.code IS NULL
+        `).get().c || 0);
+      } else {
+        unknownDepartmentUsers=Number(db.prepare(`
+          SELECT COUNT(*) c FROM users
+          WHERE role='Người dùng khoa' AND TRIM(COALESCE(department_code,''))<>''
+        `).get().c || 0);
+      }
+      stats.department_users_unknown_department=unknownDepartmentUsers;
+      if (unknownDepartmentUsers) {
+        emit("BLOCK", `Có ${unknownDepartmentUsers} tài khoản Người dùng khoa tham chiếu khoa/phòng không tồn tại.`);
+      }
+    }
     if (ucols.has("username")) {
       const dupUsers = db.prepare(`
         SELECT lower(trim(username)) k, COUNT(*) c
