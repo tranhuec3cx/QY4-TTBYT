@@ -2426,35 +2426,56 @@ app.put("/api/repairs/:id", (req, res) => {
     };
     const repairError=validateRepairPayload(payload);
     if(repairError) return res.status(400).json({error:repairError});
-    db.prepare(`
-      UPDATE repairs SET
-        device_id=@device_id,
-        repair_date=@repair_date,
-        issue=@issue,
-        work=@work,
-        person=@person,
-        priority=@priority,
-        reporter=@reporter,
-        note=@note,
-        method=@method,
-        cost=@cost,
-        result=@result,
-        status_after=@status_after,
-        processing_status=@processing_status,
-        incident_id=@incident_id,
-        received_at=@received_at,
-        updated_at=@updated_at,
-        completed_at=@completed_at
-      WHERE id=@id
-    `).run(payload);
-    db.prepare(`UPDATE devices SET status=? WHERE id=?`).run(payload.status_after, payload.device_id);
-    if (!p.skip_history) {
-      const actionType = payload.processing_status === "Đã hoàn thành" ? "Hoàn thành" : (payload.processing_status === "Không sửa được" ? "Không sửa được" : "Cập nhật");
-      const note = payload.work || payload.result || payload.issue || "Cập nhật phiếu sửa chữa";
-      writeHistory("repair", Number(req.params.id), payload.person || "Khoa Trang bị", actionType, old.processing_status || "", payload.processing_status || "", note, payload.cost, actionType, p.action_time || payload.updated_at);
-      writeAudit(requestActor(req, payload.person || "Khoa Trang bị"), "Cập nhật sửa chữa", "repair", req.params.id, `${old.processing_status || ""} → ${payload.processing_status || ""} | ${note}`);
-    }
-    res.json({ ok: true });
+    let appliedDeviceStatus = payload.status_after;
+    const tx=db.transaction(()=>{
+      db.prepare(`
+        UPDATE repairs SET
+          device_id=@device_id,
+          repair_date=@repair_date,
+          issue=@issue,
+          work=@work,
+          person=@person,
+          priority=@priority,
+          reporter=@reporter,
+          note=@note,
+          method=@method,
+          cost=@cost,
+          result=@result,
+          status_after=@status_after,
+          processing_status=@processing_status,
+          incident_id=@incident_id,
+          received_at=@received_at,
+          updated_at=@updated_at,
+          completed_at=@completed_at
+        WHERE id=@id
+      `).run(payload);
+
+      const otherOpenRepair = db.prepare(`
+        SELECT id
+        FROM repairs
+        WHERE device_id=? AND id<>?
+          AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+        ORDER BY id DESC
+        LIMIT 1
+      `).get(payload.device_id, payload.id);
+      appliedDeviceStatus = otherOpenRepair ? "Chờ sửa chữa" : payload.status_after;
+      db.prepare("UPDATE devices SET status=? WHERE id=?").run(appliedDeviceStatus, payload.device_id);
+
+      if (!p.skip_history) {
+        const actionType = payload.processing_status === "Đã hoàn thành" ? "Hoàn thành" : (payload.processing_status === "Không sửa được" ? "Không sửa được" : "Cập nhật");
+        const note = payload.work || payload.result || payload.issue || "Cập nhật phiếu sửa chữa";
+        writeHistory("repair", Number(req.params.id), payload.person || "Khoa Trang bị", actionType, old.processing_status || "", payload.processing_status || "", note, payload.cost, actionType, p.action_time || payload.updated_at);
+        writeAudit(
+          requestActor(req, payload.person || "Khoa Trang bị"),
+          "Cập nhật sửa chữa",
+          "repair",
+          req.params.id,
+          `${old.processing_status || ""} → ${payload.processing_status || ""} | trạng thái máy: ${appliedDeviceStatus} | ${note}`
+        );
+      }
+    });
+    tx();
+    res.json({ ok: true, device_status: appliedDeviceStatus });
   } catch (e) {
     console.error("PUT /api/repairs/:id error:", e);
     res.status(500).json({ error: e.message });
@@ -2468,14 +2489,31 @@ app.delete("/api/repairs/:id", (req, res) => {
     if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
     const policy=repairDeletePolicy(old);
     if(!policy.can_delete) return res.status(409).json({error:policy.reason});
+    let restoredDeviceStatus=old.status_before;
     const tx=db.transaction(()=>{
       writeHistory("repair", id, old.person || "Khoa Trang bị", "Xóa", old.processing_status || "", "", old.issue || old.work || "Xóa phiếu sửa chữa", old.cost || 0, "Cập nhật");
       db.prepare("DELETE FROM repairs WHERE id=?").run(id);
-      db.prepare("UPDATE devices SET status=? WHERE id=?").run(old.status_before, old.device_id);
-      writeAudit(requestActor(req, old.person || "Khoa Trang bị"), "Xóa phiếu sửa chữa", "repair", id, `Khôi phục trạng thái thiết bị: ${old.status_before}`);
+      const otherOpenRepair=db.prepare(`
+        SELECT id
+        FROM repairs
+        WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+        ORDER BY id DESC
+        LIMIT 1
+      `).get(old.device_id);
+      restoredDeviceStatus=otherOpenRepair ? "Chờ sửa chữa" : old.status_before;
+      db.prepare("UPDATE devices SET status=? WHERE id=?").run(restoredDeviceStatus, old.device_id);
+      writeAudit(
+        requestActor(req, old.person || "Khoa Trang bị"),
+        "Xóa phiếu sửa chữa",
+        "repair",
+        id,
+        otherOpenRepair
+          ? `Đã xóa phiếu nhập nhầm; còn phiếu sửa chữa #${otherOpenRepair.id} đang mở nên giữ trạng thái Chờ sửa chữa.`
+          : `Khôi phục trạng thái thiết bị: ${old.status_before}`
+      );
     });
     tx();
-    res.json({ ok: true, restored_device_status: old.status_before });
+    res.json({ ok: true, restored_device_status: restoredDeviceStatus });
   } catch(e) {
     console.error("DELETE /api/repairs/:id error:",e);
     res.status(500).json({error:e.message});
