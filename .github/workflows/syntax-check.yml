@@ -1146,6 +1146,78 @@ jobs:
           CODE=$(curl -s -o /tmp/linked-repair-delete.json -w '%{http_code}' -X DELETE "$BASE/api/repairs/$SNAP_REPAIR")
           test "$CODE" = "409"
 
+          curl -fsS "$BASE/api/system/readiness" >/tmp/linkage-baseline-readiness.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/linkage-baseline-readiness.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="incident_repair_linkage");
+          if(c?.level!=="Đạt") throw new Error("Incident-repair linkage baseline invalid: "+JSON.stringify(c));
+          console.log("Incident-repair linkage readiness baseline passed");
+          NODE
+
+          node - "$SNAP_REPAIR" "$TODAY" <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.pragma("busy_timeout=5000");
+          db.pragma("foreign_keys=OFF");
+          const repairId=Number(process.argv[2]);
+          const day=process.argv[3];
+          const linked=db.prepare(`
+            SELECT r.incident_id,i.device_id
+            FROM repairs r JOIN incidents i ON i.id=r.incident_id
+            WHERE r.id=?
+          `).get(repairId);
+          if(!linked?.incident_id) throw new Error("Linked repair fixture missing incident");
+          const other=db.prepare("SELECT id FROM devices WHERE id<>? ORDER BY id LIMIT 1").get(Number(linked.device_id));
+          if(!other) throw new Error("Need another device for linkage corruption test");
+          db.prepare(`
+            INSERT INTO repairs
+              (device_id,repair_date,issue,work,person,cost,result,status_after,status_before,processing_status,incident_id,received_at,updated_at,completed_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(Number(other.id),day+" 15:50:00","CI_LINKAGE_WRONG_DEVICE","Dữ liệu bẩn mô phỏng","CI",0,"Đạt","Đang hoạt động","Đang hoạt động","Đã hoàn thành",Number(linked.incident_id),day+" 15:50:00",day+" 15:50:00",null);
+          db.prepare(`
+            INSERT INTO repairs
+              (device_id,repair_date,issue,work,person,cost,result,status_after,status_before,processing_status,incident_id,received_at,updated_at,completed_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          `).run(Number(other.id),day+" 15:51:00","CI_LINKAGE_ORPHAN","Dữ liệu bẩn mô phỏng","CI",0,"Đạt","Đang hoạt động","Đang hoạt động","Đã hoàn thành",999999999,day+" 15:51:00",day+" 15:51:00",day+" 15:51:00");
+          db.close();
+          NODE
+
+          set +e
+          node scripts/preflight-realdata.js --db db/qy4_ttbyt.sqlite --uploads uploads --json >/tmp/linkage-dirty-preflight.json
+          LINKAGE_PREFLIGHT_CODE=$?
+          set -e
+          test "$LINKAGE_PREFLIGHT_CODE" = "2"
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/linkage-dirty-preflight.json","utf8"));
+          if(Number(r.stats?.orphan_repair_incident_refs||0)<1) throw new Error("Preflight missed orphan incident reference");
+          if(Number(r.stats?.incident_repair_device_mismatches||0)<1) throw new Error("Preflight missed incident/repair device mismatch");
+          if(Number(r.stats?.incidents_with_multiple_repairs||0)<1) throw new Error("Preflight missed multiple linked repairs");
+          if(!(r.blockers||[]).some(x=>String(x).includes("Sự cố – Sửa chữa"))) throw new Error("Preflight linkage blocker text missing");
+          console.log("Incident-repair linkage preflight blocking passed");
+          NODE
+
+          curl -fsS "$BASE/api/system/readiness" >/tmp/linkage-dirty-readiness.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/linkage-dirty-readiness.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="incident_repair_linkage");
+          if(c?.level!=="Cần xử lý") throw new Error("Readiness did not block dirty incident-repair linkage: "+JSON.stringify(c));
+          if(Number(r.system?.orphan_repair_incident_refs||0)<1) throw new Error("Readiness missed orphan incident reference");
+          if(Number(r.system?.incident_repair_device_mismatches||0)<1) throw new Error("Readiness missed device mismatch");
+          if(Number(r.system?.incidents_with_multiple_repairs||0)<1) throw new Error("Readiness missed multiple linked repairs");
+          if(Number(r.system?.terminal_linked_repairs_missing_completion||0)<1) throw new Error("Readiness missed terminal repair without completed_at");
+          console.log("Incident-repair linkage readiness blocking passed");
+          NODE
+
+          node - <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database("db/qy4_ttbyt.sqlite");
+          db.pragma("foreign_keys=OFF");
+          db.prepare("DELETE FROM repairs WHERE issue IN ('CI_LINKAGE_WRONG_DEVICE','CI_LINKAGE_ORPHAN')").run();
+          db.close();
+          NODE
+          curl -fsS "$BASE/api/system/readiness" >/tmp/linkage-clean-readiness.json
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/linkage-clean-readiness.json","utf8")); const c=(r.checks||[]).find(x=>x.key==="incident_repair_linkage"); if(c?.level!=="Đạt") throw new Error("Linkage readiness did not return to clean baseline: "+JSON.stringify(c));'
+
           curl -fsS -X POST "$BASE/api/repairs" -H 'Content-Type: application/json' --data "{\"device_id\":$DEVICE_ID,\"repair_date\":\"$TODAY 16:00\",\"issue\":\"Phiếu độc lập kiểm thử\",\"work\":\"Chờ xử lý\",\"person\":\"CI\",\"method\":\"Nội bộ\",\"cost\":0,\"result\":\"\",\"processing_status\":\"Đang xử lý\"}" >/tmp/standalone-repair.json
           STANDALONE_REPAIR=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/standalone-repair.json","utf8")).id')
           curl -fsS "$BASE/api/devices/$DEVICE_ID" >/tmp/device-during-standalone.json
