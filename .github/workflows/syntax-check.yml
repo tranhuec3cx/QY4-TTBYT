@@ -221,8 +221,25 @@ jobs:
           if(t.from_department_code!=="A12" || t.to_department_code!=="A2") throw new Error("Legacy department-code backfill failed: "+JSON.stringify(t));
           if(t.from_location!=="Buồng HSTC 2" || t.to_location!=="P1") throw new Error("Legacy transfer locations changed");
           if(t.actor!=="A") throw new Error("Legacy transfer actor backfill failed: "+t.actor);
+          if(t.transfer_date!=="2026-09-06" || t.movement_type!=="Điều chuyển") throw new Error("Legacy transfer metadata was not preserved");
           console.log("Legacy R15 transfer schema migration passed");
           NODE
+
+          curl -fsS -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"LEG","name":"Khoa sau nâng cấp legacy"}' >/tmp/legacy-r15-new-dept.json
+          curl -fsS -X POST "$BASE/api/devices/1/transfer" -H 'Content-Type: application/json' --data '{"to_department_code":"LEG","to_location":"Vị trí sau nâng cấp","reason":"Kiểm thử tạo điều chuyển mới sau migration","actor":"CI migration"}' >/tmp/legacy-r15-new-transfer.json
+          LEG_NEW_TRANSFER=$(node -p 'JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-new-transfer.json","utf8")).id')
+          test -n "$LEG_NEW_TRANSFER"
+          curl -fsS "$BASE/api/devices/1/transfers" >/tmp/legacy-r15-transfers-after-new.json
+          node - "$LEG_NEW_TRANSFER" <<'NODE'
+          const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-transfers-after-new.json","utf8"));
+          const id=Number(process.argv[2]);
+          const t=rows.find(x=>Number(x.id)===id);
+          if(!t || t.to_department_code!=="LEG" || t.to_location!=="Vị trí sau nâng cấp") throw new Error("New transfer failed after legacy table rebuild: "+JSON.stringify(t));
+          const legacy=rows.find(x=>Number(x.id)===1);
+          if(!legacy || legacy.from_department_code!=="A12" || legacy.to_department_code!=="A2") throw new Error("Legacy transfer changed after creating new transfer");
+          console.log("New transfer after legacy R15 migration passed");
+          NODE
+
           curl -fsS "$BASE/api/checks?preset=custom&from_date=2026-09-05&to_date=2026-09-05" >/tmp/legacy-r15-checks.json
           node - <<'NODE'
           const rows=JSON.parse(require("fs").readFileSync("/tmp/legacy-r15-checks.json","utf8"));
