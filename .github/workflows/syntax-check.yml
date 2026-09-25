@@ -1533,6 +1533,7 @@ jobs:
           SNAP_FILE_COUNT=$(find "$BACKUP_FILES" -type f 2>/dev/null | wc -l | tr -d ' ')
           test "$SRC_FILE_COUNT" = "$SNAP_FILE_COUNT"
           node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();const has=db.prepare("SELECT name FROM sqlite_master WHERE type=? AND name=?").get("table","auth_sessions");const sessions=has?db.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c:0;db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Backup quick_check failed");if(Number(sessions)!==0)throw new Error("Backup still contains active login sessions")' "backups/$BACKUP_NAME"
+          node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();const has=db.prepare("SELECT name FROM sqlite_master WHERE type=? AND name=?").get("table","auth_sessions");const sessions=has?db.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c:0;db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Mirror backup quick_check failed");if(Number(sessions)!==0)throw new Error("Mirror backup still contains active login sessions")' "/tmp/qy4-backup-mirror/$BACKUP_NAME"
           curl -fsS -b /tmp/admin-cookie.txt "$BASE/api/system/readiness" >/tmp/auth-readiness.json
           node - <<'NODE'
           const fs=require("fs");
@@ -1544,11 +1545,23 @@ jobs:
             if(m.get(key)?.level!=="Đạt") throw new Error("Readiness failed for "+key+": "+JSON.stringify(m.get(key)));
           }
           if(r.system?.backup_mirror_configured!==true || r.system?.latest_backup_mirrored!==true) throw new Error("Backup mirror readiness flags failed");
+          if(r.system?.latest_backup_mirror_integrity!=="ok" || Number(r.system?.latest_backup_mirror_sessions||0)!==0) throw new Error("Mirror integrity/session checks failed");
           if(m.get("backup_off_device")?.level!=="Lưu ý") throw new Error("Same-filesystem CI mirror must remain a warning");
           if(r.system?.backup_mirror_separate_storage!==false || r.system?.backup_mirror_same_filesystem!==true) throw new Error("Mirror storage separation detection failed");
           if(m.get("transport_security")?.level!=="Lưu ý" || r.system?.https!==false) throw new Error("HTTP authenticated deployment must remain a transport-security warning");
           console.log("Authenticated readiness checklist passed");
           NODE
+
+          cp "/tmp/qy4-backup-mirror/$BACKUP_NAME" "/tmp/qy4-backup-mirror/$BACKUP_NAME.good"
+          printf 'broken mirror ci' > "/tmp/qy4-backup-mirror/$BACKUP_NAME"
+          curl -fsS -b /tmp/admin-cookie.txt "$BASE/api/system/readiness" >/tmp/auth-readiness-broken-mirror.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/auth-readiness-broken-mirror.json","utf8"));
+          const c=(r.checks||[]).find(x=>x.key==="backup_off_device");
+          if(c?.level!=="Cần xử lý" || r.system?.latest_backup_mirror_integrity!=="error") throw new Error("Corrupt mirror was not blocked by readiness: "+JSON.stringify(c));
+          console.log("Corrupt mirror detection passed");
+          NODE
+          mv "/tmp/qy4-backup-mirror/$BACKUP_NAME.good" "/tmp/qy4-backup-mirror/$BACKUP_NAME"
           echo "Authentication and role smoke test passed"
 
       - name: Smoke test authenticated demo reset
