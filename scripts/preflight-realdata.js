@@ -94,10 +94,24 @@ try {
 
     if (!dcols.has("qr_uid")) {
       emit("WARN", "Database chưa có qr_uid; RC hỗ trợ tự sinh QR UID khi migration.");
+      stats.duplicate_qr_uid_groups = 0;
     } else {
       const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND TRIM(COALESCE(qr_uid,''))=''").get().c;
+      const duplicateQr = db.prepare(`
+        SELECT COUNT(*) c FROM (
+          SELECT TRIM(qr_uid) qr_key
+          FROM devices
+          WHERE TRIM(COALESCE(qr_uid,''))<>''
+          GROUP BY TRIM(qr_uid)
+          HAVING COUNT(*)>1
+        )
+      `).get().c;
       stats.missing_qr_uid = Number(missingQr || 0);
+      stats.duplicate_qr_uid_groups = Number(duplicateQr || 0);
       if (missingQr) emit("WARN", `Có ${missingQr} thiết bị đang quản lý chưa có QR UID; RC sẽ tự bổ sung khi migration.`);
+      if (duplicateQr) {
+        emit("BLOCK", `Có ${duplicateQr} nhóm QR UID bị trùng. Không tự sinh lại vì có thể tem QR đã được in; phải xác minh thiết bị trước migration.`);
+      }
     }
 
     const activeClause = dcols.has("is_archived") ? "COALESCE(is_archived,0)=0 AND " : "";
