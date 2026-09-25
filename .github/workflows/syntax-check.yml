@@ -41,6 +41,7 @@ jobs:
           if(js.includes('department_code: q("generalDepartment").value')) throw new Error("General form can bypass transfer department history");
           if(js.includes('location: q("generalLocation").value.trim()')) throw new Error("General form can bypass transfer location history");
           if(!js.includes('/api/devices/${DEVICE_ID}/transfer')) throw new Error("Transfer workflow missing");
+          if(!html.includes("<th>Hồ sơ</th>") || !js.includes("transferFileHref")) throw new Error("Legacy transfer attachment UI missing");
           const maintenanceJs=fs.readFileSync("public/maintenance.js","utf8");
           if(!maintenanceJs.includes('q("repairStatus").disabled = isTerminal')) throw new Error("Terminal repair status must be locked in edit UI");
           if(!maintenanceJs.includes('q("repairStatus").disabled = false')) throw new Error("Repair status control must reset for new records");
@@ -150,15 +151,17 @@ jobs:
             VALUES
               (1,'A2','MON','Thiết bị legacy R15','CI','R15-LEGACY',2020,'Đang hoạt động',3,'R15-LEGACY-001','VN','P1','A2.MON.0001');
             INSERT INTO device_transfers
-              (device_id,transfer_date,from_department,to_department,from_location,to_location,reason,approved_by,receiver,note,created_at,movement_type,giver,status_before,status_after)
+              (device_id,transfer_date,from_department,to_department,from_location,to_location,reason,approved_by,receiver,note,created_at,movement_type,giver,status_before,status_after,document_original_name,document_stored_name,document_file_path,document_file_mime,document_file_size)
             VALUES
-              (1,'2026-09-06','A12','A2','Buồng HSTC 2','P1','Điều chuyển legacy R15','C','B','Giữ lịch sử R15','2026-09-06 12:14:46','Điều chuyển','A','Đang hoạt động','Đang hoạt động');
+              (1,'2026-09-06','A12','A2','Buồng HSTC 2','P1','Điều chuyển legacy R15','C','B','Giữ lịch sử R15','2026-09-06 12:14:46','Thu hồi','A','Đang hoạt động','Đang hoạt động','bien-ban-legacy.txt','legacy-transfer.txt','/uploads/documents/legacy-transfer.txt','text/plain',18);
             INSERT INTO daily_checks
               (device_id,check_datetime,inspector,content,result,note)
             VALUES
               (1,'2026-09-05 09:00:00','CI R15','Kiểm tra trước điều chuyển','Đạt','Legacy check');
           `);
           db.close();
+          fs.mkdirSync("uploads/documents",{recursive:true});
+          fs.writeFileSync("uploads/documents/legacy-transfer.txt","bien ban legacy ci\n");
           NODE
       - name: Dependency audit summary
         run: |
@@ -233,9 +236,11 @@ jobs:
           if(t.from_department_code!=="A12" || t.to_department_code!=="A2") throw new Error("Legacy department-code backfill failed: "+JSON.stringify(t));
           if(t.from_location!=="Buồng HSTC 2" || t.to_location!=="P1") throw new Error("Legacy transfer locations changed");
           if(t.actor!=="A") throw new Error("Legacy transfer actor backfill failed: "+t.actor);
-          if(t.transfer_date!=="2026-09-06" || t.movement_type!=="Điều chuyển") throw new Error("Legacy transfer metadata was not preserved");
+          if(t.transfer_date!=="2026-09-06" || t.movement_type!=="Thu hồi") throw new Error("Legacy transfer metadata was not preserved");
+          if(t.document_file_path!=="/uploads/documents/legacy-transfer.txt" || t.document_original_name!=="bien-ban-legacy.txt") throw new Error("Legacy transfer attachment metadata was not preserved");
           console.log("Legacy R15 transfer schema migration passed");
           NODE
+          test "$(curl -fsS "$BASE/uploads/documents/legacy-transfer.txt")" = "bien ban legacy ci"
 
           curl -fsS -X POST "$BASE/api/departments" -H 'Content-Type: application/json' --data '{"code":"LEG","name":"Khoa sau nâng cấp legacy"}' >/tmp/legacy-r15-new-dept.json
           curl -fsS -X POST "$BASE/api/devices/1/transfer" -H 'Content-Type: application/json' --data '{"to_department_code":"LEG","to_location":"Vị trí sau nâng cấp","reason":"Kiểm thử tạo điều chuyển mới sau migration","actor":"CI migration"}' >/tmp/legacy-r15-new-transfer.json
