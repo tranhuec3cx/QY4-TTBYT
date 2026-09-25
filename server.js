@@ -4817,6 +4817,22 @@ function copyDirectoryRecursive(sourceDir,targetDir){
 function mirrorFilesDirFor(filename){
   return backupMirrorDir ? path.join(backupMirrorDir,String(filename||"").replace(/\.sqlite$/i,".files")) : "";
 }
+function directoryFileStats(rootDir){
+  const out={count:0,bytes:0};
+  if(!rootDir || !fs.existsSync(rootDir)) return out;
+  for(const entry of fs.readdirSync(rootDir,{withFileTypes:true})){
+    const full=path.join(rootDir,entry.name);
+    if(entry.isDirectory()){
+      const child=directoryFileStats(full);
+      out.count+=child.count;
+      out.bytes+=child.bytes;
+    }else if(entry.isFile()){
+      out.count+=1;
+      try{out.bytes+=Number(fs.statSync(full).size||0);}catch{}
+    }
+  }
+  return out;
+}
 function mirrorBackupBundle(filename){
   if(!backupMirrorDir || !filename) return {configured:false,ok:false};
   fs.mkdirSync(backupMirrorDir,{recursive:true});
@@ -4854,10 +4870,21 @@ function backupMirrorStorageStatus(){
 function inspectMirrorBackup(filename){
   if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false,integrity:"missing",sessions:0,...backupMirrorStorageStatus()};
   const mirrorDb=path.join(backupMirrorDir,filename||"");
+  const localFiles=backupFilesDirFor(filename);
+  const mirrorFiles=mirrorFilesDirFor(filename);
+  const localFileStats=directoryFileStats(localFiles);
+  const mirrorFileStats=directoryFileStats(mirrorFiles);
   const out={
     configured:true,
     exists:fs.existsSync(mirrorDb),
-    files_exists:fs.existsSync(mirrorFilesDirFor(filename)),
+    files_exists:fs.existsSync(mirrorFiles),
+    files_match:fs.existsSync(mirrorFiles)
+      && localFileStats.count===mirrorFileStats.count
+      && localFileStats.bytes===mirrorFileStats.bytes,
+    local_files_count:localFileStats.count,
+    mirror_files_count:mirrorFileStats.count,
+    local_files_bytes:localFileStats.bytes,
+    mirror_files_bytes:mirrorFileStats.bytes,
     integrity:"missing",
     sessions:0,
     path:backupMirrorDir,
@@ -5130,7 +5157,7 @@ app.get("/api/system/readiness", (req, res) => {
       key:"backup_off_device",
       level:!backupMirrorDir
         ? "Lưu ý"
-        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists) || latestMirrorStatus.integrity!=="ok" || latestMirrorStatus.sessions>0
+        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists) || latestMirrorStatus.files_match!==true || latestMirrorStatus.integrity!=="ok" || latestMirrorStatus.sessions>0
             ? "Cần xử lý"
             : (latestMirrorStatus.separate_storage ? "Đạt" : "Lưu ý")),
       title:"Bản sao lưu thứ cấp ngoài máy chủ",
@@ -5138,13 +5165,15 @@ app.get("/api/system/readiness", (req, res) => {
         ? "Chưa cấu hình QY4_BACKUP_MIRROR_DIR. Backup hiện vẫn nằm trên cùng máy chủ; nên sao chép định kỳ sang USB/ổ khác/thư mục mạng được phép."
         : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists)
             ? `Đã cấu hình ${backupMirrorDir} nhưng gói backup mới nhất chưa có đủ database + file đính kèm tại vị trí thứ cấp.`
-            : (latestMirrorStatus.integrity!=="ok"
+            : (latestMirrorStatus.files_match!==true
+                ? `Snapshot file đính kèm ở mirror không khớp local: local ${latestMirrorStatus.local_files_count} file/${latestMirrorStatus.local_files_bytes} byte; mirror ${latestMirrorStatus.mirror_files_count} file/${latestMirrorStatus.mirror_files_bytes} byte.`
+                : (latestMirrorStatus.integrity!=="ok"
                 ? `Bản SQLite mirror mới nhất tại ${backupMirrorDir} không vượt qua quick_check; chưa được coi là bản sao an toàn.`
                 : (latestMirrorStatus.sessions>0
                     ? `Bản mirror mới nhất còn ${latestMirrorStatus.sessions} session đăng nhập; hãy tạo lại backup bằng phiên bản hiện tại.`
                     : (latestMirrorStatus.separate_storage
                         ? `Gói backup mới nhất đã được sao sang storage khác và quick_check=ok: ${backupMirrorDir}.`
-                        : `Gói backup mirror quick_check=ok tại ${backupMirrorDir} nhưng vị trí này vẫn cùng filesystem/ổ với backup cục bộ; chưa bảo vệ được tình huống hỏng ổ.`))))
+                        : `Gói backup mirror quick_check=ok tại ${backupMirrorDir} nhưng vị trí này vẫn cùng filesystem/ổ với backup cục bộ; chưa bảo vệ được tình huống hỏng ổ.`)))))
     },
     {
       key:"qr_origin",
@@ -5262,6 +5291,9 @@ app.get("/api/system/readiness", (req, res) => {
       latest_backup_mirrored:Boolean(latestMirrorStatus.exists && latestMirrorStatus.files_exists),
       latest_backup_mirror_integrity:latestMirrorStatus.integrity,
       latest_backup_mirror_sessions:latestMirrorStatus.sessions,
+      latest_backup_mirror_files_match:latestMirrorStatus.files_match,
+      latest_backup_mirror_files_count:latestMirrorStatus.mirror_files_count,
+      latest_backup_local_files_count:latestMirrorStatus.local_files_count,
       backup_mirror_separate_storage:Boolean(latestMirrorStatus.separate_storage),
       backup_mirror_same_filesystem:latestMirrorStatus.same_filesystem,
       missing_inspection_schedules:inspectionScheduleGaps.length,
