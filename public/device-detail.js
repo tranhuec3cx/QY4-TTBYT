@@ -206,6 +206,18 @@ async function saveGeneral() {
   toggleGeneral(false);
   await loadDevice();
 }
+async function archiveCurrentDevice() {
+  if (!DEVICE_ID || !DEVICE) return;
+  if (!confirm(`Lưu trữ thiết bị “${DEVICE.name || DEVICE.device_code || ""}”? Thiết bị sẽ ngừng xuất hiện trong danh sách đang quản lý nhưng QR và toàn bộ lịch sử vẫn được giữ.`)) return;
+  try {
+    await api(`/api/devices/${DEVICE_ID}`, { method:"DELETE" });
+    alert("Đã lưu trữ thiết bị. Hồ sơ và lịch sử kỹ thuật vẫn được bảo toàn.");
+    window.location.href="/index.html";
+  } catch (e) {
+    alert(e.message || "Chưa thể lưu trữ thiết bị.");
+  }
+}
+
 function toggleGeneral(editing) {
   if (DEVICE?.limited_view) return;
   q("infoGeneral").style.display = editing ? "none" : "grid";
@@ -238,6 +250,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   q("editGeneralBtn").onclick = () => toggleGeneral(true);
   q("saveGeneralBtn").onclick = saveGeneral;
   q("cancelGeneralBtn").onclick = () => toggleGeneral(false);
+  if (q("archiveDeviceBtn")) q("archiveDeviceBtn").onclick = archiveCurrentDevice;
 
 
   if (q("techFilterBtn")) q("techFilterBtn").onclick = loadTechnicalHistory;
