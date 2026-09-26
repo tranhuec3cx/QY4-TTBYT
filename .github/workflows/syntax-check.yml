@@ -2174,3 +2174,51 @@ jobs:
           cat /tmp/qy4-server.log || true
           cat /tmp/qy4-auth-server.log || true
           cat /tmp/qy4-demo-reset.log || true
+
+  windows-offline-bundle:
+    needs: node-check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install Windows dependencies
+        shell: pwsh
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed on Windows runner" }
+          node -e "require('better-sqlite3'); require('express'); require('multer'); require('exceljs'); require('qrcode-generator'); console.log('Windows runtime dependencies ok')"
+      - name: Build Windows offline release bundle
+        shell: pwsh
+        run: |
+          ./build-release-bundle.ps1 -Version "5.0.0-RC-${{ github.run_number }}-WINDOWS-OFFLINE" -IncludeDependencies
+          $zip = Get-ChildItem "./dist" -Filter "*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) { throw "Windows offline ZIP not created" }
+          Write-Host "Offline ZIP: $($zip.FullName)"
+      - name: Validate Windows offline bundle
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem "./dist" -Filter "*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) { throw "Offline ZIP missing" }
+          $out = Join-Path $env:RUNNER_TEMP "qy4-offline"
+          if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+          Expand-Archive -Path $zip.FullName -DestinationPath $out -Force
+          if (-not (Test-Path (Join-Path $out "node_modules\better-sqlite3"))) { throw "Offline bundle missing better-sqlite3" }
+          if (-not (Test-Path (Join-Path $out "verify-release-bundle.cmd"))) { throw "Offline bundle missing verifier" }
+          Push-Location $out
+          try {
+            node "scripts\verify-release-bundle.js" --json | Out-File -Encoding utf8 "$env:RUNNER_TEMP\offline-verify.json"
+            if ($LASTEXITCODE -ne 0) { throw "Offline bundle SHA256 verify failed" }
+            node -e "require('./node_modules/better-sqlite3'); require('./node_modules/express'); require('./node_modules/multer'); require('./node_modules/exceljs'); require('./node_modules/qrcode-generator'); console.log('Offline extracted runtime dependencies ok')"
+          } finally {
+            Pop-Location
+          }
+      - name: Upload Windows offline release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: QY4-TTBYT-5.0.0-RC-${{ github.run_number }}-WINDOWS-OFFLINE
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
