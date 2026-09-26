@@ -1885,6 +1885,53 @@ jobs:
           test "$SRC_FILE_COUNT" = "$SNAP_FILE_COUNT"
           node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();const has=db.prepare("SELECT name FROM sqlite_master WHERE type=? AND name=?").get("table","auth_sessions");const sessions=has?db.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c:0;db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Backup quick_check failed");if(Number(sessions)!==0)throw new Error("Backup still contains active login sessions")' "backups/$BACKUP_NAME"
           node -e 'const Database=require("better-sqlite3");const p=process.argv[1];const db=new Database(p,{readonly:true,fileMustExist:true});const r=db.prepare("PRAGMA quick_check").get();const has=db.prepare("SELECT name FROM sqlite_master WHERE type=? AND name=?").get("table","auth_sessions");const sessions=has?db.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c:0;db.close();if(String(Object.values(r)[0]).toLowerCase()!=="ok")throw new Error("Mirror backup quick_check failed");if(Number(sessions)!==0)throw new Error("Mirror backup still contains active login sessions")' "/tmp/qy4-backup-mirror/$BACKUP_NAME"
+
+          node scripts/verify-backup-restore.js --backup "$BACKUP_NAME" --json >/tmp/restore-rehearsal.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/restore-rehearsal.json","utf8"));
+          if(r.ok!==true || (r.blockers||[]).length) throw new Error("Restore rehearsal failed: "+JSON.stringify(r.blockers));
+          if(r.stats?.quick_check!=="ok" || Number(r.stats?.foreign_key_violations||0)!==0) throw new Error("Restored SQLite integrity failed");
+          if(Number(r.stats?.auth_sessions||0)!==0) throw new Error("Restored backup contains auth sessions");
+          if(Number(r.stats?.missing_referenced_files||0)!==0 || Number(r.stats?.referenced_file_size_mismatches||0)!==0) throw new Error("Restored attachment snapshot mismatch");
+          if(Number(r.stats?.table_counts?.devices||0)<1) throw new Error("Restored backup has no device data");
+          console.log("Backup restore rehearsal passed");
+          NODE
+
+          rm -rf /tmp/qy4-restore-bad
+          mkdir -p /tmp/qy4-restore-bad
+          cp "backups/$BACKUP_NAME" "/tmp/qy4-restore-bad/$BACKUP_NAME"
+          cp -a "$BACKUP_FILES" "/tmp/qy4-restore-bad/${BACKUP_NAME%.sqlite}.files"
+          BAD_REL=$(node - "backups/$BACKUP_NAME" <<'NODE'
+          const Database=require("better-sqlite3");
+          const db=new Database(process.argv[2],{readonly:true,fileMustExist:true});
+          const specs=[["incident_files","file_path"],["maintenances","file_path"],["documents","file_path"],["device_transfers","document_file_path"]];
+          let value="";
+          for(const [table,field] of specs){
+            const t=db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
+            if(!t) continue;
+            const cols=new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(x=>x.name));
+            if(!cols.has(field)) continue;
+            const row=db.prepare(`SELECT ${field} p FROM ${table} WHERE TRIM(COALESCE(${field},''))<>'' LIMIT 1`).get();
+            if(row?.p){ value=String(row.p).replace(/\\/g,"/").replace(/^\/+/, "").replace(/^uploads\//i,""); break; }
+          }
+          db.close();
+          process.stdout.write(value);
+          NODE
+          )
+          if [ -n "$BAD_REL" ]; then
+            rm -f "/tmp/qy4-restore-bad/${BACKUP_NAME%.sqlite}.files/$BAD_REL"
+            set +e
+            node scripts/verify-backup-restore.js --backup-dir /tmp/qy4-restore-bad --backup "$BACKUP_NAME" --json >/tmp/restore-rehearsal-bad.json
+            RESTORE_BAD_CODE=$?
+            set -e
+            test "$RESTORE_BAD_CODE" = "2"
+            node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/restore-rehearsal-bad.json","utf8"));
+          if(r.ok!==false || Number(r.stats?.missing_referenced_files||0)<1) throw new Error("Restore rehearsal did not reject missing attachment: "+JSON.stringify(r));
+          console.log("Incomplete backup restore rejection passed");
+          NODE
+          fi
+
           curl -fsS -b /tmp/admin-cookie.txt "$BASE/api/system/readiness" >/tmp/auth-readiness.json
           node - <<'NODE'
           const fs=require("fs");
