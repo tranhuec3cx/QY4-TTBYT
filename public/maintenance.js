@@ -88,44 +88,40 @@ function closeRepairDialog() {
   q("repairDialog").close();
 }
 function renderStats(rows) {
-  const count = rows.length;
   const stat = (name) => rows.filter(r => normalizeRepairStatus(r.processing_status) === name).length;
-  const cost = rows.reduce((s, r) => s + Number(r.cost || 0), 0);
-  const cards = [
-    ["Tổng phiếu", count],
-    ["Đang xử lý", stat("Đang xử lý")],
-    ["Chờ linh kiện", stat("Chờ linh kiện")],
-    ["Đã hoàn thành", stat("Đã hoàn thành")],
-    ["Không sửa được", stat("Không sửa được")],
-    ["Tổng chi phí", formatCurrency(cost)]
-  ];
-  q("repairStats").innerHTML = cards.map(([label, value]) => `<div class="stat-card repair-stat-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
+  const ended = stat("Đã hoàn thành") + stat("Không sửa được");
+  q("repairStats").innerHTML = [
+    ["Đang xử lý", stat("Đang xử lý"), ""],
+    ["Chờ linh kiện", stat("Chờ linh kiện"), " summary-item-warning"],
+    ["Đã kết thúc", ended, " summary-item-success"]
+  ].map(([label,value,cls]) => `<div class="summary-item${cls}"><span>${label}</span><strong>${value}</strong></div>`).join("");
+}
+function repairNextAction(r) {
+  const status = normalizeRepairStatus(r.processing_status);
+  if (status === "Chờ linh kiện") return "Theo dõi linh kiện và thời gian ngừng máy";
+  if (status === "Đang xử lý") return "Cập nhật tiến độ sửa chữa";
+  if (status === "Không sửa được") return "Đánh giá phương án thay thế / thanh lý";
+  return r.result || r.status_after || "Đã kết thúc";
 }
 function renderRows(rows) {
-  q("countLabel").textContent = `${rows.length} bản ghi`;
+  q("countLabel").textContent = `${rows.length} phiếu sửa chữa`;
   if (!rows.length) {
-    q("rows").innerHTML = `<tr><td colspan="12" class="center-empty">Chưa có phiếu sửa chữa phù hợp.</td></tr>`;
+    q("rows").innerHTML = `<tr><td colspan="7" class="center-empty">Chưa có phiếu sửa chữa phù hợp.</td></tr>`;
     return;
   }
-  q("rows").innerHTML = rows.map((r, i) => `
+  q("rows").innerHTML = rows.map((r) => `
     <tr id="repair-row-${Number(r.id)}">
-      <td>${i + 1}</td>
       <td>${formatDateTimeVNLines(r.received_at || r.repair_date)}</td>
       <td>${technicalDeviceCell(r)}</td>
       <td>${technicalLocationCell(r)}</td>
       <td class="wrap-text">${esc(r.issue || "")}</td>
-      <td class="wrap-text">${esc(r.work || "")}</td>
-      <td>${esc(r.person || "")}</td>
       <td><span class="tag ${repairStatusClass(r.processing_status)}">${esc(normalizeRepairStatus(r.processing_status))}</span></td>
-      <td>${esc(r.method || "")}</td>
-      <td>${formatCurrency(r.cost)}</td>
-      <td>${esc(r.result || "")}<div class="small">${esc(r.status_after || "")}</div></td>
+      <td class="wrap-text">${esc(repairNextAction(r))}</td>
       <td>
         <div class="table-actions compact-actions">
-          <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Xem HS</button>
-          <button class="btn" onclick="editRepair(${Number(r.id)})">Cập nhật</button>
+          <button class="btn btn-primary" onclick="editRepair(${Number(r.id)})">Mở phiếu</button>
+          <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Hồ sơ</button>
           <button class="btn" onclick="showRepairHistory(${Number(r.id)})">Lịch sử</button>
-          ${r.can_delete ? `<button class="btn btn-danger" title="${esc(r.delete_reason || "")}" onclick="deleteRepair(${Number(r.id)})">Xóa ghi nhầm</button>` : ""}
         </div>
       </td>
     </tr>`).join("");
