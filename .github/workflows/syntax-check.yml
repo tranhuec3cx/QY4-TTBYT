@@ -77,6 +77,9 @@ jobs:
           if ($content -notmatch 'QY4_AUTH_REQUIRED = "1"') { throw "Production launcher must enable auth" }
           if ($content -notmatch 'QY4_ALLOW_LEGACY_QR = "0"') { throw "Production launcher must disable legacy QR" }
           if ($content -notmatch 'npm ci') { throw "Production launcher must synchronize dependencies" }
+          if ($content -notmatch 'RELEASE-MANIFEST-SHA256.txt') { throw "Production launcher must validate offline bundle Node major from manifest" }
+          if ($content -notmatch 'Test-Qy4RuntimeDependencies') { throw "Production launcher must runtime load-test native dependencies" }
+          if ($content -notmatch "new Database\(':memory:'\)") { throw "Production launcher must open SQLite in-memory during runtime dependency test" }
           if ($content -notmatch 'prestart_') { throw "Production launcher must create pre-migration DB backup" }
           if ($content -notmatch 'QY4_PRESTART_KEEP') { throw "Production launcher must cap pre-start backup retention" }
           if (-not (Test-Path "./scripts/preflight-realdata.js")) { throw "Missing real-data preflight script" }
@@ -2189,7 +2192,8 @@ jobs:
         run: |
           npm ci
           if ($LASTEXITCODE -ne 0) { throw "npm ci failed on Windows runner" }
-          node -e "require('better-sqlite3'); require('express'); require('multer'); require('exceljs'); require('qrcode-generator'); console.log('Windows runtime dependencies ok')"
+          node -e "const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.prepare('SELECT 1 AS ok').get(); db.close(); require('express'); require('multer'); require('exceljs'); require('qrcode-generator'); console.log('Windows runtime dependencies ok')"
+          if ($LASTEXITCODE -ne 0) { throw "Windows native/runtime dependency load test failed" }
       - name: Build Windows offline release bundle
         shell: pwsh
         run: |
@@ -2207,11 +2211,18 @@ jobs:
           Expand-Archive -Path $zip.FullName -DestinationPath $out -Force
           if (-not (Test-Path (Join-Path $out "node_modules\better-sqlite3"))) { throw "Offline bundle missing better-sqlite3" }
           if (-not (Test-Path (Join-Path $out "verify-release-bundle.cmd"))) { throw "Offline bundle missing verifier" }
+          $manifest = Get-Content -Raw -Path (Join-Path $out "RELEASE-MANIFEST-SHA256.txt")
+          if ($manifest -notmatch '# Node:\s*v?(\d+)\.') { throw "Offline manifest missing build Node major" }
+          $bundleNodeMajor = [int]$Matches[1]
+          $runnerNodeMajor = [int](((node -v).Trim().TrimStart("v") -split '\.')[0])
+          if ($bundleNodeMajor -ne $runnerNodeMajor) { throw "Offline manifest Node major does not match Windows build runner" }
+          if ($manifest -notmatch "Runtime Node major must match") { throw "Offline manifest missing native Node-major compatibility note" }
           Push-Location $out
           try {
             node "scripts\verify-release-bundle.js" --json | Out-File -Encoding utf8 "$env:RUNNER_TEMP\offline-verify.json"
             if ($LASTEXITCODE -ne 0) { throw "Offline bundle SHA256 verify failed" }
-            node -e "require('./node_modules/better-sqlite3'); require('./node_modules/express'); require('./node_modules/multer'); require('./node_modules/exceljs'); require('./node_modules/qrcode-generator'); console.log('Offline extracted runtime dependencies ok')"
+            node -e "const Database=require('./node_modules/better-sqlite3'); const db=new Database(':memory:'); db.prepare('SELECT 1 AS ok').get(); db.close(); require('./node_modules/express'); require('./node_modules/multer'); require('./node_modules/exceljs'); require('./node_modules/qrcode-generator'); console.log('Offline extracted runtime dependencies ok')"
+            if ($LASTEXITCODE -ne 0) { throw "Offline extracted native/runtime dependency load test failed" }
           } finally {
             Pop-Location
           }
