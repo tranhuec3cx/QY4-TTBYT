@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Điều hành kỹ thuật - Quản lý TTBYT BVQY4</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h1 id="pageTitle" class="page-title"></h1>
+          <p id="pageSubtitle" class="page-subtitle"></p>
+        </div>
+        <div class="page-actions">
+          <button class="btn" id="refreshWorkBtn" type="button">Làm mới</button>
+          <div class="user-box" style="display:none"></div>
+        </div>
+      </div>
+
+      <section class="work-principle" aria-label="Nguyên tắc quản lý">
+        <strong>Một thiết bị – một QR – một hồ sơ – một luồng quản lý xuyên suốt.</strong>
+        <span>Danh sách này chỉ tập trung những việc Khoa Trang bị cần xử lý; hồ sơ chi tiết được mở khi cần.</span>
+      </section>
+
+      <section class="work-summary-grid" aria-label="Công việc cần xử lý">
+        <article class="work-summary-card work-summary-alert">
+          <span>Sự cố cần xử lý</span>
+          <strong id="workIncidentCount">0</strong>
+          <small>Mới ghi nhận hoặc đã tiếp nhận</small>
+        </article>
+        <article class="work-summary-card work-summary-warning">
+          <span>Sửa chữa đang mở</span>
+          <strong id="workRepairCount">0</strong>
+          <small>Đang xử lý hoặc chờ linh kiện</small>
+        </article>
+        <article class="work-summary-card">
+          <span>Bảo dưỡng quá hạn</span>
+          <strong id="workMaintenanceCount">0</strong>
+          <small>Theo lịch mới nhất của từng loại</small>
+        </article>
+        <article class="work-summary-card work-summary-danger">
+          <span>KĐ/HC/ATBX cần xử lý</span>
+          <strong id="workInspectionCount">0</strong>
+          <small>Quá hạn, không đạt hoặc thiếu lịch</small>
+        </article>
+      </section>
+
+      <section class="card compact-card work-shortcuts-card">
+        <div class="work-shortcuts">
+          <a class="btn btn-primary" href="/tickets.html?from=lcm">Sự cố</a>
+          <a class="btn" href="/maintenance.html?from=lcm">Sửa chữa</a>
+          <a class="btn" href="/inspection.html?from=lcm">Bảo dưỡng</a>
+          <a class="btn" href="/inspections.html?from=lcm">Kiểm định / Hiệu chuẩn</a>
+          <a class="btn" href="/inventory.html?from=lcm">Kiểm kê / Điều chuyển</a>
+        </div>
+      </section>
+
+      <section class="card compact-card clean-filter-card">
+        <div class="filters work-filter-grid">
+          <label class="field">
+            <span class="field-label">Loại công việc</span>
+            <select id="workTypeFilter">
+              <option value="ALL">Tất cả công việc</option>
+              <option value="Sự cố">Sự cố</option>
+              <option value="Sửa chữa">Sửa chữa</option>
+              <option value="Bảo dưỡng">Bảo dưỡng</option>
+              <option value="KĐ/HC/ATBX">KĐ/HC/ATBX</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Mức ưu tiên</span>
+            <select id="workPriorityFilter">
+              <option value="ALL">Tất cả</option>
+              <option value="Khẩn">Khẩn</option>
+              <option value="Cao">Cao</option>
+              <option value="Thường">Thường</option>
+            </select>
+          </label>
+          <label class="field field-wide">
+            <span class="field-label">Tìm thiết bị</span>
+            <input id="workSearchInput" placeholder="Mã, tên thiết bị, khoa hoặc nội dung cần xử lý" />
+          </label>
+          <div class="filter-actions">
+            <button class="btn" id="workResetBtn" type="button">Đặt lại</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card work-queue-card">
+        <div class="table-card-header">
+          <div>
+            <h3 class="section-title">Công việc cần xử lý</h3>
+            <div class="small" id="workCountLabel">0 công việc</div>
+          </div>
+          <div class="small">Ưu tiên việc cần hành động trước; hồ sơ đã hoàn tất không nằm trong hàng đợi này.</div>
+        </div>
+        <div class="table-wrap scroll-area">
+          <table class="work-queue-table">
+            <thead>
+              <tr>
+                <th>Ưu tiên</th>
+                <th>Loại</th>
+                <th>Thiết bị</th>
+                <th>Khoa/vị trí</th>
+                <th>Trạng thái</th>
+                <th>Việc tiếp theo</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="workRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/lcm.js"></script>
+</body>
+</html>
