@@ -352,6 +352,30 @@ node scripts/verify-backup-restore.js --keep-restore
 
 Trên Windows có thể double-click **`verify-backup.cmd`** để chạy cùng phép kiểm.
 
+### Final Release Gate — kiểm tra kỹ thuật một lượt
+
+Trước khi nghiệm thu/chuyển PR khỏi Draft, sau khi đã có backup mới nhất chạy:
+
+```bash
+npm run release:gate
+```
+
+Trên Windows có thể double-click **`final-release-gate.cmd`**.
+
+Gate này lần lượt chạy:
+
+1. **Preflight dữ liệu hiện tại**.
+2. **Phục hồi thử backup mới nhất**.
+3. **Migration audit** nếu phát hiện `backups/prestart_*` từ lần nâng database cũ.
+
+Kết quả kỹ thuật đạt phải có:
+
+```text
+KET QUA: FINAL RELEASE GATE KY THUAT DAT
+```
+
+Đây là cổng **offline/data-integrity**, không thay thế ba kiểm tra thủ công cuối: **Sẵn sàng triển khai**, **QR bằng điện thoại cùng LAN**, và **01 luồng Sự cố → Sửa chữa → Hoàn thành** trên bản sao dữ liệu thật.
+
 ### Dừng server an toàn
 
 Khi cần dừng phần mềm, ưu tiên **Ctrl+C** tại cửa sổ server hoặc đóng tiến trình theo cách gửi SIGTERM. QY4-TTBYT sẽ ngừng nhận request mới, checkpoint WAL và đóng SQLite trước khi thoát. Không nên tắt nguồn máy tính đột ngột khi server đang ghi dữ liệu.
