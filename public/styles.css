@@ -1390,3 +1390,144 @@ dialog#repairDetailDialog{
 
 /* Phân quyền hiển thị: tài khoản khoa chỉ xem, không thao tác hồ sơ kỹ thuật. */
 .role-department [data-technical-write]{display:none!important}
+
+
+/* ===== v39 - Tinh gon giao dien: uu tien thong tin can hanh dong ===== */
+.visually-hidden-dashboard,
+.hidden-ui-metrics{display:none!important}
+
+.overview-kpis{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:14px;
+  margin:0 0 16px;
+}
+.overview-kpi{
+  background:#fff;
+  border:1px solid #d8e5ef;
+  border-radius:14px;
+  padding:16px 18px;
+  box-shadow:0 3px 12px rgba(15,42,68,.05);
+  min-height:104px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.overview-kpi-label{font-size:14px;font-weight:700;color:#5c7083}
+.overview-kpi strong{font-size:30px;line-height:1.1;margin:6px 0;color:#0b3765}
+.overview-kpi small{font-size:12px;color:#7a8d9e}
+.overview-kpi-warning{border-left:4px solid #d97706}
+.overview-kpi-danger{border-left:4px solid #c24141}
+.dashboard-focus-card,.dashboard-trend-card{padding:16px 18px}
+.section-caption{margin:4px 0 0;color:#718397;font-size:13px}
+.dashboard-focus-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.focus-list-block{
+  border:1px solid #e1eaf1;
+  border-radius:12px;
+  padding:14px;
+  background:#fbfdff;
+}
+.focus-list-block h4{margin:0 0 10px;font-size:15px;color:#17324d}
+.clean-task-list{margin:0;padding-left:18px}
+.clean-task-list li{padding:8px 0;border-bottom:1px solid #edf2f6;line-height:1.45}
+.clean-task-list li:last-child{border-bottom:0}
+
+/* Tom tat nhe, khong dung nhieu the trang thai lon */
+.summary-strip{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin:0 0 14px;
+}
+.summary-item{
+  background:#fff;
+  border:1px solid #dce7ef;
+  border-radius:12px;
+  padding:12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:54px;
+}
+.summary-item span{font-size:13px;color:#607487;font-weight:700}
+.summary-item strong{font-size:23px;color:#0b3765}
+.summary-item-warning{border-left:4px solid #d97706}
+.summary-item-success{border-left:4px solid #2f855a}
+
+/* Loc co ban hien ngay, loc it dung de gon trong "Loc them" */
+.simple-filter-grid{
+  display:grid!important;
+  grid-template-columns:160px 160px minmax(260px,1fr) 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.advanced-filter-details{
+  margin-top:10px;
+  border-top:1px solid #e6edf3;
+  padding-top:8px;
+}
+.advanced-filter-details summary{
+  cursor:pointer;
+  color:#47627a;
+  font-size:13px;
+  font-weight:700;
+  width:max-content;
+}
+.advanced-filter-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(170px,1fr));
+  gap:10px;
+  margin-top:10px;
+}
+
+/* Bang su co: an Nguon bao va Nguoi bao o man hinh danh sach */
+.incident-table-v2 th:nth-child(6),
+.incident-table-v2 td:nth-child(6),
+.incident-table-v2 th:nth-child(7),
+.incident-table-v2 td:nth-child(7){display:none}
+.incident-table-v2 .wrap-text{max-width:360px}
+
+/* Bang sua chua: danh sach chi giu thong tin de quyet dinh xu ly */
+.repair-table-v2 th:nth-child(7),
+.repair-table-v2 td:nth-child(7),
+.repair-table-v2 th:nth-child(9),
+.repair-table-v2 td:nth-child(9),
+.repair-table-v2 th:nth-child(10),
+.repair-table-v2 td:nth-child(10),
+.repair-table-v2 th:nth-child(11),
+.repair-table-v2 td:nth-child(11){display:none}
+.repair-stats .repair-stat-card:nth-child(3),
+.repair-stats .repair-stat-card:nth-child(5),
+.repair-stats .repair-stat-card:nth-child(6){display:none}
+.repair-stats{grid-template-columns:repeat(3,minmax(160px,1fr));max-width:760px}
+
+/* Danh sach thiet bi: bo cac cot thu cap khoi tam nhin mac dinh */
+.device-table th:nth-child(5),
+.device-table td:nth-child(5),
+.device-table th:nth-child(8),
+.device-table td:nth-child(8),
+.device-table th:nth-child(9),
+.device-table td:nth-child(9){display:none}
+.device-table .device-name-cell{min-width:210px}
+.device-table .department-cell{min-width:115px}
+
+/* Nhe hoa tong the */
+.main{max-width:1600px}
+.card{border-radius:14px}
+.topbar{margin-bottom:14px}
+.page-subtitle{max-width:760px}
+.table-wrap.scroll-area{max-height:66vh}
+.table-actions.compact-actions{min-width:145px}
+.table-actions.compact-actions .btn{padding:6px 8px;font-size:12px}
+
+@media(max-width:1100px){
+  .overview-kpis{grid-template-columns:repeat(2,1fr)}
+  .simple-filter-grid{grid-template-columns:1fr 1fr!important}
+  .simple-filter-grid .field-wide{grid-column:1/-1}
+  .advanced-filter-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:720px){
+  .overview-kpis,.dashboard-focus-grid,.summary-strip,.advanced-filter-grid{grid-template-columns:1fr}
+  .simple-filter-grid{grid-template-columns:1fr!important}
+  .repair-stats{grid-template-columns:1fr;max-width:none}
+}
