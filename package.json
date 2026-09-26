@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "preflight:realdata": "node scripts/preflight-realdata.js"
+    "preflight:realdata": "node scripts/preflight-realdata.js",
+    "verify:backup": "node scripts/verify-backup-restore.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
