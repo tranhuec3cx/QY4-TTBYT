@@ -25,6 +25,26 @@ if ($nodeMajor -lt 20) {
     throw "QY4-TTBYT 5.0.0 yeu cau Node.js 20 tro len. Dang co: v$nodeVersionText"
 }
 
+# Goi Windows offline co the kem native module (better-sqlite3) da build theo mot Node major cu the.
+# Neu dang chay bundle co node_modules + manifest, Node major tren may dich phai trung voi may build.
+$manifestPath = Join-Path $PSScriptRoot "RELEASE-MANIFEST-SHA256.txt"
+if ((Test-Path (Join-Path $PSScriptRoot "node_modules")) -and (Test-Path $manifestPath)) {
+    $manifestNodeLine = Get-Content $manifestPath -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match '^# Node:\s*v?(\d+)\.' } |
+        Select-Object -First 1
+    if ($manifestNodeLine -and ($manifestNodeLine -match '^# Node:\s*v?(\d+)\.')) {
+        $bundledNodeMajor = [int]$Matches[1]
+        if ($bundledNodeMajor -ne $nodeMajor) {
+            throw "Goi offline nay duoc build bang Node.js $bundledNodeMajor.x nhung may dang dung Node.js $nodeMajor.x. better-sqlite3 co native binary nen khong nen chay cheo major. Hay dung Node.js $bundledNodeMajor LTS hoac dung goi source va cai lai dependency cho Node.js hien tai."
+        }
+    }
+}
+
+function Test-Qy4RuntimeDependencies {
+    node -e "const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.prepare('SELECT 1 AS ok').get(); db.close(); require('express'); require('multer'); require('exceljs'); require('qrcode-generator');" *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
 # Khong cho khoi dong them mot server tren cung cong.
 $port = 5000
 try {
@@ -73,24 +93,34 @@ if ($SkipInstall) {
     if (-not (Test-Path "node_modules")) {
         throw "Da chon -SkipInstall nhung chua co node_modules."
     }
-    Write-Host "Bo qua kiem tra/cai dependency theo yeu cau -SkipInstall." -ForegroundColor Yellow
+    if (-not (Test-Qy4RuntimeDependencies)) {
+        throw "node_modules ton tai nhung runtime dependency khong nap/chay duoc voi Node.js hien tai. Khong the -SkipInstall."
+    }
+    Write-Host "Bo qua cai dependency; runtime dependency da duoc load-test thanh cong." -ForegroundColor Yellow
 }
 else {
     $needInstall = -not (Test-Path "node_modules")
     if (-not $needInstall) {
         npm ls --depth=0 --silent *> $null
         $needInstall = ($LASTEXITCODE -ne 0)
+        if (-not $needInstall -and -not (Test-Qy4RuntimeDependencies)) {
+            Write-Host "Dependency dung phien ban npm nhung native/runtime load-test khong dat." -ForegroundColor Yellow
+            $needInstall = $true
+        }
     }
     if ($needInstall) {
         Write-Host ""
-        Write-Host "Dependency dang thieu/khong khop - dang chay npm ci..." -ForegroundColor Yellow
+        Write-Host "Dependency dang thieu/khong khop/khong nap duoc - dang chay npm ci..." -ForegroundColor Yellow
         npm ci
         if ($LASTEXITCODE -ne 0) {
-            throw "npm ci khong thanh cong. Neu may dang offline, hay ket noi nguon npm/cache hoac chep bo node_modules da cai dung package-lock."
+            throw "npm ci khong thanh cong. Neu may dang offline, hay dung dung Node major cua goi offline hoac chuan bi npm cache/dependency tuong thich."
+        }
+        if (-not (Test-Qy4RuntimeDependencies)) {
+            throw "Da npm ci nhung runtime dependency van khong nap/chay duoc; kiem tra Node.js va better-sqlite3 tren may nay."
         }
     }
     else {
-        Write-Host "Dependency da day du va khop package.json - khong can tai lai." -ForegroundColor Green
+        Write-Host "Dependency da day du, khop package va load-test runtime thanh cong - khong can tai lai." -ForegroundColor Green
     }
 }
 
