@@ -352,6 +352,35 @@ node scripts/verify-backup-restore.js --keep-restore
 
 Trên Windows có thể double-click **`verify-backup.cmd`** để chạy cùng phép kiểm.
 
+### Đóng gói Release Candidate sạch
+
+Trên Windows có thể double-click:
+
+```text
+build-release-bundle.cmd
+```
+
+hoặc chạy PowerShell:
+
+```powershell
+.\build-release-bundle.ps1
+```
+
+Gói ZIP được tạo trong `dist/` theo **allowlist**, chỉ gồm source, giao diện, launcher và các script kiểm tra cần thiết. Script sinh `RELEASE-MANIFEST-SHA256.txt` để đối chiếu hash từng file.
+
+Gói release **cố ý không chứa**:
+
+- `db/*.sqlite`, WAL/SHM;
+- `uploads/` vận hành;
+- `backups/`;
+- `.env*` hoặc mật khẩu;
+- `node_modules/`;
+- log runtime.
+
+Khi **nâng cấp máy đang có dữ liệu thật**, không thay thế/xóa các thư mục dữ liệu đang vận hành bằng ZIP release. Trước tiên sao lưu, sau đó cập nhật source và chạy `start-qy4-production.cmd` để preflight + migration có kiểm soát.
+
+GitHub Actions cũng tự tạo một ZIP sanitized sau khi toàn bộ CI đạt và upload dưới dạng artifact Release Candidate.
+
 ### Final Release Gate — kiểm tra kỹ thuật một lượt
 
 Trước khi nghiệm thu/chuyển PR khỏi Draft, sau khi đã có backup mới nhất chạy:
