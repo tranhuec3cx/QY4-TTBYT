@@ -51,9 +51,6 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 foreach ($f in $requiredFiles) {
     Copy-Item (Join-Path $PSScriptRoot $f) (Join-Path $stage $f) -Force
 }
-if (Test-Path (Join-Path $PSScriptRoot ".env.example")) {
-    Copy-Item (Join-Path $PSScriptRoot ".env.example") (Join-Path $stage ".env.example") -Force
-}
 foreach ($d in $requiredDirs) {
     Copy-Item (Join-Path $PSScriptRoot $d) (Join-Path $stage $d) -Recurse -Force
 }
@@ -89,7 +86,7 @@ Get-ChildItem $stage -Recurse -Force -File | ForEach-Object {
     }
 }
 if ($bad.Count -gt 0) {
-    throw "Release bundle chua file runtime/nhay cam: $($bad | Sort-Object -Unique -join ', ')"
+    throw "Release bundle chua file runtime/nhay cam: $((($bad | Sort-Object -Unique)) -join ', ')"
 }
 
 $manifestPath = Join-Path $stage "RELEASE-MANIFEST-SHA256.txt"
