@@ -131,7 +131,8 @@ $manifestLines = @(
     "# Build architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)",
     "# Node: $(if (Get-Command node -ErrorAction SilentlyContinue) { (node -v).Trim() } else { 'not-available' })",
     $(if ($IncludeDependencies) {
-        "# Offline Windows bundle includes verified node_modules from the build machine; runtime database/uploads/backups/secrets remain excluded."
+        "# Offline Windows bundle includes verified node_modules from the build machine; runtime database/uploads/backups/secrets remain excluded.",
+        "# Runtime Node major must match the '# Node:' major above because better-sqlite3 contains a native binary."
       } else {
         "# Source bundle intentionally excludes runtime database/uploads/backups/secrets/node_modules."
       }),
@@ -156,6 +157,7 @@ Write-Host "[DAT] SHA256 : $zipHash" -ForegroundColor Green
 Write-Host "[DAT] Kich thuoc: $size byte" -ForegroundColor Green
 if ($IncludeDependencies) {
     Write-Host "[DAT] Goi OFFLINE da kem node_modules duoc xac minh tren may build." -ForegroundColor Green
+    Write-Host "[LUU Y] Node major tren may dich phai trung Node major ghi trong RELEASE-MANIFEST-SHA256.txt vi better-sqlite3 la native module." -ForegroundColor Yellow
     Write-Host "[LUU Y] Chi dung goi offline nay cho cung he dieu hanh/kien truc voi may build; voi BVQY4 nen build tren Windows x64 dich." -ForegroundColor Yellow
 } else {
     Write-Host "[LUU Y] Goi source khong kem node_modules; may dich can npm ci hoac cache dependency." -ForegroundColor Yellow
