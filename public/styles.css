@@ -1659,3 +1659,12 @@ dialog#repairDetailDialog{
   .work-summary-grid,.work-filter-grid,.compact-primary-filters,.compact-primary-filters.no-dates,.device-primary-filter-grid,.device-secondary-filters{grid-template-columns:1fr!important}
   .work-shortcuts .btn{width:100%;justify-content:center}
 }
+
+
+/* v40 compatibility: cac bang da rut gon cot, khong ap dung quy tac an cot cua v39 */
+.device-table th:nth-child(5),.device-table td:nth-child(5),
+.device-table th:nth-child(8),.device-table td:nth-child(8){display:table-cell!important}
+.incident-table-v2 th:nth-child(6),.incident-table-v2 td:nth-child(6),
+.incident-table-v2 th:nth-child(7),.incident-table-v2 td:nth-child(7){display:table-cell!important}
+.repair-table-v2 th:nth-child(7),.repair-table-v2 td:nth-child(7){display:table-cell!important}
+.repair-summary-strip{max-width:760px}
