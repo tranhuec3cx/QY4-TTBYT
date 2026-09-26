@@ -60,4 +60,30 @@ async function exportMaintExcel(){
 }
 
 async function loadData(){ DEVICES=await api("/api/devices"); ROWS=await api("/api/maintenances"); q("deviceFilter").innerHTML=`<option value="ALL">Tất cả thiết bị</option>`+DEVICES.map(d=>`<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join(""); bindDevicePicker("deviceSearch","deviceId","maintenanceDeviceOptions",DEVICES,()=>fillMaintDeviceInfo()); const vendors=[...new Set(ROWS.map(r=>r.vendor).filter(Boolean))].sort(); q("vendorFilter").innerHTML=`<option value="ALL">Tất cả đơn vị</option>`+vendors.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); fillMaintDeviceInfo(); applyFilter(); }
-document.addEventListener("DOMContentLoaded", async()=>{ setLayout("inspection","Bảo dưỡng","Theo dõi bảo dưỡng, vệ sinh, thay vật tư và file biên bản kèm theo"); setDefaultDateRange(); await loadData(); resetForm(); const editId=Number(new URLSearchParams(window.location.search).get("edit_id")||0); if(editId) editMaint(editId); q("form").addEventListener("submit",saveMaint); q("resetBtn2").onclick=resetForm; q("filterBtn").onclick=applyFilter; q("clearFilterBtn").onclick=clearFilters; q("exportMaintBtn").onclick=exportMaintExcel; ["searchInput","fromDate","toDate","deviceFilter","typeFilter","vendorFilter"].forEach(id=>{const el=q(id); el.addEventListener("input",applyFilter); el.addEventListener("change",applyFilter);}); q("file").addEventListener("change",()=>{q("fileHint").textContent=q("file").files[0]?`Đã chọn: ${q("file").files[0].name}`:"Chọn tệp nếu có biên bản hoặc ảnh hiện trạng.";}); });
+document.addEventListener("DOMContentLoaded", async()=>{
+  setLayout("inspection","Bảo dưỡng","Theo dõi bảo dưỡng, vệ sinh, thay vật tư và file biên bản kèm theo");
+  setDefaultDateRange();
+  await loadData();
+  resetForm();
+  const params=new URLSearchParams(window.location.search);
+  const editId=Number(params.get("edit_id")||0);
+  if(editId){
+    editMaint(editId);
+  }else{
+    const requestedDeviceId=Number(params.get("device_id")||0);
+    const requestedType=String(params.get("type")||"").trim();
+    const requestedDevice=DEVICES.find(d=>Number(d.id)===requestedDeviceId);
+    if(requestedDevice){
+      setDevicePickerSelection("deviceSearch","deviceId",DEVICES,requestedDeviceId,()=>fillMaintDeviceInfo());
+      if(Array.from(q("type").options).some(o=>o.value===requestedType)) q("type").value=requestedType;
+      q("form").scrollIntoView({behavior:"smooth"});
+    }
+  }
+  q("form").addEventListener("submit",saveMaint);
+  q("resetBtn2").onclick=resetForm;
+  q("filterBtn").onclick=applyFilter;
+  q("clearFilterBtn").onclick=clearFilters;
+  q("exportMaintBtn").onclick=exportMaintExcel;
+  ["searchInput","fromDate","toDate","deviceFilter","typeFilter","vendorFilter"].forEach(id=>{const el=q(id); el.addEventListener("input",applyFilter); el.addEventListener("change",applyFilter);});
+  q("file").addEventListener("change",()=>{q("fileHint").textContent=q("file").files[0]?`Đã chọn: ${q("file").files[0].name}`:"Chọn tệp nếu có biên bản hoặc ảnh hiện trạng.";});
+});
