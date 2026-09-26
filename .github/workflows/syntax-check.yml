@@ -1703,7 +1703,7 @@ jobs:
           if [ -f /tmp/qy4-server.pid ]; then kill $(cat /tmp/qy4-server.pid) || true; fi
           rm -f db/qy4_ttbyt.sqlite db/qy4_ttbyt.sqlite-shm db/qy4_ttbyt.sqlite-wal
           rm -rf /tmp/qy4-backup-mirror
-          QY4_DEMO_SEED=0 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' QY4_BACKUP_MIRROR_DIR='/tmp/qy4-backup-mirror' PORT=5001 node server.js > /tmp/qy4-auth-server.log 2>&1 &
+          QY4_DEMO_SEED=0 QY4_AUTH_REQUIRED=1 QY4_ADMIN_PASSWORD='AdminPass123!' QY4_BACKUP_MIRROR_DIR='/tmp/qy4-backup-mirror' QY4_PUBLIC_ORIGIN='http://qy4-ci.local:5001' PORT=5001 node server.js > /tmp/qy4-auth-server.log 2>&1 &
           echo $! > /tmp/qy4-auth-server.pid
           BASE=http://127.0.0.1:5001
           for i in {1..20}; do
@@ -1811,7 +1811,14 @@ jobs:
           CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-dashboard.html -w '%{http_code}' "$BASE/dashboard.html")
           test "$CODE" = "200"
           curl -fsS -b /tmp/engineer-cookie.txt "$BASE/api/system/qr-origins" >/tmp/engineer-qr-origins.json
-          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/engineer-qr-origins.json","utf8")); if(!Array.isArray(x.origins)||!x.origins.length) throw new Error("QR origin access failed")'
+          node - <<'NODE'
+          const x=JSON.parse(require("fs").readFileSync("/tmp/engineer-qr-origins.json","utf8"));
+          if(!Array.isArray(x.origins)||!x.origins.length) throw new Error("QR origin access failed");
+          if(x.configured_origin!=="http://qy4-ci.local:5001" || x.recommended_origin!=="http://qy4-ci.local:5001" || x.origin_locked!==true || x.configured_origin_valid!==true) {
+            throw new Error("Server-locked QR origin was not exposed correctly: "+JSON.stringify(x));
+          }
+          console.log("Server-locked QR origin API passed");
+          NODE
           CODE=$(curl -s -b /tmp/engineer-cookie.txt -o /tmp/engineer-own-upload.pdf -w '%{http_code}' "$BASE$OWN_UPLOAD")
           test "$CODE" = "200"
           test -s /tmp/engineer-own-upload.pdf
@@ -1950,6 +1957,8 @@ jobs:
           if(m.get("backup_off_device")?.level!=="Lưu ý") throw new Error("Same-filesystem CI mirror must remain a warning");
           if(r.system?.backup_mirror_separate_storage!==false || r.system?.backup_mirror_same_filesystem!==true) throw new Error("Mirror storage separation detection failed");
           if(m.get("transport_security")?.level!=="Lưu ý" || r.system?.https!==false) throw new Error("HTTP authenticated deployment must remain a transport-security warning");
+          if(m.get("qr_origin")?.level!=="Đạt") throw new Error("Configured QR origin should pass readiness: "+JSON.stringify(m.get("qr_origin")));
+          if(r.system?.configured_qr_origin!=="http://qy4-ci.local:5001" || r.system?.qr_origin_locked!==true || r.system?.configured_qr_origin_valid!==true) throw new Error("Configured QR origin readiness fields failed");
           console.log("Authenticated readiness checklist passed");
           NODE
 
