@@ -287,6 +287,37 @@ QY4_TIME_ZONE=Asia/Bangkok \
 npm start
 ```
 
+### Kiểm tra khả năng phục hồi backup
+
+Sau khi tạo backup mới nhất, có thể chạy một **restore rehearsal độc lập**:
+
+```bash
+npm run verify:backup
+```
+
+Script sẽ:
+
+- lấy backup `.sqlite` mới nhất và thư mục `.files/` đi kèm;
+- copy toàn bộ sang thư mục tạm, **không sửa backup gốc**;
+- mở database phục hồi và chạy `PRAGMA quick_check` + `foreign_key_check`;
+- xác nhận backup không còn session đăng nhập;
+- kiểm tra các bảng nghiệp vụ lõi;
+- đối chiếu file mà database tham chiếu với snapshot uploads, gồm cả kích thước file nếu có metadata;
+- thử một transaction ghi trên **bản phục hồi tạm** rồi rollback để xác nhận file SQLite thực sự mở ở chế độ ghi được;
+- tự xóa thư mục phục hồi tạm khi kết thúc.
+
+Kết quả đạt phải có dòng:
+
+```text
+KET QUA: PHUC HOI THU DAT
+```
+
+Có thể giữ thư mục phục hồi tạm để kiểm tra thủ công bằng:
+
+```bash
+node scripts/verify-backup-restore.js --keep-restore
+```
+
 ### Dừng server an toàn
 
 Khi cần dừng phần mềm, ưu tiên **Ctrl+C** tại cửa sổ server hoặc đóng tiến trình theo cách gửi SIGTERM. QY4-TTBYT sẽ ngừng nhận request mới, checkpoint WAL và đóng SQLite trước khi thoát. Không nên tắt nguồn máy tính đột ngột khi server đang ghi dữ liệu.
