@@ -20,7 +20,7 @@
           <label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date" /></label>
           <label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date" /></label>
           <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Thiết bị / mô tả sự cố" /></label>
-          <label class="field"><span class="field-label">Trạng thái</span><select id="statusFilter"><option value="ALL">Tất cả trạng thái</option><option>Mới ghi nhận</option><option>Đã tiếp nhận</option><option>Đã chuyển sửa chữa</option><option>Đã xử lý tại chỗ</option></select></label>
+          <label class="field"><span class="field-label">Tiến độ</span><select id="statusFilter"><option value="ALL">Tất cả</option><option value="NEW">Mới</option><option value="ACTIVE">Đang xử lý</option><option value="DONE">Hoàn thành</option></select></label>
           <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Đặt lại</button></div>
         </div>
         <details class="advanced-filter-details">
@@ -33,19 +33,16 @@
       </section>
 
       <section class="summary-strip" id="incidentStats">
-        <div class="summary-item"><span>Tổng sự cố</span><strong id="stTotalIncidents">0</strong></div>
-        <div class="summary-item summary-item-warning"><span>Mới ghi nhận</span><strong id="stNewIncidents">0</strong></div>
-        <div class="summary-item summary-item-success"><span>Đã chuyển sửa chữa</span><strong id="stTransferIncidents">0</strong></div>
+        <div class="summary-item summary-item-warning"><span>Mới</span><strong id="stNewIncidents">0</strong></div>
+        <div class="summary-item"><span>Đang xử lý</span><strong id="stActiveIncidents">0</strong></div>
+        <div class="summary-item summary-item-success"><span>Hoàn thành</span><strong id="stDoneIncidents">0</strong></div>
       </section>
-      <div class="hidden-ui-metrics" aria-hidden="true">
-        <span id="stAcceptedIncidents"></span><span id="stOnsiteIncidents"></span>
-      </div>
 
       <section class="card">
         <div class="table-card-header"><h3 id="countLabel">0 sự cố</h3></div>
         <div class="table-wrap scroll-area">
           <table class="incident-table-v2">
-            <thead><tr><th>STT</th><th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Mô tả sự cố</th><th>Nguồn báo</th><th>Người báo</th><th>Trạng thái</th><th>Ảnh/Video</th><th>Thao tác</th></tr></thead>
+            <thead><tr><th>STT</th><th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Sự cố</th><th>Tiến độ</th><th>Thao tác</th></tr></thead>
             <tbody id="rows"></tbody>
           </table>
         </div>
