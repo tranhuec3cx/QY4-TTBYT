@@ -289,6 +289,36 @@ QY4_TIME_ZONE=Asia/Bangkok \
 npm start
 ```
 
+### Kiểm tra bảo toàn dữ liệu sau migration
+
+Nếu đây là lần nâng cấp từ database cũ, sau khi server đã khởi động/migration thành công hãy chạy:
+
+```bash
+npm run audit:migration
+```
+
+Mặc định script tự lấy database trong thư mục `backups/prestart_*` mới nhất làm bản **trước nâng cấp** và `db/qy4_ttbyt.sqlite` làm bản **sau nâng cấp**. Có thể chỉ định rõ hai file:
+
+```bash
+node scripts/audit-migration.js --before /duong-dan/db-cu.sqlite --after db/qy4_ttbyt.sqlite
+```
+
+Audit chỉ đọc dữ liệu và kiểm:
+
+- mọi ID cũ của thiết bị, sự cố, sửa chữa, bảo dưỡng, kiểm định, kiểm tra QR, điều chuyển, tài liệu, đánh giá, kiểm kê… còn tồn tại sau migration;
+- các liên kết lõi như `device_id`, `incident_id`, `session_id` không bị đổi;
+- tên thiết bị, Serial, khoa, nhóm, vị trí cũ không bị migration tự ý thay đổi;
+- khóa ngoại sau migration vẫn hợp lệ;
+- thay đổi `device_code` do chuẩn hóa mã cũ được báo **Lưu ý**, không coi là mất dữ liệu.
+
+Kết quả đạt phải có:
+
+```text
+KET QUA: MIGRATION AUDIT DAT
+```
+
+Trên Windows có thể double-click **`audit-migration.cmd`**. Nếu audit báo `[CHAN]`, không tiếp tục chốt phiên bản cho tới khi đã đối chiếu bản prestart và dữ liệu hiện tại.
+
 ### Kiểm tra khả năng phục hồi backup
 
 Sau khi tạo backup mới nhất, có thể chạy một **restore rehearsal độc lập**:
