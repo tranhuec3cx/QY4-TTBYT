@@ -84,6 +84,8 @@ jobs:
           if (-not (Test-Path "./verify-backup.cmd")) { throw "Missing one-click Windows backup verifier" }
           if (-not (Test-Path "./scripts/audit-migration.js")) { throw "Missing migration preservation audit script" }
           if (-not (Test-Path "./audit-migration.cmd")) { throw "Missing one-click Windows migration audit" }
+          if (-not (Test-Path "./scripts/final-release-gate.js")) { throw "Missing consolidated final release gate script" }
+          if (-not (Test-Path "./final-release-gate.cmd")) { throw "Missing one-click Windows final release gate" }
           if ($content -notmatch 'QY4_PUBLIC_ORIGIN') { throw "Production launcher must warn about server-locked QR origin" }
           $apiJs = Get-Content -Raw -Path "./public/api.js"
           if ($apiJs -notmatch 'origin_locked' -or $apiJs -notmatch 'origin_print_safe' -or $apiJs -notmatch 'qrPrintBtn') { throw "QR UI must honor server-locked origin before printing" }
@@ -1946,6 +1948,17 @@ jobs:
           if(Number(r.stats?.missing_referenced_files||0)!==0 || Number(r.stats?.referenced_file_size_mismatches||0)!==0) throw new Error("Restored attachment snapshot mismatch");
           if(Number(r.stats?.table_counts?.devices||0)<1) throw new Error("Restored backup has no device data");
           console.log("Backup restore rehearsal passed");
+          NODE
+
+          node scripts/final-release-gate.js --json >/tmp/final-release-gate.json
+          node - <<'NODE'
+          const r=JSON.parse(require("fs").readFileSync("/tmp/final-release-gate.json","utf8"));
+          if(r.ok!==true || (r.blockers||[]).length) throw new Error("Final release gate failed: "+JSON.stringify(r.blockers));
+          const byName=new Map((r.steps||[]).map(x=>[x.label,x]));
+          if(byName.get("Preflight dữ liệu hiện tại")?.ok!==true) throw new Error("Final gate preflight did not pass");
+          if(byName.get("Phục hồi thử backup mới nhất")?.ok!==true) throw new Error("Final gate backup rehearsal did not pass");
+          if(byName.get("Audit bảo toàn dữ liệu sau migration")?.skipped!==true) throw new Error("Fresh-install CI final gate should skip migration audit without prestart");
+          console.log("Consolidated final release gate passed");
           NODE
 
           rm -rf /tmp/qy4-restore-bad
