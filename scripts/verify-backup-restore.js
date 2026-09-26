@@ -63,6 +63,7 @@ const blockers = [];
 const warnings = [];
 const notes = [];
 const stats = {};
+let restoreRoot = "";
 const block = m => blockers.push(m);
 const warn = m => warnings.push(m);
 const ok = m => notes.push(m);
@@ -88,7 +89,7 @@ if (blockers.length) {
   return;
 }
 
-const restoreRoot = fs.mkdtempSync(path.join(os.tmpdir(), "qy4-restore-rehearsal-"));
+restoreRoot = fs.mkdtempSync(path.join(os.tmpdir(), "qy4-restore-rehearsal-"));
 const restoreDb = path.join(restoreRoot, "db", "qy4_ttbyt.sqlite");
 const restoreUploads = path.join(restoreRoot, "uploads");
 fs.mkdirSync(path.dirname(restoreDb), { recursive: true });
