@@ -20,6 +20,22 @@ const AUTH_LOGIN_LIMIT = Math.max(3, Number(process.env.QY4_AUTH_LOGIN_LIMIT || 
 const AUTH_LOGIN_WINDOW_MS = Math.max(60000, Number(process.env.QY4_AUTH_LOGIN_WINDOW_MS || 15 * 60 * 1000));
 const APP_TIME_ZONE = String(process.env.QY4_TIME_ZONE || "Asia/Bangkok").trim() || "Asia/Bangkok";
 const ALLOW_LEGACY_PUBLIC_QR = process.env.QY4_ALLOW_LEGACY_QR === "1";
+const PUBLIC_QR_ORIGIN_RAW = String(process.env.QY4_PUBLIC_ORIGIN || "").trim();
+function normalizePublicQrOrigin(value) {
+  const raw=String(value || "").trim();
+  if(!raw) return "";
+  try {
+    const u=new URL(raw);
+    if(!["http:","https:"].includes(u.protocol)) return "";
+    if(u.username || u.password || u.search || u.hash) return "";
+    if(u.pathname && u.pathname!=="/") return "";
+    return u.origin;
+  } catch {
+    return "";
+  }
+}
+const PUBLIC_QR_ORIGIN = normalizePublicQrOrigin(PUBLIC_QR_ORIGIN_RAW);
+const PUBLIC_QR_ORIGIN_VALID = !PUBLIC_QR_ORIGIN_RAW || Boolean(PUBLIC_QR_ORIGIN);
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
@@ -214,6 +230,7 @@ function getLanQrOrigins(req) {
   const port = process.env.PORT || PORT || 5000;
   const proto = req.protocol || "http";
   const origins = new Set();
+  if(PUBLIC_QR_ORIGIN) origins.add(PUBLIC_QR_ORIGIN);
   origins.add(`${proto}://${req.get("host")}`);
   try {
     const nets = os.networkInterfaces();
@@ -305,9 +322,14 @@ app.post("/api/export/xlsx", async (req,res) => {
 
 app.get("/api/system/qr-origins", (req, res) => {
   const origins = getLanQrOrigins(req);
+  const detected = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
   res.json({
     current_origin: `${req.protocol || "http"}://${req.get("host")}`,
-    recommended_origin: origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "",
+    configured_origin: PUBLIC_QR_ORIGIN,
+    configured_origin_raw: PUBLIC_QR_ORIGIN_RAW,
+    configured_origin_valid: PUBLIC_QR_ORIGIN_VALID,
+    origin_locked: Boolean(PUBLIC_QR_ORIGIN),
+    recommended_origin: PUBLIC_QR_ORIGIN || detected,
     origins
   });
 });
@@ -5205,7 +5227,8 @@ app.get("/api/system/readiness", (req, res) => {
   const latestBackupStatus = inspectBackupBundle(latestBackup);
   const latestMirrorStatus = inspectMirrorBackup(latestBackup);
   const origins = getLanQrOrigins(req);
-  const recommendedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const detectedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const recommendedOrigin = PUBLIC_QR_ORIGIN || detectedOrigin;
   const requestIsHttps = Boolean(req.secure || String(req.headers["x-forwarded-proto"] || "").toLowerCase()==="https");
   const totalDevices = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
   const missingSerial = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))=''").get().c;
@@ -5440,13 +5463,23 @@ app.get("/api/system/readiness", (req, res) => {
     },
     {
       key:"qr_origin",
-      level:recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin) ? "Đạt" : "Cần xử lý",
-      title:"Địa chỉ QR trên mạng nội bộ",
-      detail:recommendedOrigin
-        ? (/localhost|127\.0\.0\.1/i.test(recommendedOrigin)
-            ? `Địa chỉ hiện tại ${recommendedOrigin} chỉ dùng trên chính máy chủ; cần chốt IP/hostname LAN trước khi in QR.`
-            : `Địa chỉ LAN đề xuất: ${recommendedOrigin}. Hãy giữ IP/hostname này ổn định sau khi in QR.`)
-        : "Chưa xác định được địa chỉ LAN cho QR."
+      level:!PUBLIC_QR_ORIGIN_VALID
+        ? "Cần xử lý"
+        : (PUBLIC_QR_ORIGIN
+            ? (/localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN) ? "Cần xử lý" : "Đạt")
+            : (recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin) ? "Lưu ý" : "Cần xử lý")),
+      title:"Địa chỉ chuẩn dùng để in QR",
+      detail:!PUBLIC_QR_ORIGIN_VALID
+        ? `QY4_PUBLIC_ORIGIN không hợp lệ: “${PUBLIC_QR_ORIGIN_RAW}”. Chỉ dùng origin dạng http(s)://host[:port], không kèm đường dẫn/query.`
+        : (PUBLIC_QR_ORIGIN
+            ? (/localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN)
+                ? `QY4_PUBLIC_ORIGIN đang là ${PUBLIC_QR_ORIGIN}; địa chỉ loopback không dùng được cho điện thoại khác.`
+                : `Đã khóa địa chỉ QR chuẩn bằng QY4_PUBLIC_ORIGIN: ${PUBLIC_QR_ORIGIN}. Các trình duyệt sẽ ưu tiên địa chỉ này khi in tem.`)
+            : (recommendedOrigin
+                ? (/localhost|127\.0\.0\.1/i.test(recommendedOrigin)
+                    ? `Chỉ phát hiện ${recommendedOrigin}. Cần cấu hình QY4_PUBLIC_ORIGIN hoặc chốt IP/hostname LAN trước khi in QR.`
+                    : `Chưa khóa địa chỉ QR ở cấp server. Đang phát hiện ${recommendedOrigin}; có thể test, nhưng trước khi in hàng loạt nên đặt QY4_PUBLIC_ORIGIN để mọi máy dùng cùng một địa chỉ.`)
+                : "Chưa xác định được địa chỉ LAN cho QR."))
     },
     {
       key:"timezone",
@@ -5582,6 +5615,10 @@ app.get("/api/system/readiness", (req, res) => {
       unknown_device_group_refs:unknownDeviceGroupRefs,
       department_users_unknown_department:departmentUsersUnknownDepartment,
       recommended_qr_origin:recommendedOrigin,
+      configured_qr_origin:PUBLIC_QR_ORIGIN,
+      configured_qr_origin_raw:PUBLIC_QR_ORIGIN_RAW,
+      configured_qr_origin_valid:PUBLIC_QR_ORIGIN_VALID,
+      qr_origin_locked:Boolean(PUBLIC_QR_ORIGIN),
       backups:backups.length,
       latest_backup:latestBackup,
       latest_backup_integrity:latestBackupStatus.integrity,
