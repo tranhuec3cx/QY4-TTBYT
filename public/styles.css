@@ -1558,3 +1558,104 @@ dialog#repairDetailDialog{
 @media(max-width:700px){
   .repair-filter-grid-v2,.device-filter-row{grid-template-columns:1fr!important}
 }
+
+
+/* ===== v40 - Mot noi dieu hanh, chi hien thong tin can hanh dong ===== */
+.work-principle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin:0 0 14px;
+  padding:12px 16px;
+  border:1px solid #d8e8f3;
+  border-radius:12px;
+  background:#f7fbfe;
+  color:#17324d;
+}
+.work-principle strong{font-size:15px;color:#0b5cad}
+.work-principle span{font-size:13px;color:#607487;text-align:right}
+.work-summary-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin-bottom:14px;
+}
+.work-summary-card{
+  min-height:92px;
+  padding:14px 16px;
+  border:1px solid #dce7ef;
+  border-left:4px solid #0b64b4;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 3px 12px rgba(15,42,68,.04);
+}
+.work-summary-card span{display:block;font-size:13px;font-weight:800;color:#536b82}
+.work-summary-card strong{display:block;margin:5px 0 4px;font-size:27px;line-height:1;color:#0b3765}
+.work-summary-card small{font-size:11px;color:#7a8d9e}
+.work-summary-alert{border-left-color:#dc2626}
+.work-summary-warning{border-left-color:#d97706}
+.work-summary-danger{border-left-color:#b91c1c}
+.work-shortcuts-card{padding:10px 14px}
+.work-shortcuts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.work-filter-grid{
+  display:grid!important;
+  grid-template-columns:190px 160px minmax(300px,1fr) auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.work-queue-card{padding:14px 16px}
+.work-queue-table th{white-space:nowrap}
+.work-queue-table td{vertical-align:top}
+.work-queue-table th:nth-child(1),.work-queue-table td:nth-child(1){width:82px}
+.work-queue-table th:nth-child(2),.work-queue-table td:nth-child(2){width:120px}
+.work-queue-table th:nth-child(3),.work-queue-table td:nth-child(3){min-width:220px}
+.work-queue-table th:nth-child(4),.work-queue-table td:nth-child(4){min-width:150px}
+.work-queue-table th:nth-child(5),.work-queue-table td:nth-child(5){min-width:180px}
+.work-queue-table th:nth-child(6),.work-queue-table td:nth-child(6){min-width:210px}
+.work-device-link{font-weight:800;color:#0b5cad;text-decoration:none}
+.work-device-link:hover{text-decoration:underline}
+.work-status-text{font-weight:800;color:#17324d}
+.work-detail-line{margin-top:4px;color:#718397;max-width:280px;white-space:normal}
+.work-next-action{font-weight:700;color:#314b63;white-space:normal}
+
+/* Danh sach nghiep vu: thong tin chi tiet mo trong ho so */
+.primary-list-table th,.primary-list-table td{vertical-align:top}
+.primary-list-table .row-secondary{display:block;margin-top:3px;color:#718397;font-size:12px;line-height:1.35}
+.list-action-primary{white-space:nowrap}
+.compact-primary-filters{
+  display:grid!important;
+  grid-template-columns:160px 160px minmax(280px,1fr) 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.compact-primary-filters.no-dates{
+  grid-template-columns:minmax(300px,1fr) 220px 190px auto!important;
+}
+.secondary-row-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+
+/* Trang thiet bi: bo loc chinh gon, loc phu de trong Loc them */
+.device-primary-filter-grid{
+  display:grid!important;
+  grid-template-columns:minmax(320px,1fr) 230px 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.device-primary-filter-grid .filter-actions{display:flex;gap:8px;align-items:end}
+.device-secondary-filters{grid-template-columns:repeat(4,minmax(170px,1fr))}
+
+/* Ket qua va thoi han la hai khai niem rieng */
+.deadline-cell .tag{margin-top:4px}
+.result-cell .tag{white-space:nowrap}
+
+@media(max-width:1100px){
+  .work-summary-grid{grid-template-columns:repeat(2,1fr)}
+  .work-filter-grid,.compact-primary-filters,.compact-primary-filters.no-dates,.device-primary-filter-grid{grid-template-columns:1fr 1fr!important}
+  .work-filter-grid .field-wide,.compact-primary-filters .field-wide,.device-primary-filter-grid .field-wide{grid-column:1/-1}
+  .work-principle{display:block}
+  .work-principle span{display:block;text-align:left;margin-top:4px}
+}
+@media(max-width:700px){
+  .work-summary-grid,.work-filter-grid,.compact-primary-filters,.compact-primary-filters.no-dates,.device-primary-filter-grid,.device-secondary-filters{grid-template-columns:1fr!important}
+  .work-shortcuts .btn{width:100%;justify-content:center}
+}
