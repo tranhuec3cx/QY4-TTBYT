@@ -368,6 +368,14 @@ hoặc chạy PowerShell:
 
 Gói ZIP được tạo trong `dist/` theo **allowlist**, chỉ gồm source, giao diện, launcher và các script kiểm tra cần thiết. Script sinh `RELEASE-MANIFEST-SHA256.txt` để đối chiếu hash từng file.
 
+Sau khi chép ZIP sang máy triển khai và giải nén, nên double-click **`verify-release-bundle.cmd`** hoặc chạy:
+
+```bash
+npm run verify:release
+```
+
+Verifier đọc `RELEASE-MANIFEST-SHA256.txt` và tính lại SHA256 của toàn bộ file được liệt kê. Thiếu file hoặc chỉ cần một file bị thay đổi trong quá trình copy/giải nén sẽ trả **[CHAN]**; không dùng gói đó để cập nhật máy thật cho tới khi chép lại bản nguyên vẹn.
+
 Gói source mặc định **cố ý không chứa**:
 
 - `db/*.sqlite`, WAL/SHM;
