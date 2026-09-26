@@ -258,6 +258,7 @@ $env:QY4_AUTH_LOGIN_WINDOW_MS="900000"
 $env:QY4_BACKUP_KEEP="30"
 $env:QY4_PRESTART_KEEP="10"
 $env:QY4_BACKUP_MIRROR_DIR="D:\\QY4_Backup_Secondary"
+$env:QY4_PUBLIC_ORIGIN="http://192.168.1.20:5000"
 $env:QY4_QR_RATE_LIMIT="20"
 $env:QY4_QR_RATE_WINDOW_MS="60000"
 $env:QY4_TIME_ZONE="Asia/Bangkok"
@@ -377,6 +378,15 @@ Nên dùng một trong hai:
 - tên miền/hostname nội bộ cố định.
 
 `qr_uid` của máy không thay đổi. Nếu chỉ đổi địa chỉ máy chủ thì dữ liệu định danh vẫn giữ nguyên, nhưng tem QR đã in chứa URL cũ sẽ không tự biết địa chỉ server mới. Vì vậy cần chốt địa chỉ truy cập ổn định **trước khi in QR hàng loạt**.
+
+Có thể khóa địa chỉ chuẩn ở cấp server bằng:
+
+```powershell
+$env:QY4_PUBLIC_ORIGIN="http://192.168.1.20:5000"
+.\start-qy4-production.ps1
+```
+
+Hoặc dùng hostname nội bộ ổn định, ví dụ `http://qy4-ttbyt:5000`. Khi `QY4_PUBLIC_ORIGIN` hợp lệ, giao diện in QR sẽ ưu tiên bắt buộc địa chỉ này thay cho địa chỉ cũ lưu trong trình duyệt. Nếu chưa cấu hình, phần mềm vẫn cho test bằng IP LAN tự phát hiện nhưng **Sẵn sàng triển khai** chỉ đánh dấu **Lưu ý**, chưa nên in tem hàng loạt.
 
 ### Giới hạn gửi QR công khai
 
