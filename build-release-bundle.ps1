@@ -92,18 +92,31 @@ $forbiddenPatterns = @(
     "-shm$",
     "\.log$"
 )
-$forbiddenSegments = @(".git","backups/prestart_")
-if (-not $IncludeDependencies) {
-    $forbiddenSegments += "node_modules"
-}
 $bad = @()
 Get-ChildItem $stage -Recurse -Force -File | ForEach-Object {
     $rel = $_.FullName.Substring($stage.Length).TrimStart([char[]]"\/").Replace("\","/")
+    $matched = $false
     foreach ($p in $forbiddenPatterns) {
-        if ($rel -match $p) { $bad += $rel; break }
+        if ($rel -match $p) {
+            $bad += $rel
+            $matched = $true
+            break
+        }
     }
-    foreach ($seg in $forbiddenSegments) {
-        if ($rel -like "*$seg*") { $bad += $rel; break }
+    if ($matched) { return }
+
+    $segments = $rel -split "/"
+    if ($segments -contains ".git") {
+        $bad += $rel
+        return
+    }
+    if ((-not $IncludeDependencies) -and ($segments -contains "node_modules")) {
+        $bad += $rel
+        return
+    }
+    if ($rel -match '(^|/)backups/prestart_') {
+        $bad += $rel
+        return
     }
 }
 if ($bad.Count -gt 0) {
