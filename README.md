@@ -282,6 +282,7 @@ QY4_AUTH_LOGIN_WINDOW_MS=900000 \
 QY4_BACKUP_KEEP=30 \
 QY4_PRESTART_KEEP=10 \
 QY4_BACKUP_MIRROR_DIR=/mnt/qy4_backup_secondary \
+QY4_PUBLIC_ORIGIN='http://192.168.1.20:5000' \
 QY4_QR_RATE_LIMIT=20 \
 QY4_QR_RATE_WINDOW_MS=60000 \
 QY4_TIME_ZONE=Asia/Bangkok \
@@ -318,6 +319,8 @@ Có thể giữ thư mục phục hồi tạm để kiểm tra thủ công bằn
 ```bash
 node scripts/verify-backup-restore.js --keep-restore
 ```
+
+Trên Windows có thể double-click **`verify-backup.cmd`** để chạy cùng phép kiểm.
 
 ### Dừng server an toàn
 
