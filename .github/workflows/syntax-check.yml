@@ -360,6 +360,8 @@ jobs:
           LOCATION=$(curl -s -I "$BASE/" | tr -d '\r' | awk -F': ' 'tolower($1)=="location"{print $2}' | tail -1)
           test "$LOCATION" = "/dashboard.html"
           curl -fsS "$BASE/api/dashboard/operations" >/tmp/dashboard.json
+          curl -fsS "$BASE/api/dashboard/summary" >/tmp/dashboard-summary.json
+          node -e 'const x=JSON.parse(require("fs").readFileSync("/tmp/dashboard-summary.json","utf8")); for(const k of ["incidents_in_period","completed_work_in_period","backlog_at_end","overdue_maintenance_at_end","overdue_inspection_at_end"]){ if(!Number.isFinite(Number(x[k]))) throw new Error("Dashboard summary KPI missing: "+k); } if(!x.period?.from_date||!x.period?.to_date) throw new Error("Dashboard summary period missing"); console.log("Dashboard summary KPI passed")'
           curl -fsS "$BASE/api/inventory-sessions" >/tmp/inventory.json
           curl -fsS "$BASE/api/system/backups" >/tmp/backups.json
           curl -fsS "$BASE/api/system/readiness" >/tmp/readiness.json
