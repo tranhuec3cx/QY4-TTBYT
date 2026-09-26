@@ -151,15 +151,14 @@ function renderMenu(active) {
   const items = [
     {key:"dashboard", href:"/dashboard.html", label:"Tổng quan"},
     {key:"devices", href:"/index.html", label:"Thiết bị y tế"},
-    {key:"tickets", href:"/tickets.html", label:"Sự cố"},
-    {key:"maintenance", href:"/maintenance.html", label:"Sửa chữa"},
-    {key:"inspection", href:"/inspection.html", label:"Bảo dưỡng"},
-    {key:"inspections", href:"/inspections.html", label:"Kiểm định"},
+    {key:"lcm", href:"/lcm.html", label:"Điều hành kỹ thuật"},
     {key:"inventory", href:"/inventory.html", label:"Kiểm kê / Điều chuyển"},
     {key:"reports", href:"/reports.html", label:"Báo cáo"},
     {key:"settings", href:"/settings.html", label:"Cài đặt"}
   ];
-  const links = items.map(i => `<a class="${active===i.key?'active':''}" href="${i.href}">${i.label}</a>`).join("");
+  const technicalChildren = new Set(["tickets","maintenance","inspection","inspections"]);
+  const menuActive = technicalChildren.has(active) ? "lcm" : active;
+  const links = items.map(i => `<a class="${menuActive===i.key?'active':''}" href="${i.href}">${i.label}</a>`).join("");
   return `
     <aside class="sidebar">
       <div class="brand">
@@ -188,7 +187,8 @@ function goBackSmart(defaultUrl = smartBackDefault()) {
     inspection: "/inspection.html",
     inventory: "/inventory.html",
     devices: "/index.html",
-    dashboard: "/dashboard.html"
+    dashboard: "/dashboard.html",
+    lcm: "/lcm.html"
   };
   if (from === "device-detail" && deviceId) { window.location.href = `/device-detail.html?id=${encodeURIComponent(deviceId)}`; return; }
   if (from && map[from]) { window.location.href = map[from]; return; }
