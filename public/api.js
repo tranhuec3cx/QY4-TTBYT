@@ -515,27 +515,52 @@ async function loadQrOriginSuggestions(device) {
   const input = document.getElementById("qrBaseUrlInput");
   const datalist = document.getElementById("qrBaseUrlOptions");
   const hint = document.getElementById("qrBaseHint");
+  const applyBtn = document.getElementById("qrApplyBaseBtn");
   if (!input) return;
   try {
     const info = await api("/api/system/qr-origins");
     const origins = Array.isArray(info.origins) ? info.origins : [];
     const recommended = String(info.recommended_origin || "").trim();
+    const configured = String(info.configured_origin || "").trim();
+    const locked = Boolean(info.origin_locked && configured);
+
     if (datalist) {
-      const publicOptions = [...new Set([recommended, QR_DEFAULT_PUBLIC_BASE, ...origins].filter(Boolean))];
+      const publicOptions = [...new Set([configured, recommended, QR_DEFAULT_PUBLIC_BASE, ...origins].filter(Boolean))];
       datalist.innerHTML = publicOptions.map(x => `<option value="${qrModalEsc(x)}"></option>`).join("");
     }
-    if (recommended && isLoopbackQrBase(input.value) && !isLoopbackQrBase(recommended)) {
-      input.value = normalizeQrBaseUrl(recommended);
+
+    if (locked) {
+      const normalized = normalizeQrBaseUrl(configured);
+      input.value = normalized;
+      input.readOnly = true;
+      if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.title = "Địa chỉ QR đã được khóa bằng QY4_PUBLIC_ORIGIN trên máy chủ.";
+      }
+      localStorage.setItem(QR_BASE_STORAGE_KEY, normalized);
       updateQrPreview(device);
+    } else {
+      input.readOnly = false;
+      if (applyBtn) {
+        applyBtn.disabled = false;
+        applyBtn.title = "";
+      }
+      if (recommended && isLoopbackQrBase(input.value) && !isLoopbackQrBase(recommended)) {
+        input.value = normalizeQrBaseUrl(recommended);
+        updateQrPreview(device);
+      }
     }
+
     if (hint) {
       const current = normalizeQrBaseUrl(input.value);
-      hint.innerHTML = isLoopbackQrBase(current)
-        ? `<b style="color:#a83232">Không in QR với localhost.</b> Điện thoại sẽ không truy cập được. Hãy chọn IP LAN/tên miền ổn định trong danh sách.`
-        : `QR được sinh <b>ngay trên server nội bộ</b>, không cần Internet. UID trên QR là cố định; địa chỉ đang chọn: <b>${qrModalEsc(current)}</b>.`;
+      hint.innerHTML = locked
+        ? `Địa chỉ QR đã được <b>khóa ở cấp máy chủ</b>: <b>${qrModalEsc(current)}</b>. Muốn đổi địa chỉ in tem, hãy thay cấu hình QY4_PUBLIC_ORIGIN rồi khởi động lại server.`
+        : (isLoopbackQrBase(current)
+            ? `<b style="color:#a83232">Không in QR với localhost.</b> Điện thoại sẽ không truy cập được. Hãy chọn IP LAN/tên miền ổn định trong danh sách.`
+            : `QR được sinh <b>ngay trên server nội bộ</b>, không cần Internet. UID trên QR là cố định; địa chỉ đang chọn: <b>${qrModalEsc(current)}</b>. Trước khi in hàng loạt nên khóa bằng QY4_PUBLIC_ORIGIN.`);
     }
   } catch (e) {
-    if (hint) hint.innerHTML = "Nhập tên miền công khai, ví dụ https://qy4.benhvien.vn";
+    if (hint) hint.innerHTML = "Không tải được cấu hình địa chỉ QR từ server. Hãy kiểm tra kết nối trước khi in tem.";
   }
 }
 function showDeviceQrModal(device) {
@@ -581,7 +606,7 @@ function showDeviceQrModal(device) {
       </div>
       <div class="qr-actions">
         <button class="btn" type="button" onclick="closeQrModal()">Đóng</button>
-        <button class="btn btn-primary" type="button" onclick="printQrLabel()">In mã QR</button>
+        <button class="btn btn-primary" type="button" id="qrPrintBtn" onclick="printQrLabel()">In mã QR</button>
       </div>
     </div>
   `;
@@ -589,5 +614,9 @@ function showDeviceQrModal(device) {
   document.body.appendChild(backdrop);
   backdrop.querySelector("#qrBaseUrlInput")?.addEventListener("input", () => updateQrPreview(device));
   backdrop.querySelector("#qrApplyBaseBtn")?.addEventListener("click", () => saveQrBaseUrl(device));
-  loadQrOriginSuggestions(device);
+  const printBtn = backdrop.querySelector("#qrPrintBtn");
+  if (printBtn) printBtn.disabled = true;
+  loadQrOriginSuggestions(device).finally(() => {
+    if (printBtn) printBtn.disabled = false;
+  });
 }
