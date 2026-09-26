@@ -1714,10 +1714,10 @@ jobs:
 
           grep -q "params.get('device_id')" public/inspections.js
           grep -q "params.get('type')" public/inspections.js
-          grep -q 'inspectionEntryHref' public/dashboard.js
-          grep -q 'Lập hồ sơ' public/dashboard.js
-          grep -q 'dbFailedInspection' public/dashboard.html
-          grep -q 'failedInspections' public/dashboard.js
+          grep -q '/inspections.html?device_id=' public/dashboard.js
+          grep -q 'Thiếu lịch' public/dashboard.js
+          grep -q 'Công việc kỹ thuật ưu tiên' public/dashboard.html
+          grep -q 'Kết quả không đạt' public/dashboard.js
           grep -q 'inspectionFailed' public/reports.html
           grep -q 'inspectionFailed' public/reports.js
           echo "Inspection schedule direct-action and failed-result UI guards passed"
