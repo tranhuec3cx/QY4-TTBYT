@@ -13,6 +13,7 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Double-click `start-qy4-production.cmd`.
 - [ ] Launcher chạy **preflight dữ liệu** và kết thúc với `KET QUA: DAT PREFLIGHT`; nếu có dòng `[CHAN]`, dừng test và xử lý trước, không bỏ qua.
 - [ ] Nếu preflight báo schema legacy R15 ở mức **Lưu ý**, tiếp tục khởi động; RC phải tự migration mà không mất lịch sử điều chuyển/đánh giá.
+- [ ] Nếu đang nâng từ database cũ: sau khi server khởi động, chạy `npm run audit:migration` hoặc double-click `audit-migration.cmd`; kết quả phải là **MIGRATION AUDIT ĐẠT** và không mất ID/bản ghi cũ.
 - [ ] Đăng nhập bằng tài khoản Quản trị viên.
 - [ ] Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai**.
 - [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup, **định danh lõi danh mục thiết bị**, **nhất quán phiếu sửa chữa/trạng thái thiết bị**, **liên kết Sự cố – Sửa chữa** hoặc **lịch sử Điều chuyển**.
@@ -160,3 +161,4 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 13. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
 14. `npm run verify:backup` hoàn thành với **PHỤC HỒI THỬ ĐẠT**, gồm DB, file đính kèm, khóa ngoại và transaction ghi/rollback trên bản copy tạm.
 15. Trước khi in tem hàng loạt, `QY4_PUBLIC_ORIGIN` đã được khóa ở cấp server và **Sẵn sàng triển khai → Địa chỉ chuẩn dùng để in QR** ở mức **Đạt**.
+16. Nếu nâng từ database cũ, `npm run audit:migration` hoàn thành với **MIGRATION AUDIT ĐẠT**; không mất ID cũ và không thay đổi sai Serial/khoa/nhóm/vị trí hoặc liên kết nghiệp vụ.
