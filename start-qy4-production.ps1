@@ -137,6 +137,11 @@ Write-Host "  Time zone      : $env:QY4_TIME_ZONE"
 Write-Host "  Backup keep    : $env:QY4_BACKUP_KEEP"
 Write-Host "  Prestart keep  : $env:QY4_PRESTART_KEEP"
 Write-Host "  QR rate limit  : $env:QY4_QR_RATE_LIMIT / $env:QY4_QR_RATE_WINDOW_MS ms"
+if ($env:QY4_PUBLIC_ORIGIN) {
+    Write-Host "  QR public URL  : $env:QY4_PUBLIC_ORIGIN" -ForegroundColor Green
+} else {
+    Write-Host "  QR public URL  : CHUA KHOA QY4_PUBLIC_ORIGIN (chi nen test, chua in QR hang loat)" -ForegroundColor Yellow
+}
 if ($env:QY4_BACKUP_MIRROR_DIR) {
     Write-Host "  Backup mirror  : $env:QY4_BACKUP_MIRROR_DIR"
 } else {
@@ -148,7 +153,11 @@ Write-Host "Sau khi server khoi dong:" -ForegroundColor Cyan
 Write-Host "  1. Mo http://localhost:5000/login.html"
 Write-Host "  2. Vao Cai dat -> He thong -> San sang trien khai"
 Write-Host "  3. Xu ly het muc 'Can xu ly' truoc khi dung du lieu that/in QR hang loat"
-Write-Host "  4. Tren dien thoai, dung IP LAN duoc server in ra - KHONG dung localhost"
+if ($env:QY4_PUBLIC_ORIGIN) {
+    Write-Host "  4. Test QR bang dia chi da khoa: $env:QY4_PUBLIC_ORIGIN"
+} else {
+    Write-Host "  4. Test bang IP LAN duoc server in ra; truoc khi in hang loat hay dat QY4_PUBLIC_ORIGIN co dinh" -ForegroundColor Yellow
+}
 Write-Host ""
 
 npm start
