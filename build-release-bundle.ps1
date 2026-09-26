@@ -29,7 +29,8 @@ $requiredFiles = @(
     "start-qy4-production.ps1",
     "verify-backup.cmd",
     "audit-migration.cmd",
-    "final-release-gate.cmd"
+    "final-release-gate.cmd",
+    "verify-release-bundle.cmd"
 )
 $requiredDirs = @("public","scripts")
 
