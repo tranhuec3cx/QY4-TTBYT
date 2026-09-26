@@ -129,6 +129,7 @@ Chọn một khoa có danh mục nhỏ để test nhanh.
 - [ ] Nếu đã cấu hình mirror: có bản sao `.sqlite` và `.files/` ở ổ/thư mục thứ hai.
 - [ ] **Sẵn sàng triển khai → Bản sao lưu thứ cấp ngoài máy chủ** không báo lỗi `quick_check`; nếu mirror cùng ổ thì chỉ chấp nhận mức **Lưu ý**, không coi là dự phòng hỏng ổ.
 - [ ] “Sẵn sàng triển khai” báo backup cục bộ đạt và không còn mục backup ở mức **Cần xử lý**.
+- [ ] Chạy `npm run verify:backup`; kết quả phải là **KET QUA: PHUC HOI THU DAT**. Đây là kiểm tra trên bản copy tạm, không làm thay đổi backup gốc.
 
 ## 10. Kết thúc phiên test
 
@@ -155,3 +156,4 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 11. **Sẵn sàng triển khai → Nhất quán liên kết sự cố – sửa chữa** ở mức **Đạt**.
 12. **Sẵn sàng triển khai → Nhất quán lịch sử điều chuyển** không có mức **Cần xử lý**; mọi mức **Lưu ý** đã được đối chiếu thủ công.
 13. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
+14. `npm run verify:backup` hoàn thành với **PHỤC HỒI THỬ ĐẠT**, gồm DB, file đính kèm, khóa ngoại và transaction ghi/rollback trên bản copy tạm.
