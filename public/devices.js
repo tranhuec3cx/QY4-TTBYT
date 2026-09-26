@@ -48,22 +48,18 @@ function renderRows() {
       <td class="device-code">${escapeHtml(d.device_code || "")}</td>
       <td class="device-name-cell"><div class="device-name" title="${escapeHtml(d.name || "")}">${escapeHtml(d.name || "")}</div></td>
       <td class="department-cell"><b>${escapeHtml(d.department_code || "")}</b><div class="small">${escapeHtml(d.department_name || departmentName(d.department_code) || "")}</div></td>
-      <td>${escapeHtml(d.manufacturer || "")}</td>
       <td>${escapeHtml(d.model || "")}</td>
       <td>${escapeHtml(d.serial || "")}</td>
-      <td>${escapeHtml(d.year_in_use || "")}</td>
-      <td>${escapeHtml(d.location || "")}</td>
       <td><span class="tag ${statusTagClass(d.status)}">${escapeHtml(d.status || "")}</span></td>
       <td>
         <div class="table-actions device-row-actions">
-          <a class="btn btn-sm" href="/device-detail.html?id=${d.id}">Xem hồ sơ</a>
+          <a class="btn btn-sm btn-primary" href="/device-detail.html?id=${d.id}">Mở hồ sơ</a>
           ${d.limited_view ? "" : `<button class="btn btn-sm" data-technical-write onclick="showDeviceQrModal(byId(${d.id}))">QR</button>
-          <button class="btn btn-sm" data-technical-write onclick="editDevice(${d.id})">Cập nhật</button>
-          <button class="btn btn-sm danger-light" data-technical-write onclick="deleteDevice(${d.id})">Lưu trữ</button>`}
+          <button class="btn btn-sm" data-technical-write onclick="editDevice(${d.id})">Cập nhật</button>`}
         </div>
       </td>
     </tr>
-  `).join("") || `<tr><td colspan="11" class="center-empty">Chưa có dữ liệu.</td></tr>`;
+  `).join("") || `<tr><td colspan="8" class="center-empty">Chưa có dữ liệu.</td></tr>`;
 }
 function editDevice(id) {
   const d = byId(id);
