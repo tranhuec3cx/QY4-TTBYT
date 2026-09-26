@@ -8,7 +8,8 @@
     "start": "node server.js",
     "preflight:realdata": "node scripts/preflight-realdata.js",
     "verify:backup": "node scripts/verify-backup-restore.js",
-    "audit:migration": "node scripts/audit-migration.js"
+    "audit:migration": "node scripts/audit-migration.js",
+    "release:gate": "node scripts/final-release-gate.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
