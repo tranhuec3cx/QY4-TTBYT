@@ -148,24 +148,28 @@ function statusTagClass(status) {
   return "red";
 }
 function renderMenu(active) {
-  const items = [
-    {key:"dashboard", href:"/dashboard.html", label:"Tổng quan"},
-    {key:"devices", href:"/index.html", label:"Thiết bị y tế"},
-    {key:"lcm", href:"/lcm.html", label:"Điều hành kỹ thuật"},
-    {key:"inventory", href:"/inventory.html", label:"Kiểm kê / Điều chuyển"},
-    {key:"reports", href:"/reports.html", label:"Báo cáo"},
-    {key:"settings", href:"/settings.html", label:"Cài đặt"}
-  ];
-  const technicalChildren = new Set(["tickets","maintenance","inspection","inspections"]);
-  const menuActive = technicalChildren.has(active) ? "lcm" : active;
-  const links = items.map(i => `<a class="${menuActive===i.key?'active':''}" href="${i.href}">${i.label}</a>`).join("");
+  const activeClass = key => active===key ? "active" : "";
   return `
     <aside class="sidebar">
       <div class="brand">
         <img src="assets/BVQY4.jpg" alt="Logo Bệnh viện Quân y 4" />
-        <div><h1>QUẢN LÝ TTBYT</h1><p>Bệnh viện Quân y 4</p></div>
+        <div><h1>QUẢN LÝ THIẾT BỊ Y TẾ</h1><p>BVQY4</p></div>
       </div>
-      <nav class="menu">${links}</nav>
+      <nav class="menu">
+        <a class="${activeClass("dashboard")}" href="/dashboard.html">Tổng quan</a>
+        <a class="${activeClass("devices")}" href="/index.html">Thiết bị</a>
+
+        <div class="menu-section-label">CÔNG VIỆC KỸ THUẬT</div>
+        <a class="${activeClass("tickets")}" href="/tickets.html">Sự cố</a>
+        <a class="${activeClass("maintenance")}" href="/maintenance.html">Sửa chữa</a>
+        <a class="${activeClass("inspection")}" href="/inspection.html">Bảo dưỡng</a>
+        <a class="${activeClass("inspections")}" href="/inspections.html">KĐ / HC / ATBX</a>
+
+        <div class="menu-section-label">QUẢN LÝ</div>
+        <a class="${activeClass("inventory")}" href="/inventory.html">Kiểm kê – Điều chuyển</a>
+        <a class="${activeClass("reports")}" href="/reports.html">Báo cáo</a>
+        <a class="menu-admin-link ${activeClass("settings")}" href="/settings.html">⚙ Quản trị</a>
+      </nav>
       <div class="sidebar-footer">
         <div><b>@2026 Khoa Trang bị. BVQY4</b><span>– Version 5.0.0</span></div>
       </div>
