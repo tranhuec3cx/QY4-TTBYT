@@ -89,7 +89,7 @@ async function loadData() {
   renderGroups();
 }
 document.addEventListener("DOMContentLoaded", async () => {
-  setLayout("settings", "Cài đặt", "Quản lý danh mục dùng chung và cấu hình nền của hệ thống", "categories");
+  setLayout("settings", "Danh mục dùng chung", "Quản lý khoa/phòng và nhóm thiết bị dùng thống nhất trong hệ thống", "categories");
   await loadData();
 
   q("deptFilterBtn").onclick = renderDepartments;
