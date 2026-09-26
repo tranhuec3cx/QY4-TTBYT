@@ -113,6 +113,9 @@ $manifestPath = Join-Path $stage "RELEASE-MANIFEST-SHA256.txt"
 $manifestLines = @(
     "# QY4-TTBYT $Version",
     "# Generated: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))",
+    "# Build OS: $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)",
+    "# Build architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)",
+    "# Node: $(if (Get-Command node -ErrorAction SilentlyContinue) { (node -v).Trim() } else { 'not-available' })",
     $(if ($IncludeDependencies) {
         "# Offline Windows bundle includes verified node_modules from the build machine; runtime database/uploads/backups/secrets remain excluded."
       } else {
