@@ -18,45 +18,68 @@
         <div class="user-box" style="display:none"></div>
       </div>
 
-      <section class="dashboard-stats dashboard-stats-4">
-        <div class="card stat-card simple-card"><h3>Tổng thiết bị</h3><div id="dbTotal" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Đang khai thác</h3><div id="dbOperational" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Hoạt động hạn chế</h3><div id="dbLimited" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Chờ sửa chữa</h3><div id="dbWaitingRepair" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Ngừng hoạt động</h3><div id="dbStopped" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Sự cố chưa xử lý</h3><div id="dbOpenIncidents" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Sắp hạn KĐ/HC/ATBX</h3><div id="dbDueInspection" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Quá hạn KĐ/HC/ATBX</h3><div id="dbOverdueInspection" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>KĐ/HC/ATBX không đạt</h3><div id="dbFailedInspection" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Chưa có lịch KĐ/HC/ATBX</h3><div id="dbMissingInspectionSchedule" class="value">0</div></div>
+      <section class="overview-kpis" aria-label="Chỉ số chính">
+        <article class="overview-kpi">
+          <span class="overview-kpi-label">Tổng thiết bị</span>
+          <strong id="dbTotal">0</strong>
+          <small>Thiết bị đang quản lý</small>
+        </article>
+        <article class="overview-kpi">
+          <span class="overview-kpi-label">Đang hoạt động</span>
+          <strong id="dbOperational">0</strong>
+          <small>Khai thác bình thường</small>
+        </article>
+        <article class="overview-kpi overview-kpi-warning">
+          <span class="overview-kpi-label">Chờ sửa chữa</span>
+          <strong id="dbWaitingRepair">0</strong>
+          <small>Cần theo dõi xử lý</small>
+        </article>
+        <article class="overview-kpi overview-kpi-danger">
+          <span class="overview-kpi-label">Quá hạn KĐ/HC/ATBX</span>
+          <strong id="dbOverdueInspection">0</strong>
+          <small>Cần ưu tiên xử lý</small>
+        </article>
       </section>
 
-      <section class="card dashboard-upcoming-card">
-        <div class="section-head"><h3 class="section-title">Cần xử lý</h3><span class="small">Ưu tiên các việc đang mở và quá hạn</span></div>
-        <div class="dashboard-upcoming-grid">
-          <div class="due-list-block"><h4>Bảo dưỡng sắp đến hạn</h4><ul id="dueMaints" class="task-list"></ul></div>
-          <div class="due-list-block"><h4>KĐ/HC/ATBX sắp đến hạn</h4><ul id="dueInspections" class="task-list"></ul></div>
-          <div class="due-list-block"><h4>KĐ/HC/ATBX không đạt</h4><ul id="failedInspections" class="task-list"></ul></div>
-          <div class="due-list-block"><h4>KĐ/HC/ATBX chưa có lịch</h4><ul id="missingInspectionSchedules" class="task-list"></ul></div>
+      <section class="card dashboard-focus-card">
+        <div class="section-head">
+          <div>
+            <h3 class="section-title">Việc cần xử lý</h3>
+            <p class="section-caption">Chỉ hiển thị các công việc sắp đến hạn để dễ theo dõi.</p>
+          </div>
         </div>
-        <div class="mini-kpi-grid mini-kpi-grid-3" style="margin-top:14px">
-          <div><span>Chờ linh kiện</span><b id="dbWaitingParts">0</b></div>
-          <div><span>Kiểm tra QR hôm nay</span><b id="dbQrTotal">0</b></div>
-          <div><span>QR có vấn đề</span><b id="dbQrIssue">0</b></div>
-          <div><span>Phản hồi TB</span><b id="dbAvgResponse">—</b></div>
-          <div><span>Xử lý TB</span><b id="dbAvgResolution">—</b></div>
-          <div><span>Sự cố qua QR tháng này</span><b id="dbQrIncidentShare">—</b></div>
-          <div><span>Kiểm tra QR tháng này</span><b id="dbQrChecksMonth">—</b></div>
-          <div><span>Thiết bị đã quét QR</span><b id="dbQrDevicesMonth">—</b></div>
-          <div><span>Sự cố chưa tiếp nhận</span><b id="dbUnacknowledged">0</b></div>
-          <div><span>Đủ mốc tiếp nhận tháng</span><b id="dbResponseCompleteness">—</b></div>
+        <div class="dashboard-focus-grid">
+          <div class="focus-list-block">
+            <h4>Bảo dưỡng sắp đến hạn</h4>
+            <ul id="dueMaints" class="task-list clean-task-list"></ul>
+          </div>
+          <div class="focus-list-block">
+            <h4>KĐ/HC/ATBX sắp đến hạn</h4>
+            <ul id="dueInspections" class="task-list clean-task-list"></ul>
+          </div>
         </div>
       </section>
 
-      <section class="card">
-        <div class="section-head"><h3 class="section-title">Sự cố 6 tháng gần đây</h3></div>
+      <section class="card dashboard-trend-card">
+        <div class="section-head">
+          <div>
+            <h3 class="section-title">Sự cố 6 tháng gần đây</h3>
+            <p class="section-caption">Theo dõi xu hướng, không dùng để thay thế danh sách sự cố.</p>
+          </div>
+        </div>
         <div id="incidentMonthBars"></div>
       </section>
+
+      <div class="visually-hidden-dashboard" aria-hidden="true">
+        <span id="dbLimited"></span><span id="dbStopped"></span><span id="dbOpenIncidents"></span>
+        <span id="dbUnacknowledged"></span><span id="dbDueInspection"></span><span id="dbFailedInspection"></span>
+        <span id="dbMissingInspectionSchedule"></span><span id="dbWaitingParts"></span><span id="dbAvgResponse"></span>
+        <span id="dbAvgResolution"></span><span id="dbQrTotal"></span><span id="dbQrIssue"></span>
+        <span id="dbQrIncidentShare"></span><span id="dbQrChecksMonth"></span><span id="dbQrDevicesMonth"></span>
+        <span id="dbResponseCompleteness"></span>
+        <ul id="failedInspections"></ul>
+        <ul id="missingInspectionSchedules"></ul>
+      </div>
     </main>
   </div>
   <script src="/api.js"></script>
