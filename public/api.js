@@ -516,7 +516,7 @@ async function loadQrOriginSuggestions(device) {
   const datalist = document.getElementById("qrBaseUrlOptions");
   const hint = document.getElementById("qrBaseHint");
   const applyBtn = document.getElementById("qrApplyBaseBtn");
-  if (!input) return;
+  if (!input) return false;
   try {
     const info = await api("/api/system/qr-origins");
     const origins = Array.isArray(info.origins) ? info.origins : [];
@@ -551,16 +551,24 @@ async function loadQrOriginSuggestions(device) {
       }
     }
 
+    const printSafe = info.origin_print_safe !== false;
     if (hint) {
       const current = normalizeQrBaseUrl(input.value);
-      hint.innerHTML = locked
-        ? `Địa chỉ QR đã được <b>khóa ở cấp máy chủ</b>: <b>${qrModalEsc(current)}</b>. Muốn đổi địa chỉ in tem, hãy thay cấu hình QY4_PUBLIC_ORIGIN rồi khởi động lại server.`
-        : (isLoopbackQrBase(current)
-            ? `<b style="color:#a83232">Không in QR với localhost.</b> Điện thoại sẽ không truy cập được. Hãy chọn IP LAN/tên miền ổn định trong danh sách.`
-            : `QR được sinh <b>ngay trên server nội bộ</b>, không cần Internet. UID trên QR là cố định; địa chỉ đang chọn: <b>${qrModalEsc(current)}</b>. Trước khi in hàng loạt nên khóa bằng QY4_PUBLIC_ORIGIN.`);
+      const configInvalid = Boolean(info.configured_origin_raw && info.configured_origin_valid === false);
+      hint.innerHTML = configInvalid
+        ? `<b style="color:#a83232">QY4_PUBLIC_ORIGIN không hợp lệ.</b> Nút In QR bị khóa cho tới khi sửa cấu hình và khởi động lại server.`
+        : (locked && !printSafe
+            ? `<b style="color:#a83232">Địa chỉ QR đang khóa nhưng không dùng được cho thiết bị khác:</b> <b>${qrModalEsc(current)}</b>. Hãy sửa QY4_PUBLIC_ORIGIN.`
+            : (locked
+                ? `Địa chỉ QR đã được <b>khóa ở cấp máy chủ</b>: <b>${qrModalEsc(current)}</b>. Muốn đổi địa chỉ in tem, hãy thay cấu hình QY4_PUBLIC_ORIGIN rồi khởi động lại server.`
+                : (isLoopbackQrBase(current)
+                    ? `<b style="color:#a83232">Không in QR với localhost.</b> Điện thoại sẽ không truy cập được. Hãy chọn IP LAN/tên miền ổn định trong danh sách.`
+                    : `QR được sinh <b>ngay trên server nội bộ</b>, không cần Internet. UID trên QR là cố định; địa chỉ đang chọn: <b>${qrModalEsc(current)}</b>. Trước khi in hàng loạt nên khóa bằng QY4_PUBLIC_ORIGIN.`)));
     }
+    return printSafe;
   } catch (e) {
-    if (hint) hint.innerHTML = "Không tải được cấu hình địa chỉ QR từ server. Hãy kiểm tra kết nối trước khi in tem.";
+    if (hint) hint.innerHTML = "Không tải được cấu hình địa chỉ QR từ server. Nút In QR tạm khóa để tránh in sai địa chỉ.";
+    return false;
   }
 }
 function showDeviceQrModal(device) {
@@ -616,7 +624,9 @@ function showDeviceQrModal(device) {
   backdrop.querySelector("#qrApplyBaseBtn")?.addEventListener("click", () => saveQrBaseUrl(device));
   const printBtn = backdrop.querySelector("#qrPrintBtn");
   if (printBtn) printBtn.disabled = true;
-  loadQrOriginSuggestions(device).finally(() => {
-    if (printBtn) printBtn.disabled = false;
+  loadQrOriginSuggestions(device).then((printSafe) => {
+    if (!printBtn) return;
+    printBtn.disabled = printSafe === false;
+    printBtn.title = printSafe === false ? "Chưa có địa chỉ QR an toàn để in." : "";
   });
 }
