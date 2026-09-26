@@ -15,24 +15,26 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box" style="display:none"></div>
+        <div class="page-actions"><button class="btn btn-primary" data-technical-write onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm thiết bị</button><div class="user-box" style="display:none"></div></div>
       </div>
       
-<section class="card">
-  <div class="filters device-filter-row">
-    <input id="searchInput" type="text" placeholder="Tìm mã thiết bị / tên thiết bị" />
-    <select id="departmentFilter"></select>
-    <select id="groupFilter"></select>
-    <select id="yearFilter"></select>
-    <select id="statusFilter"></select>
-    <select id="qualityFilter" data-technical-write></select>
-    <select id="fundingFilter" data-technical-write></select>
-    <button class="btn" id="filterBtn">Lọc</button>
-    <button class="btn" id="resetBtn">Đặt lại</button>
-    <button class="btn btn-primary" data-technical-write onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm thiết bị</button>
+<section class="card compact-card clean-filter-card">
+  <div class="filters device-primary-filter-grid">
+    <label class="field field-wide"><span class="field-label">Tìm thiết bị</span><input id="searchInput" type="text" placeholder="Mã thiết bị, tên thiết bị, Model hoặc Serial number" /></label>
+    <label class="field"><span class="field-label">Khoa/phòng</span><select id="departmentFilter"></select></label>
+    <label class="field"><span class="field-label">Tình trạng</span><select id="statusFilter"></select></label>
+    <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="resetBtn">Đặt lại</button></div>
   </div>
+  <details class="advanced-filter-details">
+    <summary>Lọc thêm</summary>
+    <div class="advanced-filter-grid device-secondary-filters">
+      <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"></select></label>
+      <label class="field"><span class="field-label">Năm sử dụng</span><select id="yearFilter"></select></label>
+      <label class="field"><span class="field-label">Cấp chất lượng</span><select id="qualityFilter" data-technical-write></select></label>
+      <label class="field"><span class="field-label">Nguồn kinh phí</span><select id="fundingFilter" data-technical-write></select></label>
+    </div>
+  </details>
 </section>
-
 
 <section class="card technical-card">
   <div class="table-card-header technical-table-title">
@@ -41,7 +43,7 @@
   </div>
   <div class="table-wrap scroll-area">
     <table class="device-table">
-      <thead><tr><th>STT</th><th>Mã thiết bị</th><th>Tên thiết bị</th><th>Khoa sử dụng</th><th>Hãng SX</th><th>Model</th><th>Serial Number</th><th>Năm SD</th><th>Vị trí</th><th>Tình trạng</th><th>Thao tác</th></tr></thead>
+      <thead><tr><th>STT</th><th>Mã thiết bị</th><th>Tên thiết bị</th><th>Khoa sử dụng</th><th>Model</th><th>Serial Number</th><th>Tình trạng</th><th>Thao tác</th></tr></thead>
       <tbody id="deviceRows"></tbody>
     </table>
   </div>
