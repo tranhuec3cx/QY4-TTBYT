@@ -29,10 +29,17 @@ if ($nodeMajor -lt 20) {
 # Neu dang chay bundle co node_modules + manifest, Node major tren may dich phai trung voi may build.
 $manifestPath = Join-Path $PSScriptRoot "RELEASE-MANIFEST-SHA256.txt"
 if ((Test-Path (Join-Path $PSScriptRoot "node_modules")) -and (Test-Path $manifestPath)) {
-    $manifestNodeLine = Get-Content $manifestPath -ErrorAction SilentlyContinue |
-        Where-Object { $_ -match '^# Node:\s*v?(\d+)\.' } |
-        Select-Object -First 1
-    if ($manifestNodeLine -and ($manifestNodeLine -match '^# Node:\s*v?(\d+)\.')) {
+    $manifestLines = Get-Content $manifestPath -ErrorAction SilentlyContinue
+    $isOfflineDependencyBundle = @($manifestLines | Where-Object {
+        $_ -match '^# Offline Windows bundle includes verified node_modules'
+    }).Count -gt 0
+    if ($isOfflineDependencyBundle) {
+        $manifestNodeLine = $manifestLines |
+            Where-Object { $_ -match '^# Node:\s*v?(\d+)\.' } |
+            Select-Object -First 1
+        if (-not $manifestNodeLine -or -not ($manifestNodeLine -match '^# Node:\s*v?(\d+)\.')) {
+            throw "Goi offline co node_modules nhung manifest khong ghi duoc Node major. Khong khoi dong de tranh loi native dependency."
+        }
         $bundledNodeMajor = [int]$Matches[1]
         if ($bundledNodeMajor -ne $nodeMajor) {
             throw "Goi offline nay duoc build bang Node.js $bundledNodeMajor.x nhung may dang dung Node.js $nodeMajor.x. better-sqlite3 co native binary nen khong nen chay cheo major. Hay dung Node.js $bundledNodeMajor LTS hoac dung goi source va cai lai dependency cho Node.js hien tai."
