@@ -1668,3 +1668,52 @@ dialog#repairDetailDialog{
 .incident-table-v2 th:nth-child(7),.incident-table-v2 td:nth-child(7){display:table-cell!important}
 .repair-table-v2 th:nth-child(7),.repair-table-v2 td:nth-child(7){display:table-cell!important}
 .repair-summary-strip{max-width:760px}
+
+
+/* v40 reports: bao cao nghiep vu la man hinh chinh, phan tich nang mo khi can */
+.report-primary-filter-grid{
+  display:grid!important;
+  grid-template-columns:260px 210px 190px minmax(260px,1fr) auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.report-detail-panel{padding:0;overflow:hidden}
+.report-detail-summary{
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:15px 18px;
+  color:#17324d;
+}
+.report-detail-summary::-webkit-details-marker{display:none}
+.report-detail-summary span:first-child{display:flex;flex-direction:column;gap:3px}
+.report-detail-summary b{font-size:16px}
+.report-detail-summary small{color:#718397;font-weight:500}
+.report-detail-open-label{font-size:12px;font-weight:800;color:#0b5cad;white-space:nowrap}
+.report-detail-panel[open] .report-detail-summary{border-bottom:1px solid #e6edf3;background:#fbfdff}
+.report-detail-panel[open] .report-detail-open-label::after{content:" · đang mở"}
+.report-detail-body{padding:16px 18px 18px}
+.report-note{margin-bottom:12px;color:#64748b}
+.kpi-filter-grid{
+  display:grid!important;
+  grid-template-columns:160px 160px 220px 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+  margin-bottom:14px;
+}
+.inline-number-field{display:flex;align-items:center;gap:6px}
+.inline-number-field input{min-width:0}
+.report-detail-body .due-list-block{margin-top:12px}
+.report-detail-body .dashboard-upcoming-grid{margin-top:4px}
+
+@media(max-width:1150px){
+  .report-primary-filter-grid,.kpi-filter-grid{grid-template-columns:1fr 1fr!important}
+  .report-primary-filter-grid .field-wide{grid-column:1/-1}
+}
+@media(max-width:700px){
+  .report-primary-filter-grid,.kpi-filter-grid{grid-template-columns:1fr!important}
+  .report-detail-summary{align-items:flex-start}
+}
