@@ -10,21 +10,26 @@
   <div class="layout">
     <div id="menuHost"></div>
     <main class="main">
-      <div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="user-box" style="display:none"></div></div>
-      <section class="card compact-card">
-        <div class="filters maintenance-filter-grid">
+      <div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="page-actions"><button class="btn btn-primary" type="button" onclick="document.getElementById('form').scrollIntoView({behavior:'smooth'})">+ Ghi nhận bảo dưỡng</button><button class="btn" id="exportMaintBtn">Xuất Excel</button><div class="user-box" style="display:none"></div></div></div>
+      <section class="card compact-card clean-filter-card">
+        <div class="filters compact-primary-filters">
           <label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date" /></label>
           <label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date" /></label>
-          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên, nội dung, người thực hiện" /></label>
-          <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
+          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên thiết bị hoặc nội dung bảo dưỡng" /></label>
           <label class="field"><span class="field-label">Loại bảo dưỡng</span><select id="typeFilter"><option value="ALL">Tất cả loại</option><option>Bảo dưỡng định kỳ</option><option>Vệ sinh thiết bị</option><option>Thay vật tư định kỳ</option><option>Kiểm tra an toàn điện</option><option>Kiểm tra chất lượng</option><option>Cập nhật phần mềm</option></select></label>
-          <label class="field"><span class="field-label">Đơn vị</span><select id="vendorFilter"><option value="ALL">Tất cả đơn vị</option></select></label>
-          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Xóa lọc</button><button class="btn" id="exportMaintBtn">Xuất Excel</button></div>
+          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Đặt lại</button></div>
         </div>
+        <details class="advanced-filter-details">
+          <summary>Lọc thêm</summary>
+          <div class="advanced-filter-grid">
+            <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
+            <label class="field"><span class="field-label">Đơn vị thực hiện</span><select id="vendorFilter"><option value="ALL">Tất cả đơn vị</option></select></label>
+          </div>
+        </details>
       </section>
       <section class="card">
         <div class="table-card-header"><h3 id="countLabel">0 bản ghi</h3></div>
-        <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Loại</th><th>Nội dung</th><th>Kết quả</th><th>Người thực hiện</th><th>Đơn vị</th><th>Lần tiếp theo</th><th>File</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div class="table-wrap scroll-area"><table><thead><tr><th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Loại</th><th>Kết quả</th><th>Lần tiếp theo</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div>
       </section>
       <section class="card">
         <div class="table-card-header"><h3 id="formTitle">Ghi nhận bảo dưỡng thiết bị</h3><div class="small">Có thể tải lên biên bản bảo dưỡng, phiếu kiểm tra, ảnh hiện trạng hoặc tài liệu liên quan.</div></div>
