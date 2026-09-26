@@ -1137,9 +1137,9 @@ jobs:
           if(!archivedInsp || Number(archivedInsp.is_archived)!==1) throw new Error("inspection API did not expose archived device state");
           NODE
 
-          grep -F 'latestTechnicalRows(maints,"maintenance_date","Bảo dưỡng định kỳ")' public/dashboard.js >/dev/null
-          grep -F 'latestTechnicalRows(inspections,"inspection_date","Kiểm định")' public/dashboard.js >/dev/null
-          grep -F '!Number(x.is_archived||0)' public/dashboard.js >/dev/null
+          grep -F 'dashLatestByDeviceType(maintenances,"maintenance_date","Bảo dưỡng định kỳ")' public/dashboard.js >/dev/null
+          grep -F 'dashLatestByDeviceType(inspections,"inspection_date","Kiểm định")' public/dashboard.js >/dev/null
+          grep -F 'Number(row.is_archived || 0)' public/dashboard.js >/dev/null
           echo "Latest maintenance/inspection schedule semantics passed"
 
       - name: Smoke test historical master-data locks
