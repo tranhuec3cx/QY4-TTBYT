@@ -154,7 +154,7 @@ Tab **Báo cáo** có khối **Hiệu quả xử lý sự cố & ứng dụng QR
 
 ## 3. Cài đặt
 
-Yêu cầu **Node.js 20 trở lên** (cùng major runtime đang được kiểm thử trong GitHub Actions).
+Yêu cầu **Node.js 20 trở lên** đối với source. CI và gói Windows offline hiện được build/test bằng **Node.js 20 LTS**. Khi dùng gói offline đã kèm `node_modules`, **Node major trên máy đích phải trùng Node major ghi trong `RELEASE-MANIFEST-SHA256.txt`** vì `better-sqlite3` có native binary.
 
 ```bash
 npm ci
@@ -212,7 +212,7 @@ File `start-qy4-production.cmd` tự gọi PowerShell với ExecutionPolicy phù
 - **sao lưu file SQLite/WAL/SHM hiện có trước khi server chạy migration** vào `backups/prestart_YYYYMMDD_HHMMSS/`; mặc định chỉ giữ 10 bản prestart gần nhất để tránh đầy ổ đĩa;
 - chạy **preflight đọc-only** trên database hiện có trước migration: `quick_check`, khóa ngoại, trùng phiếu sửa chữa mở, trạng thái máy, username và file đính kèm; lỗi mức chặn sẽ dừng launcher trước khi sửa database;
 - tự nhận diện schema legacy R15 (điều chuyển cũ và `quality_ratings UNIQUE(device_id)`) là dạng được hỗ trợ để migration, chỉ cảnh báo chứ không chặn oan;
-- kiểm tra dependency cục bộ bằng `npm ls`; nếu đã đủ và đúng phiên bản thì **không tải lại**, phù hợp máy chạy LAN/offline; chỉ chạy `npm ci` khi dependency thiếu hoặc lệch;
+- kiểm tra dependency cục bộ bằng `npm ls` **và load-test runtime thực tế** (`better-sqlite3` + SQLite in-memory cùng các dependency chính); nếu đã đủ, đúng phiên bản và nạp được thì **không tải lại**, phù hợp máy chạy LAN/offline; chỉ chạy `npm ci` khi dependency thiếu, lệch hoặc không nạp được;
 - hỏi mật khẩu Quản trị viên lần đầu mà không ghi mật khẩu vào source.
 
 Sau khi server chạy, vào **Cài đặt → Hệ thống → Sẵn sàng triển khai** và xử lý hết mục **Cần xử lý** trước khi dùng dữ liệu thật hoặc in QR hàng loạt.
@@ -224,7 +224,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\start-qy4-production.ps1
 ```
 
-Chỉ dùng `-SkipInstall` khi chắc chắn `node_modules` đã khớp đúng phiên bản source hiện tại. Nếu máy hoàn toàn offline mà dependency còn thiếu, cần chuẩn bị sẵn `node_modules` đúng `package-lock.json` hoặc npm cache trước khi triển khai.
+Chỉ dùng `-SkipInstall` khi chắc chắn `node_modules` đã khớp đúng phiên bản source hiện tại **và cùng Node major**; launcher vẫn load-test runtime trước khi chạy. Nếu máy hoàn toàn offline mà dependency còn thiếu/không tương thích, cần dùng đúng Node major của bundle hoặc chuẩn bị sẵn `node_modules`/npm cache tương thích trước khi triển khai.
 
 
 
@@ -405,7 +405,7 @@ Builder chỉ tạo gói offline khi:
 - `npm ls --depth=0` xác nhận dependency khớp `package.json/package-lock.json`;
 - các runtime package, đặc biệt native module `better-sqlite3`, nạp được trên máy build.
 
-Gói offline vẫn **không chứa database, uploads, backups, .env, mật khẩu hay log vận hành**. File `RELEASE-MANIFEST-SHA256.txt` ghi thêm **OS, kiến trúc máy và Node version** của máy build. Do `better-sqlite3` có thành phần native, chỉ dùng gói offline trên máy đích có hệ điều hành/kiến trúc tương thích; với BVQY4 nên build trên Windows x64 tương ứng.
+Gói offline vẫn **không chứa database, uploads, backups, .env, mật khẩu hay log vận hành**. File `RELEASE-MANIFEST-SHA256.txt` ghi thêm **OS, kiến trúc máy và Node version** của máy build. Do `better-sqlite3` có thành phần native, chỉ dùng gói offline trên máy đích có **hệ điều hành/kiến trúc tương thích và cùng Node major**; với bundle CI hiện tại nghĩa là **Windows x64 + Node.js 20.x**.
 
 Khi **nâng cấp máy đang có dữ liệu thật**, không thay thế/xóa các thư mục dữ liệu đang vận hành bằng ZIP release. Trước tiên sao lưu, sau đó cập nhật source và chạy `start-qy4-production.cmd` để preflight + migration có kiểm soát.
 
