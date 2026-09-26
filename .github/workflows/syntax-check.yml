@@ -89,6 +89,8 @@ jobs:
           if (-not (Test-Path "./build-release-bundle.ps1")) { throw "Missing release bundle builder" }
           if (-not (Test-Path "./build-release-bundle.cmd")) { throw "Missing one-click Windows release bundle builder" }
           if (-not (Test-Path "./build-release-bundle-offline.cmd")) { throw "Missing one-click Windows offline bundle builder" }
+          if (-not (Test-Path "./scripts/verify-release-bundle.js")) { throw "Missing release integrity verifier" }
+          if (-not (Test-Path "./verify-release-bundle.cmd")) { throw "Missing one-click release integrity verifier" }
           $bundleScript = Get-Content -Raw -Path "./build-release-bundle.ps1"
           [void][ScriptBlock]::Create($bundleScript)
           if ($bundleScript -notmatch 'IncludeDependencies') { throw "Offline bundle switch missing" }
@@ -2127,8 +2129,116 @@ jobs:
           grep -q '^package\.json$' /tmp/release-files.txt
           grep -q '^package-lock\.json$' /tmp/release-files.txt
           grep -q '^start-qy4-production\.cmd$' /tmp/release-files.txt
-          grep -q '^final-release-gate\.cmd$' /tmp/release-files.txt
-          grep -q '^RELEASE-MANIFEST-SHA256\.txt$' /tmp/release-files.txt
+          grep -q '^final-release-gate\.cmd
+          if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
+            echo "Release bundle contains forbidden runtime/sensitive files:"
+            grep -Ei '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt
+            exit 1
+          fi
+          rm -rf /tmp/qy4-release-unpacked
+          mkdir -p /tmp/qy4-release-unpacked
+          unzip -q "$ZIP" -d /tmp/qy4-release-unpacked
+          (
+            cd /tmp/qy4-release-unpacked
+            node scripts/verify-release-bundle.js --json >/tmp/release-integrity-ok.json
+          )
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/release-integrity-ok.json","utf8")); if(r.ok!==true||Number(r.stats?.checked||0)<10) throw new Error("Release integrity verifier baseline failed"); console.log("Release manifest integrity baseline passed")'
+          printf '\nCI tamper\n' >> /tmp/qy4-release-unpacked/server.js
+          set +e
+          (
+            cd /tmp/qy4-release-unpacked
+            node scripts/verify-release-bundle.js --json >/tmp/release-integrity-tampered.json
+          )
+          TAMPER_CODE=$?
+          set -e
+          test "$TAMPER_CODE" = "2"
+          node -e 'const r=JSON.parse(require("fs").readFileSync("/tmp/release-integrity-tampered.json","utf8")); if(r.ok!==false||Number(r.stats?.mismatched||0)<1||!(r.blockers||[]).some(x=>String(x).includes("server.js"))) throw new Error("Tampered release was not detected"); console.log("Release tamper detection passed")'
+          echo "Sanitized release bundle validation passed"
+
+      - name: Upload release candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: QY4-TTBYT-5.0.0-RC-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^verify-release-bundle\.cmd
+          if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
+            echo "Release bundle contains forbidden runtime/sensitive files:"
+            grep -Ei '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt
+            exit 1
+          fi
+          echo "Sanitized release bundle validation passed"
+
+      - name: Upload release candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: QY4-TTBYT-5.0.0-RC-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^scripts/verify-release-bundle\.js
+          if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
+            echo "Release bundle contains forbidden runtime/sensitive files:"
+            grep -Ei '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt
+            exit 1
+          fi
+          echo "Sanitized release bundle validation passed"
+
+      - name: Upload release candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: QY4-TTBYT-5.0.0-RC-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^RELEASE-MANIFEST-SHA256\.txt
+          if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
+            echo "Release bundle contains forbidden runtime/sensitive files:"
+            grep -Ei '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt
+            exit 1
+          fi
+          echo "Sanitized release bundle validation passed"
+
+      - name: Upload release candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: QY4-TTBYT-5.0.0-RC-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
           grep -q '^public/' /tmp/release-files.txt
           grep -q '^scripts/' /tmp/release-files.txt
           if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
