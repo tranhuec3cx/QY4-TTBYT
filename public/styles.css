@@ -1531,3 +1531,30 @@ dialog#repairDetailDialog{
   .simple-filter-grid{grid-template-columns:1fr!important}
   .repair-stats{grid-template-columns:1fr;max-width:none}
 }
+
+
+/* v39.1 - mac dinh chi hien bo loc dung thuong xuyen */
+.repair-filter-grid-v2{
+  grid-template-columns:160px 160px minmax(300px,1fr) 190px auto!important;
+}
+.repair-filter-grid-v2 > label:nth-child(4),
+.repair-filter-grid-v2 > label:nth-child(5),
+.repair-filter-grid-v2 > label:nth-child(6),
+.repair-filter-grid-v2 > label:nth-child(8){display:none}
+
+.device-filter-row{
+  grid-template-columns:minmax(300px,1fr) 200px 190px auto auto auto!important;
+}
+.device-filter-row #groupFilter,
+.device-filter-row #yearFilter,
+.device-filter-row #qualityFilter,
+.device-filter-row #fundingFilter{display:none}
+
+@media(max-width:1050px){
+  .repair-filter-grid-v2,.device-filter-row{grid-template-columns:1fr 1fr!important}
+  .repair-filter-grid-v2 .field-wide,
+  .device-filter-row #searchInput{grid-column:1/-1}
+}
+@media(max-width:700px){
+  .repair-filter-grid-v2,.device-filter-row{grid-template-columns:1fr!important}
+}
