@@ -323,13 +323,19 @@ app.post("/api/export/xlsx", async (req,res) => {
 app.get("/api/system/qr-origins", (req, res) => {
   const origins = getLanQrOrigins(req);
   const detected = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const recommended = PUBLIC_QR_ORIGIN || detected;
+  const configuredUnsafe = Boolean(PUBLIC_QR_ORIGIN && /localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN));
+  const originPrintSafe = PUBLIC_QR_ORIGIN_RAW
+    ? Boolean(PUBLIC_QR_ORIGIN_VALID && PUBLIC_QR_ORIGIN && !configuredUnsafe)
+    : Boolean(recommended && !/localhost|127\.0\.0\.1/i.test(recommended));
   res.json({
     current_origin: `${req.protocol || "http"}://${req.get("host")}`,
     configured_origin: PUBLIC_QR_ORIGIN,
     configured_origin_raw: PUBLIC_QR_ORIGIN_RAW,
     configured_origin_valid: PUBLIC_QR_ORIGIN_VALID,
     origin_locked: Boolean(PUBLIC_QR_ORIGIN),
-    recommended_origin: PUBLIC_QR_ORIGIN || detected,
+    origin_print_safe: originPrintSafe,
+    recommended_origin: recommended,
     origins
   });
 });
@@ -5619,6 +5625,11 @@ app.get("/api/system/readiness", (req, res) => {
       configured_qr_origin_raw:PUBLIC_QR_ORIGIN_RAW,
       configured_qr_origin_valid:PUBLIC_QR_ORIGIN_VALID,
       qr_origin_locked:Boolean(PUBLIC_QR_ORIGIN),
+      qr_origin_print_safe:Boolean(
+        PUBLIC_QR_ORIGIN_RAW
+          ? (PUBLIC_QR_ORIGIN_VALID && PUBLIC_QR_ORIGIN && !/localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN))
+          : (recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin))
+      ),
       backups:backups.length,
       latest_backup:latestBackup,
       latest_backup_integrity:latestBackupStatus.integrity,
