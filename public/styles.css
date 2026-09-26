@@ -1717,3 +1717,57 @@ dialog#repairDetailDialog{
   .report-primary-filter-grid,.kpi-filter-grid{grid-template-columns:1fr!important}
   .report-detail-summary{align-items:flex-start}
 }
+
+/* v5.0 dashboard + navigation refresh 2026-09-26 */
+.brand h1{font-size:17px;line-height:1.2}
+.brand p{font-weight:800;letter-spacing:.04em}
+.menu-section-label{
+  margin:13px 12px 3px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  color:rgba(255,255,255,.58);
+}
+.menu-admin-link{margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:14px!important;border-radius:0!important}
+.dashboard-period-card{padding:14px 16px;margin-bottom:14px}
+.dashboard-period-row{display:flex;align-items:end;justify-content:space-between;gap:16px}
+.dashboard-period-controls{display:grid;grid-template-columns:190px 155px 155px;gap:10px;align-items:end}
+.dashboard-period-controls .field{margin:0}
+.dashboard-period-controls select,.dashboard-period-controls input{
+  width:100%;min-height:42px;padding:9px 11px;border:1px solid #bfd0e1;border-radius:10px;background:#fff;color:#17324d
+}
+.dashboard-period-note{max-width:560px;text-align:right;color:#617995;font-size:13px;line-height:1.45}
+.overview-kpis.dashboard-kpis-v2{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.dashboard-kpis-v2 .overview-kpi{min-height:100px;padding:14px 16px}
+.dashboard-kpis-v2 .overview-kpi strong{font-size:29px}
+.overview-kpi-success{border-left:4px solid #2f855a}
+.dashboard-quick-actions{display:flex;gap:8px;justify-content:flex-end;margin:0 0 14px}
+.dashboard-upcoming-card,.dashboard-priority-card{padding:16px 18px}
+.dashboard-upcoming-table th,.dashboard-priority-table th{white-space:nowrap}
+.dashboard-upcoming-table td,.dashboard-priority-table td{vertical-align:top}
+.dashboard-upcoming-table th:nth-child(1){width:90px}
+.dashboard-upcoming-table th:nth-child(4){width:145px}
+.dashboard-upcoming-table th:last-child,.dashboard-priority-table th:last-child{width:92px}
+.dashboard-priority-table th:nth-child(1){width:92px}
+.dashboard-priority-table th:nth-child(2){min-width:220px}
+.dashboard-priority-table th:nth-child(3){min-width:190px}
+.dashboard-priority-table th:nth-child(4){min-width:150px}
+.dashboard-priority-table th:nth-child(5){width:105px}
+.tag.gray{background:#edf2f7;color:#53697d}
+
+@media(max-width:1250px){
+  .overview-kpis.dashboard-kpis-v2{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dashboard-period-row{align-items:stretch;flex-direction:column}
+  .dashboard-period-note{text-align:left;max-width:none}
+}
+@media(max-width:850px){
+  .overview-kpis.dashboard-kpis-v2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dashboard-period-controls{grid-template-columns:1fr 1fr}
+  .dashboard-period-controls .field:first-child{grid-column:1/-1}
+}
+@media(max-width:620px){
+  .overview-kpis.dashboard-kpis-v2,.dashboard-period-controls{grid-template-columns:1fr}
+  .dashboard-period-controls .field:first-child{grid-column:auto}
+  .dashboard-quick-actions{display:grid;grid-template-columns:1fr}
+  .dashboard-quick-actions .btn{text-align:center}
+}
