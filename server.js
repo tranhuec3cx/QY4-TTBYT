@@ -6,15 +6,163 @@ const Database = require("better-sqlite3");
 const ExcelJS = require("exceljs");
 const multer = require("multer");
 const os = require("os");
+const crypto = require("crypto");
+const qrcodeGenerator = require("qrcode-generator");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const AUTH_REQUIRED = process.env.QY4_AUTH_REQUIRED === "1";
+const SESSION_COOKIE = "qy4_session";
+const SESSION_HOURS = Math.max(1, Number(process.env.QY4_SESSION_HOURS || 12));
+const QR_RATE_LIMIT = Math.max(5, Number(process.env.QY4_QR_RATE_LIMIT || 20));
+const QR_RATE_WINDOW_MS = Math.max(10000, Number(process.env.QY4_QR_RATE_WINDOW_MS || 60000));
+const AUTH_LOGIN_LIMIT = Math.max(3, Number(process.env.QY4_AUTH_LOGIN_LIMIT || 8));
+const AUTH_LOGIN_WINDOW_MS = Math.max(60000, Number(process.env.QY4_AUTH_LOGIN_WINDOW_MS || 15 * 60 * 1000));
+const APP_TIME_ZONE = String(process.env.QY4_TIME_ZONE || "Asia/Bangkok").trim() || "Asia/Bangkok";
+const ALLOW_LEGACY_PUBLIC_QR = process.env.QY4_ALLOW_LEGACY_QR === "1";
+const PUBLIC_QR_ORIGIN_RAW = String(process.env.QY4_PUBLIC_ORIGIN || "").trim();
+function normalizePublicQrOrigin(value) {
+  const raw=String(value || "").trim();
+  if(!raw) return "";
+  try {
+    const u=new URL(raw);
+    if(!["http:","https:"].includes(u.protocol)) return "";
+    if(u.username || u.password || u.search || u.hash) return "";
+    if(u.pathname && u.pathname!=="/") return "";
+    return u.origin;
+  } catch {
+    return "";
+  }
+}
+const PUBLIC_QR_ORIGIN = normalizePublicQrOrigin(PUBLIC_QR_ORIGIN_RAW);
+const PUBLIC_QR_ORIGIN_VALID = !PUBLIC_QR_ORIGIN_RAW || Boolean(PUBLIC_QR_ORIGIN);
 const dbPath = path.join(__dirname, "db", "qy4_ttbyt.sqlite");
 const uploadsDir = path.join(__dirname, "uploads", "documents");
 const qrUploadsDir = path.join(__dirname, "uploads", "qr");
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 fs.mkdirSync(uploadsDir, { recursive: true });
 fs.mkdirSync(qrUploadsDir, { recursive: true });
 
+app.use((req,res,next)=>{
+  res.setHeader("X-Content-Type-Options","nosniff");
+  res.setHeader("X-Frame-Options","SAMEORIGIN");
+  res.setHeader("Referrer-Policy","same-origin");
+  if(req.path.startsWith("/api/") && req.path !== "/api/qr-image") {
+    res.setHeader("Cache-Control","no-store");
+  }
+  next();
+});
+function parseCookies(header = "") {
+  const out = {};
+  String(header || "").split(";").forEach(part => {
+    const idx = part.indexOf("=");
+    if (idx <= 0) return;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    try { out[k] = decodeURIComponent(v); } catch { out[k] = v; }
+  });
+  return out;
+}
+function sessionTokenHash(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+function passwordHash(password, salt) {
+  return crypto.scryptSync(String(password || ""), String(salt || ""), 64).toString("hex");
+}
+function setUserPassword(userId, password) {
+  const value = String(password || "");
+  if (value.length < 8) throw new Error("Mật khẩu phải có ít nhất 8 ký tự.");
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = passwordHash(value, salt);
+  db.prepare("UPDATE users SET password_salt=?, password_hash=? WHERE id=?").run(salt, hash, Number(userId));
+}
+function verifyUserPassword(user, password) {
+  if (!user || !user.password_hash || !user.password_salt) return false;
+  const actual = Buffer.from(passwordHash(password, user.password_salt), "hex");
+  const expected = Buffer.from(String(user.password_hash), "hex");
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+function readAuthenticatedUser(req) {
+  if (!AUTH_REQUIRED) return null;
+  const token = parseCookies(req.headers.cookie || "")[SESSION_COOKIE];
+  if (!token) return null;
+  const tokenHash = sessionTokenHash(token);
+  const row = db.prepare(`
+    SELECT u.id,u.full_name,u.username,u.role,u.department_code,u.status,s.expires_at
+    FROM auth_sessions s
+    JOIN users u ON u.id=s.user_id
+    WHERE s.token_hash=?
+  `).get(tokenHash);
+  if (!row || row.status !== "Hoạt động" || Number(row.expires_at || 0) <= Date.now()) {
+    if (row) db.prepare("DELETE FROM auth_sessions WHERE token_hash=?").run(tokenHash);
+    return null;
+  }
+  return row;
+}
+function isAdminOnlyApiPath(p) {
+  if (p === "/api/system/qr-origins") return false;
+  return p.startsWith("/api/users")
+    || p.startsWith("/api/departments")
+    || p.startsWith("/api/device-groups")
+    || p.startsWith("/api/system/")
+    || p.startsWith("/api/audit-logs")
+    || p.startsWith("/api/reset-seed");
+}
+function isDepartmentUserAllowed(req) {
+  if (!["GET","HEAD"].includes(req.method)) return false;
+  if (req.path === "/api/meta") return true;
+  if (req.path === "/api/devices" || /^\/api\/devices\/\d+$/.test(req.path)) return true;
+  return false;
+}
+function authApiGuard(req, res, next) {
+  if (!req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/api/auth/")
+      || (req.method === "GET" && req.path.startsWith("/api/public/"))
+      || (req.method === "POST" && ["/api/qr/checks","/api/qr/incidents"].includes(req.path))) return next();
+  if (!AUTH_REQUIRED) return next();
+
+  const user = readAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." });
+  req.authUser = user;
+
+  if (isAdminOnlyApiPath(req.path) && user.role !== "Quản trị viên") {
+    return res.status(403).json({ error: "Chỉ Quản trị viên được thực hiện chức năng này." });
+  }
+  if (user.role === "Người dùng khoa" && !isDepartmentUserAllowed(req)) {
+    return res.status(403).json({ error: "Tài khoản khoa chỉ được xem thiết bị thuộc khoa mình và báo sự cố qua QR." });
+  }
+  next();
+}
+app.use(authApiGuard);
+
+const qrWriteRate = new Map();
+function qrPublicWriteLimiter(req, res, next) {
+  if (req.method !== "POST") return next();
+  const now = Date.now();
+  const key = String(req.ip || req.socket?.remoteAddress || "unknown");
+  let item = qrWriteRate.get(key);
+  if (!item || now - item.started_at >= QR_RATE_WINDOW_MS) {
+    item = { started_at: now, count: 0 };
+  }
+  item.count += 1;
+  qrWriteRate.set(key, item);
+
+  if (qrWriteRate.size > 1000) {
+    for (const [k, v] of qrWriteRate.entries()) {
+      if (now - v.started_at >= QR_RATE_WINDOW_MS) qrWriteRate.delete(k);
+    }
+  }
+  if (item.count > QR_RATE_LIMIT) {
+    const retrySeconds = Math.max(1, Math.ceil((QR_RATE_WINDOW_MS - (now - item.started_at)) / 1000));
+    res.setHeader("Retry-After", String(retrySeconds));
+    return res.status(429).json({ error: "Có quá nhiều yêu cầu gửi từ thiết bị này. Vui lòng thử lại sau." });
+  }
+  next();
+}
+app.use("/api/qr", qrPublicWriteLimiter);
+
+// Chỉ parse JSON sau khi request API đã qua auth và, với QR công khai,
+// qua cả rate-limit. Multipart vẫn được xử lý ở từng route bằng multer.
 app.use(express.json({ limit: "10mb" }));
 
 app.use((req, res, next) => {
@@ -23,14 +171,66 @@ app.use((req, res, next) => {
   res.setHeader("Expires", "0");
   next();
 });
+
+function roleHomePath(user){
+  return user?.role==="Người dùng khoa" ? "/index.html" : "/dashboard.html";
+}
+function roleCanAccessPage(user,page){
+  if(!user) return false;
+  if(user.role==="Quản trị viên") return true;
+  if(user.role==="Kỹ sư TTBYT"){
+    return !["/settings.html","/users.html","/settings-system.html","/departments.html","/groups.html","/categories.html"].includes(page);
+  }
+  if(user.role==="Người dùng khoa"){
+    return ["/index.html","/device-detail.html"].includes(page);
+  }
+  return false;
+}
+app.use((req,res,next)=>{
+  if(!AUTH_REQUIRED || req.method!=="GET") return next();
+  const page=String(req.path || "");
+  const isHtmlPage=page==="/" || page.toLowerCase().endsWith(".html");
+  if(!isHtmlPage) return next();
+  if(["/login.html","/inspect.html","/qr-check.html"].includes(page)) return next();
+  const user=readAuthenticatedUser(req);
+  if(!user){
+    const target=String(req.originalUrl || page || "/");
+    return res.redirect(302,`/login.html?next=${encodeURIComponent(target)}`);
+  }
+  req.authUser=user;
+  const effectivePage=page==="/" ? roleHomePath(user) : page;
+  if(page==="/") return res.redirect(302,roleHomePath(user));
+  if(!roleCanAccessPage(user,effectivePage)) return res.redirect(302,roleHomePath(user));
+  next();
+});
+
+app.get("/", (req,res)=>{
+  res.redirect("/dashboard.html");
+});
 app.use(express.static(path.join(__dirname, "public")));
-app.use("/vendor", express.static(path.join(__dirname, "node_modules", "xlsx", "dist")));
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+function departmentUserCanAccessUpload(user, relativePath) {
+  if (!user) return false;
+  if (user.role === "Người dùng khoa") return false;
+  return ["Quản trị viên","Kỹ sư TTBYT"].includes(user.role);
+}
+app.use("/uploads", (req, res, next) => {
+  if (!AUTH_REQUIRED) return next();
+  const user = readAuthenticatedUser(req);
+  if (!user) return res.status(401).send("Cần đăng nhập để xem tệp đính kèm.");
+  if (!departmentUserCanAccessUpload(user, req.path)) {
+    return res.status(403).send("Tài khoản khoa không được xem tệp của khoa khác.");
+  }
+  req.authUser = user;
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
+  next();
+}, express.static(path.join(__dirname, "uploads")));
 
 function getLanQrOrigins(req) {
   const port = process.env.PORT || PORT || 5000;
   const proto = req.protocol || "http";
   const origins = new Set();
+  if(PUBLIC_QR_ORIGIN) origins.add(PUBLIC_QR_ORIGIN);
   origins.add(`${proto}://${req.get("host")}`);
   try {
     const nets = os.networkInterfaces();
@@ -43,18 +243,109 @@ function getLanQrOrigins(req) {
   return Array.from(origins);
 }
 
+function safeExcelFilename(value) {
+  const base=String(value || "bao_cao.xlsx").replace(/[\\/:*?"<>|]+/g,"_").trim() || "bao_cao.xlsx";
+  return base.toLowerCase().endsWith(".xlsx") ? base : `${base}.xlsx`;
+}
+function safeSheetName(value,index=1) {
+  const name=String(value || `Sheet${index}`).replace(/[\\/?*\[\]:]/g," ").trim().slice(0,31);
+  return name || `Sheet${index}`;
+}
+function styleExportWorksheet(ws) {
+  ws.views=[{state:"frozen",ySplit:1}];
+  const row=ws.getRow(1);
+  row.font={bold:true};
+  row.alignment={vertical:"middle",wrapText:true};
+  row.height=24;
+  ws.eachRow({includeEmpty:false},r=>{
+    r.alignment={...r.alignment,vertical:"top",wrapText:true};
+  });
+  ws.columns.forEach(col=>{
+    let width=10;
+    col.eachCell({includeEmpty:false},cell=>{
+      const len=String(cell.value ?? "").length;
+      width=Math.max(width,Math.min(45,len+2));
+    });
+    col.width=width;
+  });
+}
+
+app.post("/api/export/xlsx", async (req,res) => {
+  try{
+    const sheets=Array.isArray(req.body?.sheets) ? req.body.sheets : [];
+    if(!sheets.length || sheets.length>10) return res.status(400).json({error:"Số sheet phải từ 1 đến 10."});
+    const workbook=new ExcelJS.Workbook();
+    workbook.creator="Khoa Trang bị - Bệnh viện Quân y 4";
+    workbook.company="Bệnh viện Quân y 4";
+    workbook.created=new Date();
+
+    for(let i=0;i<sheets.length;i++){
+      const spec=sheets[i] || {};
+      const rows=Array.isArray(spec.rows) ? spec.rows : [];
+      if(rows.length>20000) return res.status(400).json({error:`Sheet ${i+1} vượt 20.000 dòng.`});
+      const ws=workbook.addWorksheet(safeSheetName(spec.name,i+1));
+      if(spec.mode==="aoa"){
+        for(const raw of rows){
+          const arr=Array.isArray(raw) ? raw.slice(0,100) : [raw];
+          ws.addRow(arr);
+        }
+      }else{
+        const objects=rows.filter(x=>x && typeof x==="object" && !Array.isArray(x));
+        const keys=[];
+        const seen=new Set();
+        for(const row of objects){
+          for(const key of Object.keys(row)){
+            if(!seen.has(key)){seen.add(key);keys.push(key);}
+            if(keys.length>=100) break;
+          }
+          if(keys.length>=100) break;
+        }
+        if(keys.length){
+          ws.addRow(keys);
+          for(const row of objects) ws.addRow(keys.map(k=>row[k] ?? ""));
+        }
+      }
+      if(ws.rowCount>0) styleExportWorksheet(ws);
+    }
+
+    const buffer=await workbook.xlsx.writeBuffer();
+    const filename=safeExcelFilename(req.body?.filename);
+    res.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition",`attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.setHeader("Cache-Control","no-store");
+    res.send(Buffer.from(buffer));
+  }catch(e){
+    console.error("POST /api/export/xlsx error:",e);
+    res.status(500).json({error:e.message || "Không thể tạo file Excel."});
+  }
+});
+
 app.get("/api/system/qr-origins", (req, res) => {
   const origins = getLanQrOrigins(req);
+  const detected = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const recommended = PUBLIC_QR_ORIGIN || detected;
+  const configuredUnsafe = Boolean(PUBLIC_QR_ORIGIN && /localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN));
+  const originPrintSafe = PUBLIC_QR_ORIGIN_RAW
+    ? Boolean(PUBLIC_QR_ORIGIN_VALID && PUBLIC_QR_ORIGIN && !configuredUnsafe)
+    : Boolean(recommended && !/localhost|127\.0\.0\.1/i.test(recommended));
   res.json({
     current_origin: `${req.protocol || "http"}://${req.get("host")}`,
-    recommended_origin: origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "",
+    configured_origin: PUBLIC_QR_ORIGIN,
+    configured_origin_raw: PUBLIC_QR_ORIGIN_RAW,
+    configured_origin_valid: PUBLIC_QR_ORIGIN_VALID,
+    origin_locked: Boolean(PUBLIC_QR_ORIGIN),
+    origin_print_safe: originPrintSafe,
+    recommended_origin: recommended,
     origins
   });
 });
 
 
 const db = new Database(dbPath);
+db.pragma("foreign_keys = ON");
 db.pragma("journal_mode = WAL");
+db.pragma("synchronous = NORMAL");
+db.pragma("busy_timeout = 5000");
 try { db.prepare('ALTER TABLE repairs ADD COLUMN processing_status TEXT DEFAULT "Đang xử lý"').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN incident_id INTEGER').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE activity_history ADD COLUMN cost REAL DEFAULT 0').run(); } catch (e) {}
@@ -62,6 +353,10 @@ try { db.prepare('ALTER TABLE activity_history ADD COLUMN entry_type TEXT DEFAUL
 try { db.prepare('ALTER TABLE repairs ADD COLUMN received_at TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN updated_at TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE repairs ADD COLUMN completed_at TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN status_before TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN priority TEXT DEFAULT "Bình thường"').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN reporter TEXT').run(); } catch (e) {}
+try { db.prepare('ALTER TABLE repairs ADD COLUMN note TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN local_resolution_note TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN reporter_phone TEXT').run(); } catch (e) {}
 try { db.prepare('ALTER TABLE incidents ADD COLUMN incident_code TEXT').run(); } catch (e) {}
@@ -104,7 +399,7 @@ const qrStorage = multer.diskStorage({
 });
 const uploadQrFile = multer({
   storage: qrStorage,
-  limits: { fileSize: 30 * 1024 * 1024 },
+  limits: { fileSize: 30 * 1024 * 1024, files: 6, fields: 20, parts: 26, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allow = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov"];
     const ext = path.extname(file.originalname || "").toLowerCase();
@@ -114,7 +409,7 @@ const uploadQrFile = multer({
 });
 const uploadIncidentMedia = multer({
   storage: qrStorage,
-  limits: { fileSize: 30 * 1024 * 1024, files: 6 },
+  limits: { fileSize: 30 * 1024 * 1024, files: 6, fields: 20, parts: 26, fieldSize: 64 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allow = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mov"];
     const ext = path.extname(file.originalname || "").toLowerCase();
@@ -122,7 +417,6 @@ const uploadIncidentMedia = multer({
     cb(null, true);
   }
 });
-const INCIDENT_STATUSES = ["Mới ghi nhận","Đã chuyển sửa chữa","Đã xử lý tại chỗ"];
 const REPAIR_STATUSES = ["Đang xử lý","Chờ linh kiện","Đã hoàn thành","Không sửa được"];
 function normalizeRepairStatus(status) {
   const raw = String(status || "").trim();
@@ -132,40 +426,63 @@ function normalizeRepairStatus(status) {
   if (["Hủy","Không sửa được","Không thể sửa"].includes(raw)) return "Không sửa được";
   return "Đang xử lý";
 }
-function statusAfterFromRepairStatus(processingStatus, fallback = "Đang hoạt động") {
+function isTerminalRepairStatus(status) {
+  return ["Đã hoàn thành","Không sửa được"].includes(normalizeRepairStatus(status));
+}
+function statusAfterFromRepairStatus(processingStatus, requested = "Đang hoạt động") {
   const st = normalizeRepairStatus(processingStatus);
-  if (st === "Đã hoàn thành") return "Đang hoạt động";
   if (st === "Không sửa được") return "Ngừng hoạt động";
   if (st === "Đang xử lý" || st === "Chờ linh kiện") return "Chờ sửa chữa";
-  return fallback || "Đang hoạt động";
+  if (st === "Đã hoàn thành") {
+    return ["Đang hoạt động","Hoạt động hạn chế"].includes(String(requested || "").trim())
+      ? String(requested).trim()
+      : "Đang hoạt động";
+  }
+  return "Chờ sửa chữa";
+}
+function isValidIsoDate(value) {
+  const m=String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return false;
+  const y=Number(m[1]),mo=Number(m[2]),d=Number(m[3]);
+  const dt=new Date(Date.UTC(y,mo-1,d,12,0,0));
+  return dt.getUTCFullYear()===y && dt.getUTCMonth()===mo-1 && dt.getUTCDate()===d;
 }
 function normalizeDateTime(value) {
   if (!value) return "";
-  let v = String(value).trim().replace("T", " ");
+  let v=String(value).trim().replace("T"," ");
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) v += " 00:00:00";
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(v)) v += ":00";
-  return v;
+  else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(v)) v += ":00";
+  const m=v.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if(!m || !isValidIsoDate(m[1])) return "";
+  const hh=Number(m[2]),mm=Number(m[3]),ss=Number(m[4]);
+  if(hh<0 || hh>23 || mm<0 || mm>59 || ss<0 || ss>59) return "";
+  return `${m[1]} ${m[2]}:${m[3]}:${m[4]}`;
 }
 function requireFields(obj, fields) {
   const missing = fields.filter(f => obj[f] === undefined || obj[f] === null || String(obj[f]).trim() === "");
   return missing;
 }
-function sanitizeStatus(value, allowed, fallback) {
-  return allowed.includes(value) ? value : fallback;
-}
 function normalizeIncidentStatusForUi(status, linkedRepairId) {
   const raw = String(status || "").trim();
   if (raw === "Đã chuyển sửa chữa" || raw === "Chuyển sửa chữa" || raw === "Chờ linh kiện") return "Đã chuyển sửa chữa";
   if (raw === "Đã xử lý tại chỗ" || raw === "Đã xử lý" || raw === "Đóng" || raw === "Không cần sửa chữa") return "Đã xử lý tại chỗ";
-  if (raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Đang xử lý" || raw === "Theo dõi") return "Mới ghi nhận";
+  if (raw === "Đã tiếp nhận" || raw === "Tiếp nhận") return "Đã tiếp nhận";
+  if (raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Theo dõi") return "Mới ghi nhận";
   if (REPAIR_STATUSES.includes(raw) || ["Đang kiểm tra","Đã sửa xong","Bàn giao sử dụng","Hủy","Đã hoàn thành"].includes(raw)) return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
 }
 function normalizeIncidentPayloadStatus(requestedStatus, oldStatus, linkedRepairId) {
+  const oldNormalized = normalizeIncidentStatusForUi(oldStatus, linkedRepairId);
   const normalized = normalizeIncidentStatusForUi(requestedStatus || oldStatus, linkedRepairId);
+  // Có phiếu sửa chữa liên kết thì trạng thái nguồn phải luôn phản ánh đã chuyển sửa chữa.
+  if (linkedRepairId) return "Đã chuyển sửa chữa";
+  // Hồ sơ đã xử lý tại chỗ là trạng thái kết thúc; không cho mở ngược bằng thao tác cập nhật chung.
+  if (oldNormalized === "Đã xử lý tại chỗ") return "Đã xử lý tại chỗ";
+  // Sự cố đã tiếp nhận không được hạ ngược về “Mới ghi nhận” hoặc giả lập “Đã chuyển sửa chữa”.
+  if (oldNormalized === "Đã tiếp nhận" && (normalized === "Mới ghi nhận" || normalized === "Đã chuyển sửa chữa")) return "Đã tiếp nhận";
   // Trạng thái “Đã chuyển sửa chữa” chỉ do endpoint chuyển sửa chữa sinh ra.
-  if (normalized === "Đã chuyển sửa chữa" && !linkedRepairId) return "Mới ghi nhận";
-  return normalized === "Đã chuyển sửa chữa" ? "Đã chuyển sửa chữa" : normalized;
+  if (normalized === "Đã chuyển sửa chữa") return "Mới ghi nhận";
+  return normalized;
 }
 
 function safeUnlink(filePath) {
@@ -173,11 +490,70 @@ function safeUnlink(filePath) {
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch {}
 }
+function cleanupSingleUpload(req) {
+  if (req?.file?.path) safeUnlink(req.file.path);
+}
+function technicalFileReference(filePath) {
+  const value=String(filePath || "").trim();
+  if(!value) return null;
+  const maintenance=db.prepare("SELECT id FROM maintenances WHERE file_path=? LIMIT 1").get(value);
+  if(maintenance) return {type:"Bảo dưỡng",id:maintenance.id};
+  const inspection=db.prepare("SELECT id FROM inspections WHERE file_note=? LIMIT 1").get(value);
+  if(inspection) return {type:"Kiểm định/Hiệu chuẩn",id:inspection.id};
+  const incidentFile=db.prepare("SELECT incident_id,id FROM incident_files WHERE file_path=? LIMIT 1").get(value);
+  if(incidentFile) return {type:"Sự cố",id:incidentFile.incident_id || incidentFile.id};
+  return null;
+}
+function protectedTechnicalDocumentReason(row) {
+  if(!row) return "";
+  const ref=technicalFileReference(row.file_path);
+  if(ref) return `File đang được ${ref.type} #${ref.id} tham chiếu`;
+  // Chỉ khóa theo loại với các file hệ thống không có khóa ngoại trực tiếp từ bản ghi nguồn.
+  // Kiểm định/Hiệu chuẩn được khóa bằng technicalFileReference(file_path); nhờ vậy file upload
+  // dở dang trước khi tạo phiếu có thể rollback an toàn.
+  const protectedTypes=new Set(["Bảo dưỡng","Sự cố QR","Kiểm tra"]);
+  const type=String(row.type || "").trim();
+  if(protectedTypes.has(type) && String(row.file_path || "").trim()) return `Tài liệu loại ${type} là hồ sơ kỹ thuật cần bảo toàn`;
+  return "";
+}
 
+function zonedDateParts(date = new Date(), includeTime = false) {
+  const options = {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  };
+  if (includeTime) {
+    options.hour = "2-digit";
+    options.minute = "2-digit";
+    options.second = "2-digit";
+    options.hourCycle = "h23";
+  }
+  const parts = new Intl.DateTimeFormat("en-CA", options).formatToParts(new Date(date));
+  const out = {};
+  for (const p of parts) if (p.type !== "literal") out[p.type] = p.value;
+  return out;
+}
+function localDateISO(date = new Date()) {
+  const p = zonedDateParts(date, false);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function shiftIsoDate(value, days) {
+  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(value || "").slice(0,10);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2])-1, Number(m[3]) + Number(days || 0), 12, 0, 0));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+}
+function localDatePlusDays(days, base = new Date()) {
+  return shiftIsoDate(localDateISO(base), days);
+}
+function sqlDateTimeInAppZone(date = new Date()) {
+  const p = zonedDateParts(date, true);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+}
 function nowSql() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return sqlDateTimeInAppZone(new Date());
 }
 
 function makeIncidentCode(id, incidentDate = nowSql()) {
@@ -185,37 +561,38 @@ function makeIncidentCode(id, incidentDate = nowSql()) {
   return `SC-${d}-${String(id).padStart(4, "0")}`;
 }
 
-function buildIncidentSnapshot(deviceId) {
-  const dv = db.prepare(`
-    SELECT dv.*, d.name AS department_name
-    FROM devices dv
-    LEFT JOIN departments d ON d.code = dv.department_code
-    WHERE dv.id=?
-  `).get(deviceId);
+function buildIncidentSnapshot(deviceId, eventTime = "") {
+  const dv = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(deviceId));
   if (!dv) return null;
+  const ctx = historicalDeviceContext(deviceId, eventTime);
+  const departmentCode = String(ctx.department_code || dv.department_code || "").trim();
+  const department = departmentCode ? db.prepare("SELECT name FROM departments WHERE code=?").get(departmentCode) : null;
   return {
     device_code_snapshot: getDeviceCode(deviceId),
     device_name_snapshot: dv.name || "",
-    department_snapshot: dv.department_name || dv.department_code || "",
-    location_snapshot: dv.location || ""
+    department_snapshot: department?.name || departmentCode,
+    department_code_snapshot: departmentCode,
+    location_snapshot: String(ctx.location ?? dv.location ?? "").trim()
   };
 }
 
 function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) {
-  const snap = buildIncidentSnapshot(deviceId) || {
+  const snap = buildIncidentSnapshot(deviceId, incidentDate) || {
     device_code_snapshot: "",
     device_name_snapshot: "",
     department_snapshot: "",
+    department_code_snapshot: "",
     location_snapshot: ""
   };
   const t = nowSql();
   db.prepare(`
     UPDATE incidents
     SET incident_code = COALESCE(NULLIF(incident_code,''), @incident_code),
-        device_code_snapshot = @device_code_snapshot,
-        device_name_snapshot = @device_name_snapshot,
-        department_snapshot = @department_snapshot,
-        location_snapshot = @location_snapshot,
+        device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
+        device_name_snapshot = COALESCE(NULLIF(device_name_snapshot,''), @device_name_snapshot),
+        department_snapshot = COALESCE(NULLIF(department_snapshot,''), @department_snapshot),
+        department_code_snapshot = COALESCE(NULLIF(department_code_snapshot,''), @department_code_snapshot),
+        location_snapshot = COALESCE(NULLIF(location_snapshot,''), @location_snapshot),
         created_at = COALESCE(NULLIF(created_at,''), @created_at),
         updated_at = @updated_at,
         updated_by = @updated_by
@@ -231,17 +608,36 @@ function completeIncidentRow(id, deviceId, actor = "", incidentDate = nowSql()) 
 }
 
 function touchIncident(id, deviceId, actor = "") {
-  const snap = buildIncidentSnapshot(deviceId) || {};
+  const row = db.prepare("SELECT incident_datetime FROM incidents WHERE id=?").get(Number(id));
+  const snap = buildIncidentSnapshot(deviceId, row?.incident_datetime || "") || {};
   db.prepare(`
     UPDATE incidents
-    SET device_code_snapshot = COALESCE(@device_code_snapshot, device_code_snapshot),
-        device_name_snapshot = COALESCE(@device_name_snapshot, device_name_snapshot),
-        department_snapshot = COALESCE(@department_snapshot, department_snapshot),
-        location_snapshot = COALESCE(@location_snapshot, location_snapshot),
+    SET device_code_snapshot = COALESCE(NULLIF(device_code_snapshot,''), @device_code_snapshot),
+        device_name_snapshot = COALESCE(NULLIF(device_name_snapshot,''), @device_name_snapshot),
+        department_snapshot = COALESCE(NULLIF(department_snapshot,''), @department_snapshot),
+        department_code_snapshot = COALESCE(NULLIF(department_code_snapshot,''), @department_code_snapshot),
+        location_snapshot = COALESCE(NULLIF(location_snapshot,''), @location_snapshot),
         updated_at = @updated_at,
         updated_by = @updated_by
     WHERE id = @id
   `).run({ id, updated_at: nowSql(), updated_by: actor || "", ...snap });
+}
+
+function replaceIncidentSnapshot(id, deviceId, actor = "") {
+  const row = db.prepare("SELECT incident_datetime FROM incidents WHERE id=?").get(Number(id));
+  const snap = buildIncidentSnapshot(deviceId, row?.incident_datetime || "");
+  if (!snap) throw new Error("Thiết bị không tồn tại.");
+  db.prepare(`
+    UPDATE incidents
+    SET device_code_snapshot=@device_code_snapshot,
+        device_name_snapshot=@device_name_snapshot,
+        department_snapshot=@department_snapshot,
+        department_code_snapshot=@department_code_snapshot,
+        location_snapshot=@location_snapshot,
+        updated_at=@updated_at,
+        updated_by=@updated_by
+    WHERE id=@id
+  `).run({ id:Number(id), updated_at:nowSql(), updated_by:actor || "", ...snap });
 }
 
 function writeHistory(module, recordId, actor, actionType, oldStatus = "", newStatus = "", note = "", cost = 0, entryType = "Cập nhật", actionTime = "") {
@@ -254,9 +650,7 @@ function writeHistory(module, recordId, actor, actionType, oldStatus = "", newSt
 
 
 function refreshDemoTodayData() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const today = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const today = localDateISO();
   const t1 = `${today} 08:15`;
   const t2 = `${today} 09:10`;
   const t3 = `${today} 10:20`;
@@ -274,8 +668,16 @@ function refreshDemoTodayData() {
     if (!countChecksToday) {
       const d1 = db.prepare("SELECT id FROM devices ORDER BY id LIMIT 1").get();
       const d2 = db.prepare("SELECT id FROM devices ORDER BY id LIMIT 1 OFFSET 1").get();
-      if (d1) db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note) VALUES (?,?,?,?,?,?)`).run(d1.id,t1,"KTV TTBYT","Kiểm tra đầu ngày","Đạt","Dữ liệu demo");
-      if (d2) db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note) VALUES (?,?,?,?,?,?)`).run(d2.id,t2,"KTV TTBYT","Kiểm tra đầu ngày","Đạt có lưu ý","Dữ liệu demo");
+      if (d1) {
+        const dv1=db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(d1.id) || {};
+        db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot) VALUES (?,?,?,?,?,?,?,?,?)`)
+          .run(d1.id,t1,"KTV TTBYT","Kiểm tra đầu ngày","Bình thường","Dữ liệu demo","Nhập trực tiếp",dv1.department_code || "",dv1.location || "");
+      }
+      if (d2) {
+        const dv2=db.prepare("SELECT department_code,location FROM devices WHERE id=?").get(d2.id) || {};
+        db.prepare(`INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot) VALUES (?,?,?,?,?,?,?,?,?)`)
+          .run(d2.id,t2,"KTV TTBYT","Kiểm tra đầu ngày","Có vấn đề","Dữ liệu demo","Nhập trực tiếp",dv2.department_code || "",dv2.location || "");
+      }
     }
 
     const countIncToday = db.prepare("SELECT COUNT(*) c FROM incidents WHERE substr(incident_datetime,1,10)=?").get(today).c;
@@ -339,6 +741,7 @@ function initDb() {
       note TEXT,
       device_code TEXT,
       insurance_code TEXT,
+      inspection_required_types TEXT DEFAULT '[]',
       FOREIGN KEY (department_code) REFERENCES departments(code),
       FOREIGN KEY (group_code) REFERENCES device_groups(code)
     );
@@ -361,15 +764,21 @@ function initDb() {
       issue TEXT,
       work TEXT,
       person TEXT,
+      priority TEXT DEFAULT "Bình thường",
+      reporter TEXT,
+      note TEXT,
       method TEXT,
       cost INTEGER DEFAULT 0,
       result TEXT,
       status_after TEXT,
+      status_before TEXT,
       processing_status TEXT DEFAULT "Đang xử lý",
       incident_id INTEGER,
       received_at TEXT,
       updated_at TEXT,
       completed_at TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
       FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE SET NULL
     );
@@ -386,6 +795,8 @@ function initDb() {
       vendor TEXT,
       next_date TEXT,
       note TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -395,6 +806,8 @@ function initDb() {
       log_datetime TEXT,
       user_name TEXT,
       department_code TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       usage_count TEXT,
       status_before TEXT,
       status_after TEXT,
@@ -415,6 +828,8 @@ function initDb() {
       file_path TEXT,
       file_mime TEXT,
       file_size INTEGER DEFAULT 0,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -426,6 +841,10 @@ function initDb() {
       content TEXT NOT NULL,
       result TEXT NOT NULL,
       note TEXT,
+      source_channel TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
+      incident_id INTEGER,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -444,7 +863,12 @@ function initDb() {
       device_code_snapshot TEXT,
       device_name_snapshot TEXT,
       department_snapshot TEXT,
+      department_code_snapshot TEXT,
       location_snapshot TEXT,
+      source_channel TEXT,
+      acknowledged_at TEXT,
+      acknowledged_by TEXT,
+      completed_at TEXT,
       created_at TEXT,
       updated_at TEXT,
       updated_by TEXT,
@@ -505,9 +929,12 @@ function initDb() {
   if (!docCols.includes("file_path")) db.exec("ALTER TABLE documents ADD COLUMN file_path TEXT");
   if (!docCols.includes("file_mime")) db.exec("ALTER TABLE documents ADD COLUMN file_mime TEXT");
   if (!docCols.includes("file_size")) db.exec("ALTER TABLE documents ADD COLUMN file_size INTEGER DEFAULT 0");
+  if (!docCols.includes("department_code_snapshot")) db.exec("ALTER TABLE documents ADD COLUMN department_code_snapshot TEXT");
+  if (!docCols.includes("location_snapshot")) db.exec("ALTER TABLE documents ADD COLUMN location_snapshot TEXT");
 
   const deptCount = db.prepare("SELECT COUNT(*) AS c FROM departments").get().c;
-  if (deptCount === 0) seedData();
+  // Không tự chèn dữ liệu mẫu trên bản chạy thật. Chỉ seed khi chủ động bật QY4_DEMO_SEED=1.
+  if (deptCount === 0 && process.env.QY4_DEMO_SEED === "1") seedData();
 }
 
 function seedData() {
@@ -541,8 +968,8 @@ function seedData() {
   users.forEach(r => insertUser.run(...r));
 
   const insertDevice = db.prepare(`
-    INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
-    VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
+    INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code,inspection_required_types)
+    VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code,@inspection_required_types)
   `);
   const insertAccessory = db.prepare("INSERT INTO accessories (device_id,name,code,maker_country,serial,note) VALUES (?,?,?,?,?,?)");
   const insertRepair = db.prepare("INSERT INTO repairs (device_id,repair_date,issue,work,person,method,cost,result,status_after,processing_status) VALUES (?,?,?,?,?,?,?,?,?,?)");
@@ -577,12 +1004,12 @@ function seedData() {
     { department_code:"A12",group_code:"MON",name:"Monitor theo dõi bệnh nhân 5 thông số",manufacturer:"Mindray",model:"iPM 10",year_in_use:2022,warranty_end:"2026-09-30",status:"Đang hoạt động",serial:"MON-A12-001",country:"Trung Quốc",year_manufactured:2021,cost:58000000,funding:"Ngân sách Quốc phòng",location:"Buồng HSTC 1",note:"Monitor giường hồi sức.",accessories:[],repairs:[],maints:[["2026-01-15","Kiểm tra an toàn điện","Đo rò điện và kiểm tra pin","Đạt","Tổ TTBYT","A12","Nội bộ","2027-01-15",""]],logs:[],docs:[] },
     { department_code:"A12",group_code:"MTH",name:"Máy thở chức năng cao",manufacturer:"Dräger",model:"Evita V500",year_in_use:2021,warranty_end:"2026-08-31",status:"Đang hoạt động",serial:"VENT-A12-001",country:"Đức",year_manufactured:2020,cost:980000000,funding:"Nguồn viện trợ",location:"Buồng HSTC 2",note:"Máy thở hồi sức xâm nhập/không xâm nhập.",accessories:[["Bình làm ẩm","HUM-01","Dräger - Đức","HM-091","Tốt"]],repairs:[],maints:[["2026-02-20","Bảo dưỡng định kỳ","Thay lọc khí, kiểm tra cảm biến lưu lượng","Đạt","Dräger Service","A12","Dräger","2026-08-20",""]],logs:[],docs:[] },
     { department_code:"A15",group_code:"MT",name:"Máy thận nhân tạo",manufacturer:"Fresenius",model:"4008S",year_in_use:2021,warranty_end:"2026-11-30",status:"Đang hoạt động",serial:"HD-A15-001",country:"Đức",year_manufactured:2020,cost:420000000,funding:"Nguồn dịch vụ",location:"Đơn nguyên lọc máu 1",note:"Máy chạy thận nhân tạo thường quy.",accessories:[["Bộ kẹp đường máu","CLAMP-HD","Fresenius - Đức","CL-789","Tốt"]],repairs:[],maints:[["2026-03-10","Kiểm tra chất lượng","Kiểm tra bơm dịch và cảm biến áp lực","Đạt","Fresenius VN","A15","Fresenius","2026-09-10",""]],logs:[],docs:[] },
-    { department_code:"C2",group_code:"SH",name:"Máy xét nghiệm sinh hóa tự động",manufacturer:"Beckman Coulter",model:"AU5800",year_in_use:2021,warranty_end:"2026-12-31",status:"Đang hoạt động",serial:"SH-C2-001",country:"Mỹ",year_manufactured:2020,cost:2100000000,funding:"Ngân sách Nhà nước",location:"Phòng sinh hóa",note:"Máy sinh hóa công suất lớn.",accessories:[["Bộ trộn mẫu","MIXER","Beckman - Mỹ","MX-09","Tốt"]],repairs:[],maints:[["2026-03-28","Bảo dưỡng định kỳ","Vệ sinh hệ thống hút mẫu, calibrate quang học","Đạt","Hãng","C2","Beckman","2026-09-28",""]],logs:[],docs:[] },
+    { department_code:"C2",group_code:"SH",name:"Máy xét nghiệm sinh hóa tự động",manufacturer:"Beckman Coulter",model:"AU5800",year_in_use:2021,warranty_end:"2026-12-31",status:"Đang hoạt động",serial:"SH-C2-001",country:"Mỹ",year_manufactured:2020,cost:2100000000,funding:"Ngân sách Nhà nước",location:"Phòng sinh hóa",note:"Máy sinh hóa công suất lớn.",inspection_required_types:["Hiệu chuẩn"],accessories:[["Bộ trộn mẫu","MIXER","Beckman - Mỹ","MX-09","Tốt"]],repairs:[],maints:[["2026-03-28","Bảo dưỡng định kỳ","Vệ sinh hệ thống hút mẫu, calibrate quang học","Đạt","Hãng","C2","Beckman","2026-09-28",""]],logs:[],docs:[] },
     { department_code:"C2",group_code:"HH",name:"Máy xét nghiệm huyết học 5 thành phần",manufacturer:"Sysmex",model:"XN-1000",year_in_use:2020,warranty_end:"2025-08-15",status:"Hoạt động hạn chế",serial:"HH-C2-001",country:"Nhật Bản",year_manufactured:2019,cost:890000000,funding:"Ngân sách Nhà nước",location:"Phòng huyết học",note:"Thỉnh thoảng báo lỗi hút mẫu.",accessories:[["Module hút mẫu","SAMPLER","Sysmex - Nhật Bản","SM-33","Mới ghi nhận"]],repairs:[["2026-03-30","Báo lỗi hút mẫu","Kiểm tra bơm và thay ống mềm","KTV Trang bị","Nội bộ",1200000,"Đã khắc phục tạm thời","Hoạt động hạn chế"]],maints:[],logs:[],docs:[] },
     { department_code:"C2",group_code:"MD",name:"Máy xét nghiệm miễn dịch tự động",manufacturer:"Roche",model:"Cobas e 411",year_in_use:2022,warranty_end:"2027-03-20",status:"Đang hoạt động",serial:"MD-C2-001",country:"Thụy Sĩ",year_manufactured:2021,cost:1380000000,funding:"Ngân sách Nhà nước",location:"Phòng miễn dịch",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C2",group_code:"DM",name:"Máy xét nghiệm đông máu tự động",manufacturer:"Stago",model:"STA Compact Max",year_in_use:2023,warranty_end:"2028-01-15",status:"Đang hoạt động",serial:"DM-C2-001",country:"Pháp",year_manufactured:2022,cost:760000000,funding:"Ngân sách Nhà nước",location:"Phòng đông máu",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C2",group_code:"KHV",name:"Kính hiển vi 2 mắt điện",manufacturer:"Olympus",model:"CX23",year_in_use:2019,warranty_end:"2024-12-31",status:"Đang hoạt động",serial:"MIC-C2-001",country:"Nhật Bản",year_manufactured:2018,cost:32000000,funding:"Ngân sách Quốc phòng",location:"Phòng GPB",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
-    { department_code:"C7",group_code:"XQ",name:"Máy Xquang kỹ thuật số cố định",manufacturer:"Shimadzu",model:"RADspeed Pro",year_in_use:2021,warranty_end:"2026-10-15",status:"Đang hoạt động",serial:"XQ-C7-001",country:"Nhật Bản",year_manufactured:2020,cost:4300000000,funding:"Ngân sách Nhà nước",location:"Phòng Xquang 1",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
+    { department_code:"C7",group_code:"XQ",name:"Máy Xquang kỹ thuật số cố định",manufacturer:"Shimadzu",model:"RADspeed Pro",year_in_use:2021,warranty_end:"2026-10-15",status:"Đang hoạt động",serial:"XQ-C7-001",country:"Nhật Bản",year_manufactured:2020,cost:4300000000,funding:"Ngân sách Nhà nước",location:"Phòng Xquang 1",note:"",inspection_required_types:["Kiểm định","Kiểm định an toàn bức xạ"],accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C7",group_code:"SA",name:"Máy siêu âm màu tổng quát 4D",manufacturer:"GE",model:"Voluson E10",year_in_use:2021,warranty_end:"2026-07-15",status:"Đang hoạt động",serial:"SA-C7-001",country:"Áo",year_manufactured:2020,cost:2850000000,funding:"Nguồn dịch vụ",location:"Phòng siêu âm",note:"",accessories:[["Đầu dò Convex","C1-5","GE - Áo","CVX-00321","Đầy đủ"],["Đầu dò Linear","L3-12","GE - Áo","LIN-00892","Đầy đủ"]],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"C7",group_code:"SP",name:"Hệ thống máy chụp xạ hình SPECT",manufacturer:"Siemens",model:"Symbia Evo",year_in_use:2023,warranty_end:"2028-02-28",status:"Đang hoạt động",serial:"SP-C7-001",country:"Đức",year_manufactured:2022,cost:19800000000,funding:"Ngân sách Nhà nước",location:"Phòng y học hạt nhân",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
     { department_code:"A2",group_code:"DT",name:"Hệ thống Holter điện tim/Huyết áp",manufacturer:"GE",model:"SEER 1000",year_in_use:2022,warranty_end:"2027-09-01",status:"Đang hoạt động",serial:"DT-A2-001",country:"Mỹ",year_manufactured:2021,cost:240000000,funding:"Ngân sách Quốc phòng",location:"Phòng chẩn đoán chức năng tim mạch",note:"",accessories:[],repairs:[],maints:[],logs:[],docs:[] },
@@ -595,10 +1022,21 @@ function seedData() {
 
   const tx = db.transaction(() => {
     devices.forEach(device => {
-      const info = insertDevice.run(device);
+      // Bảo đảm chế độ demo cũng có đủ mọi named parameter của câu INSERT.
+      const info = insertDevice.run({
+        quality_level: 3,
+        device_code: null,
+        insurance_code: "",
+        ...device,
+        inspection_required_types: JSON.stringify(Array.isArray(device.inspection_required_types) ? device.inspection_required_types : [])
+      });
       const deviceId = info.lastInsertRowid;
       device.accessories.forEach(x => insertAccessory.run(deviceId, ...x));
-      device.repairs.forEach(x => insertRepair.run(deviceId, ...x));
+      device.repairs.forEach(x => {
+        const [repairDate, issue, work, person, method, cost, result, statusAfter, processingStatus] = x;
+        const normalizedProcessing = processingStatus || (statusAfter === "Chờ sửa chữa" ? "Chờ linh kiện" : "Đã hoàn thành");
+        insertRepair.run(deviceId, repairDate, issue, work, person, method, cost, result, statusAfter, normalizedProcessing);
+      });
       device.maints.forEach(x => insertMaintenance.run(deviceId, ...x));
       device.logs.forEach(x => insertOperation.run(deviceId, ...x));
       device.docs.forEach(x => insertDocument.run(deviceId, ...x));
@@ -637,34 +1075,33 @@ function seedData() {
     }
   });
 
-  insertCheck.run(2, "2026-04-11 08:15", "Nguyễn Hữu Hoàng", "Kiểm tra nhiệt độ hệ thống và quạt làm mát", "Đạt có lưu ý", "Theo dõi tiếng ồn quạt");
-  insertCheck.run(4, "2026-04-11 09:05", "Phạm Đức Hùng", "Kiểm tra dây ECG, cảm biến SpO2, pin monitor", "Đạt", "");
-  insertCheck.run(7, "2026-04-11 09:40", "Lê Thị Mai", "Kiểm tra hệ thống hút mẫu và quang học", "Đạt", "");
-  insertCheck.run(20, "2026-04-11 10:10", "Tổ TTBYT", "Kiểm tra cảm biến oxy và nguồn nuôi", "Không đạt", "Chờ thay cảm biến");
+  const seedDeviceId = (serial) => Number(db.prepare("SELECT id FROM devices WHERE serial=? ORDER BY id DESC LIMIT 1").get(serial)?.id || 0);
+  const ctId = seedDeviceId("CT64002");
+  const monitorId = seedDeviceId("MON-A12-001");
+  const biochemId = seedDeviceId("SH-C2-001");
+  const hematologyId = seedDeviceId("HH-C2-001");
+  const fieldVentilatorId = seedDeviceId("VENT-C15-001");
 
-  insertIncident.run(20, "2026-04-11 08:50", "Sai lệch chỉ số oxy khi vận hành", "Cao", "Điều dưỡng Cấp cứu", "Mới ghi nhận", "Đã báo Tổ TTBYT");
-  insertIncident.run(8, "2026-04-11 09:15", "Báo lỗi hút mẫu không ổn định", "Trung bình", "KTV Xét nghiệm", "Mới ghi nhận", "Máy vẫn vận hành hạn chế");
-  insertIncident.run(2, "2026-04-10 14:30", "Quạt làm mát phát tiếng ồn", "Thấp", "KTV CĐHA", "Mới ghi nhận", "Đang theo dõi");
+  if (ctId) insertCheck.run(ctId, "2026-04-11 08:15", "Nguyễn Hữu Hoàng", "Kiểm tra nhiệt độ hệ thống và quạt làm mát", "Đạt có lưu ý", "Theo dõi tiếng ồn quạt");
+  if (monitorId) insertCheck.run(monitorId, "2026-04-11 09:05", "Phạm Đức Hùng", "Kiểm tra dây ECG, cảm biến SpO2, pin monitor", "Đạt", "");
+  if (biochemId) insertCheck.run(biochemId, "2026-04-11 09:40", "Lê Thị Mai", "Kiểm tra hệ thống hút mẫu và quang học", "Đạt", "");
+  if (fieldVentilatorId) insertCheck.run(fieldVentilatorId, "2026-04-11 10:10", "Tổ TTBYT", "Kiểm tra cảm biến oxy và nguồn nuôi", "Không đạt", "Chờ thay cảm biến");
+
+  if (fieldVentilatorId) insertIncident.run(fieldVentilatorId, "2026-04-11 08:50", "Sai lệch chỉ số oxy khi vận hành", "Cao", "Điều dưỡng Cấp cứu", "Mới ghi nhận", "Đã báo Tổ TTBYT");
+  if (hematologyId) insertIncident.run(hematologyId, "2026-04-11 09:15", "Báo lỗi hút mẫu không ổn định", "Trung bình", "KTV Xét nghiệm", "Mới ghi nhận", "Máy vẫn vận hành hạn chế");
+  if (ctId) insertIncident.run(ctId, "2026-04-10 14:30", "Quạt làm mát phát tiếng ồn", "Thấp", "KTV CĐHA", "Mới ghi nhận", "Đang theo dõi");
 }
 
 
 function dateRangeFromPreset(preset, date, fromDate, toDate) {
-  if (fromDate && toDate) return { start: fromDate, end: toDate };
-  const selected = date ? new Date(date) : new Date();
-  const mk = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
-  const fmt = (d) => d.toISOString().slice(0,10);
-  let start = mk(selected), end = mk(selected);
+  if (fromDate && toDate) return { start: String(fromDate).slice(0,10), end: String(toDate).slice(0,10) };
+  const selected = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : localDateISO();
   if (preset === "yesterday") {
-    start.setDate(start.getDate() - 1);
-    end = mk(start);
-  } else if (preset === "last7") {
-    start.setDate(start.getDate() - 6);
-    end = mk(selected);
-  } else if (preset === "custom" && date) {
-    start = mk(selected);
-    end = mk(selected);
+    const day = shiftIsoDate(selected, -1);
+    return { start: day, end: day };
   }
-  return { start: fmt(start), end: fmt(end) };
+  if (preset === "last7") return { start: shiftIsoDate(selected, -6), end: selected };
+  return { start: selected, end: selected };
 }
 
 function normalizeDeviceCode(value, departmentCode = "XX", groupCode = "K") {
@@ -695,7 +1132,35 @@ function getDeviceCode(id) {
 
 
 function enrichDevice(device) {
-  return { ...device, device_code: getDeviceCode(device.id) };
+  return {
+    ...device,
+    device_code: getDeviceCode(device.id),
+    qr_uid: ensureDeviceQrUid(device.id),
+    inspection_required_types: parseRequiredInspectionTypes(device.inspection_required_types)
+  };
+}
+function departmentDeviceView(device) {
+  const d=enrichDevice(device);
+  return {
+    id:d.id,
+    limited_view:true,
+    device_code:d.device_code || "",
+    name:d.name || "",
+    department_code:d.department_code || "",
+    department_name:d.department_name || d.department_code || "",
+    group_code:d.group_code || "",
+    group_name:d.group_name || d.group_code || "",
+    manufacturer:d.manufacturer || "",
+    model:d.model || "",
+    serial:d.serial || "",
+    country:d.country || "",
+    year_manufactured:d.year_manufactured || 0,
+    year_in_use:d.year_in_use || 0,
+    warranty_end:d.warranty_end || "",
+    status:d.status || "",
+    location:d.location || "",
+    inspection_required_types:d.inspection_required_types || []
+  };
 }
 
 function ensureDeviceCodeColumnsAndData() {
@@ -705,10 +1170,7 @@ function ensureDeviceCodeColumnsAndData() {
   const rows = db.prepare("SELECT id, department_code, group_code, serial, device_code, insurance_code FROM devices ORDER BY id").all();
   const seen = new Set();
   for (const r of rows) {
-    if (!r.insurance_code && r.serial) {
-      db.prepare("UPDATE devices SET insurance_code=? WHERE id=?").run(r.serial, r.id);
-      db.prepare("UPDATE devices SET serial='' WHERE id=?").run(r.id);
-    }
+    // Không tự di chuyển/xóa Serial sang mã bảo hiểm. Hai trường này là dữ liệu độc lập.
     const current = normalizeDeviceCode(r.device_code, r.department_code, r.group_code);
     if (current && !seen.has(current)) {
       seen.add(current);
@@ -739,7 +1201,8 @@ function normalizeIncidentStatusesInDb() {
   try {
     db.prepare(`UPDATE incidents SET status='Đã chuyển sửa chữa' WHERE status IN ('Chuyển sửa chữa','Chờ linh kiện','Đang kiểm tra','Đang sửa chữa','Đã sửa xong','Bàn giao sử dụng')`).run();
     db.prepare(`UPDATE incidents SET status='Đã xử lý tại chỗ' WHERE status IN ('Đã xử lý','Đóng','Không cần sửa chữa')`).run();
-    db.prepare(`UPDATE incidents SET status='Mới ghi nhận' WHERE status IN ('Đã ghi nhận','Đang xử lý','Theo dõi') OR status IS NULL OR status=''`).run();
+    db.prepare(`UPDATE incidents SET status='Đã tiếp nhận' WHERE status IN ('Tiếp nhận')`).run();
+    db.prepare(`UPDATE incidents SET status='Mới ghi nhận' WHERE status IN ('Đã ghi nhận','Theo dõi') OR status IS NULL OR status=''`).run();
     db.prepare(`
       UPDATE incidents
       SET status='Đã chuyển sửa chữa'
@@ -748,7 +1211,7 @@ function normalizeIncidentStatusesInDb() {
     db.prepare(`
       UPDATE incidents
       SET status='Mới ghi nhận'
-      WHERE status NOT IN ('Mới ghi nhận','Đã chuyển sửa chữa','Đã xử lý tại chỗ')
+      WHERE status NOT IN ('Mới ghi nhận','Đã tiếp nhận','Đã chuyển sửa chữa','Đã xử lý tại chỗ')
         AND id NOT IN (SELECT DISTINCT incident_id FROM repairs WHERE incident_id IS NOT NULL)
     `).run();
   } catch (e) {}
@@ -761,19 +1224,519 @@ function ensureDeviceQualityColumn() {
   }
 }
 
+function makeQrUid() {
+  return crypto.randomUUID();
+}
+
+function ensureDeviceQrUid(deviceId) {
+  const row = db.prepare("SELECT id, qr_uid FROM devices WHERE id=?").get(Number(deviceId));
+  if (!row) return "";
+  if (row.qr_uid) return row.qr_uid;
+  let uid = makeQrUid();
+  while (db.prepare("SELECT 1 FROM devices WHERE qr_uid=?").get(uid)) uid = makeQrUid();
+  db.prepare("UPDATE devices SET qr_uid=? WHERE id=?").run(uid, row.id);
+  return uid;
+}
+
+function ensureCoreManagementSchema() {
+  const cols = db.prepare("PRAGMA table_info(devices)").all().map(c => c.name);
+  if (!cols.includes("qr_uid")) db.prepare("ALTER TABLE devices ADD COLUMN qr_uid TEXT").run();
+  if (!cols.includes("is_archived")) db.prepare("ALTER TABLE devices ADD COLUMN is_archived INTEGER DEFAULT 0").run();
+  if (!cols.includes("archived_at")) db.prepare("ALTER TABLE devices ADD COLUMN archived_at TEXT").run();
+  if (!cols.includes("inspection_required_types")) db.prepare("ALTER TABLE devices ADD COLUMN inspection_required_types TEXT DEFAULT '[]'").run();
+  db.prepare("UPDATE devices SET inspection_required_types='[]' WHERE inspection_required_types IS NULL OR trim(inspection_required_types)=''").run();
+
+  const checkCols = db.prepare("PRAGMA table_info(daily_checks)").all().map(c => c.name);
+  if (!checkCols.includes("source_channel")) db.prepare("ALTER TABLE daily_checks ADD COLUMN source_channel TEXT").run();
+  if (!checkCols.includes("department_code_snapshot")) db.prepare("ALTER TABLE daily_checks ADD COLUMN department_code_snapshot TEXT").run();
+  if (!checkCols.includes("location_snapshot")) db.prepare("ALTER TABLE daily_checks ADD COLUMN location_snapshot TEXT").run();
+  if (!checkCols.includes("incident_id")) db.prepare("ALTER TABLE daily_checks ADD COLUMN incident_id INTEGER").run();
+  db.prepare("UPDATE daily_checks SET source_channel='Không xác định' WHERE source_channel IS NULL OR trim(source_channel)=''").run();
+
+  const incidentCols = db.prepare("PRAGMA table_info(incidents)").all().map(c => c.name);
+  if (!incidentCols.includes("acknowledged_at")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_at TEXT").run();
+  if (!incidentCols.includes("acknowledged_by")) db.prepare("ALTER TABLE incidents ADD COLUMN acknowledged_by TEXT").run();
+  if (!incidentCols.includes("completed_at")) db.prepare("ALTER TABLE incidents ADD COLUMN completed_at TEXT").run();
+  if (!incidentCols.includes("source_channel")) db.prepare("ALTER TABLE incidents ADD COLUMN source_channel TEXT").run();
+  if (!incidentCols.includes("department_code_snapshot")) db.prepare("ALTER TABLE incidents ADD COLUMN department_code_snapshot TEXT").run();
+  db.prepare("UPDATE incidents SET source_channel='Không xác định' WHERE source_channel IS NULL OR trim(source_channel)=''").run();
+  db.prepare(`
+    UPDATE incidents
+    SET department_code_snapshot = COALESCE(
+      (SELECT d.code FROM departments d WHERE d.name=incidents.department_snapshot LIMIT 1),
+      (SELECT d.code FROM departments d WHERE d.code=incidents.department_snapshot LIMIT 1),
+      (SELECT dv.department_code FROM devices dv WHERE dv.id=incidents.device_id LIMIT 1),
+      ''
+    )
+    WHERE department_code_snapshot IS NULL OR trim(department_code_snapshot)=''
+  `).run();
+
+  const rows = db.prepare("SELECT id, qr_uid FROM devices ORDER BY id").all();
+  for (const r of rows) {
+    if (!r.qr_uid) ensureDeviceQrUid(r.id);
+  }
+  db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_qr_uid ON devices(qr_uid)").run();
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS device_transfers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id INTEGER NOT NULL,
+      transfer_datetime TEXT NOT NULL,
+      from_department_code TEXT,
+      from_location TEXT,
+      to_department_code TEXT NOT NULL,
+      to_location TEXT,
+      reason TEXT,
+      actor TEXT,
+      note TEXT,
+      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+    );
+  `);
+
+  // Migration cho schema điều chuyển cũ (R15 và các bản trước RC).
+  // R15 có transfer_date/to_department NOT NULL. Chỉ ALTER ADD COLUMN sẽ khiến
+  // các phiếu điều chuyển mới lỗi NOT NULL, vì vậy phải rebuild bảng một lần.
+  // Các cột metadata/biên bản legacy vẫn được giữ ở bảng mới để không mất lịch sử.
+  const transferInfo = db.prepare("PRAGMA table_info(device_transfers)").all();
+  const transferColumns = new Set(transferInfo.map(c => c.name));
+  const canonicalTransferColumns = [
+    "transfer_datetime","from_department_code","from_location",
+    "to_department_code","to_location","reason","actor","note"
+  ];
+  const hasLegacyRequiredColumns = transferInfo.some(c =>
+    ["transfer_date","to_department"].includes(c.name) && Number(c.notnull || 0) === 1
+  );
+  const needsLegacyTransferRebuild =
+    canonicalTransferColumns.some(name => !transferColumns.has(name)) || hasLegacyRequiredColumns;
+
+  if (needsLegacyTransferRebuild) {
+    const legacyRows = db.prepare("SELECT * FROM device_transfers ORDER BY id").all();
+    const currentDeviceContext = db.prepare("SELECT department_code,location FROM devices WHERE id=?");
+    const migrateTransfers = db.transaction(() => {
+      db.exec("DROP INDEX IF EXISTS idx_device_transfers_device");
+      db.exec("ALTER TABLE device_transfers RENAME TO device_transfers_legacy_migration");
+      db.exec(`
+        CREATE TABLE device_transfers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER NOT NULL,
+          transfer_datetime TEXT NOT NULL,
+          from_department_code TEXT,
+          from_location TEXT,
+          to_department_code TEXT NOT NULL,
+          to_location TEXT,
+          reason TEXT,
+          actor TEXT,
+          note TEXT,
+          transfer_date TEXT,
+          from_department TEXT,
+          to_department TEXT,
+          approved_by TEXT,
+          receiver TEXT,
+          created_at TEXT,
+          movement_type TEXT,
+          document_no TEXT,
+          handover_condition TEXT,
+          giver TEXT,
+          status_before TEXT,
+          status_after TEXT,
+          document_original_name TEXT,
+          document_stored_name TEXT,
+          document_file_path TEXT,
+          document_file_mime TEXT,
+          document_file_size INTEGER DEFAULT 0,
+          FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+        )
+      `);
+      const insert = db.prepare(`
+        INSERT INTO device_transfers (
+          id,device_id,transfer_datetime,from_department_code,from_location,
+          to_department_code,to_location,reason,actor,note,
+          transfer_date,from_department,to_department,approved_by,receiver,created_at,
+          movement_type,document_no,handover_condition,giver,status_before,status_after,
+          document_original_name,document_stored_name,document_file_path,document_file_mime,document_file_size
+        ) VALUES (
+          @id,@device_id,@transfer_datetime,@from_department_code,@from_location,
+          @to_department_code,@to_location,@reason,@actor,@note,
+          @transfer_date,@from_department,@to_department,@approved_by,@receiver,@created_at,
+          @movement_type,@document_no,@handover_condition,@giver,@status_before,@status_after,
+          @document_original_name,@document_stored_name,@document_file_path,@document_file_mime,@document_file_size
+        )
+      `);
+
+      for (const row of legacyRows) {
+        const current = currentDeviceContext.get(Number(row.device_id)) || {};
+        const legacyTransferDate = String(row.transfer_date || "").trim();
+        const legacyCreatedAt = normalizeDateTime(row.created_at || "");
+        let transferDatetime = normalizeDateTime(row.transfer_datetime || "");
+        if (!transferDatetime && legacyTransferDate) {
+          const normalizedLegacy = normalizeDateTime(legacyTransferDate);
+          if (legacyTransferDate.length === 10) {
+            transferDatetime = legacyCreatedAt && legacyCreatedAt.slice(0,10) === legacyTransferDate
+              ? legacyCreatedAt
+              : `${legacyTransferDate} 00:00:00`;
+          } else {
+            transferDatetime = normalizedLegacy;
+          }
+        }
+        transferDatetime = transferDatetime || legacyCreatedAt || "1970-01-01 00:00:00";
+
+        const fromDepartment = String(row.from_department_code || row.from_department || "").trim();
+        const toDepartment = String(
+          row.to_department_code || row.to_department || current.department_code || "NN"
+        ).trim() || "NN";
+        const actor = String(
+          row.actor || row.giver || row.approved_by || row.receiver || "Dữ liệu cũ"
+        ).trim() || "Dữ liệu cũ";
+
+        insert.run({
+          id:Number(row.id),
+          device_id:Number(row.device_id),
+          transfer_datetime:transferDatetime,
+          from_department_code:fromDepartment,
+          from_location:String(row.from_location || "").trim(),
+          to_department_code:toDepartment,
+          to_location:String(row.to_location || current.location || "").trim(),
+          reason:String(row.reason || ""),
+          actor,
+          note:String(row.note || ""),
+          transfer_date:legacyTransferDate || transferDatetime.slice(0,10),
+          from_department:String(row.from_department || fromDepartment),
+          to_department:String(row.to_department || toDepartment),
+          approved_by:String(row.approved_by || ""),
+          receiver:String(row.receiver || ""),
+          created_at:String(row.created_at || transferDatetime),
+          movement_type:String(row.movement_type || "Điều chuyển"),
+          document_no:String(row.document_no || ""),
+          handover_condition:String(row.handover_condition || ""),
+          giver:String(row.giver || ""),
+          status_before:String(row.status_before || ""),
+          status_after:String(row.status_after || ""),
+          document_original_name:row.document_original_name || null,
+          document_stored_name:row.document_stored_name || null,
+          document_file_path:row.document_file_path || null,
+          document_file_mime:row.document_file_mime || null,
+          document_file_size:Math.max(0,Number(row.document_file_size || 0))
+        });
+      }
+      db.exec("DROP TABLE device_transfers_legacy_migration");
+    });
+    migrateTransfers();
+    if (legacyRows.length) {
+      console.log(`Đã nâng schema điều chuyển legacy và bảo toàn ${legacyRows.length} bản ghi.`);
+    }
+  }
+
+  db.prepare("CREATE INDEX IF NOT EXISTS idx_device_transfers_device ON device_transfers(device_id, transfer_datetime)").run();
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action_time TEXT NOT NULL,
+      actor TEXT,
+      action_type TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      details TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_time ON audit_logs(action_time DESC);
+
+    CREATE TABLE IF NOT EXISTS inventory_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      inventory_date TEXT NOT NULL,
+      department_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Đang kiểm kê',
+      actor TEXT,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS inventory_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      device_id INTEGER NOT NULL,
+      expected_department_code TEXT,
+      expected_location TEXT,
+      result TEXT NOT NULL DEFAULT 'Chưa kiểm kê',
+      actual_department_code TEXT,
+      actual_location TEXT,
+      note TEXT,
+      updated_at TEXT,
+      updated_by TEXT,
+      UNIQUE(session_id, device_id),
+      FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+    );
+    CREATE INDEX IF NOT EXISTS idx_inventory_items_session ON inventory_items(session_id);
+  `);
+}
+
+function requestActor(req, fallback = "Hệ thống") {
+  return String(req.authUser?.full_name || req.body?.actor || fallback || "Hệ thống").trim() || "Hệ thống";
+}
+
+function writeAudit(actor, actionType, entityType, entityId, details = "") {
+  try {
+    db.prepare(`
+      INSERT INTO audit_logs (action_time, actor, action_type, entity_type, entity_id, details)
+      VALUES (?,?,?,?,?,?)
+    `).run(nowSql(), actor || "Hệ thống", actionType, entityType, String(entityId || ""), details || "");
+  } catch (e) {
+    console.error("writeAudit error:", e.message);
+  }
+}
+
+function ensureAuthSchema() {
+  const cols = db.prepare("PRAGMA table_info(users)").all().map(x => x.name);
+  if (!cols.includes("password_hash")) db.prepare("ALTER TABLE users ADD COLUMN password_hash TEXT").run();
+  if (!cols.includes("password_salt")) db.prepare("ALTER TABLE users ADD COLUMN password_salt TEXT").run();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+  `);
+  db.prepare("DELETE FROM auth_sessions WHERE expires_at<=?").run(Date.now());
+
+  if (AUTH_REQUIRED) {
+    const bootstrapPassword = String(process.env.QY4_ADMIN_PASSWORD || "");
+    let admin = db.prepare("SELECT * FROM users WHERE role='Quản trị viên' ORDER BY id LIMIT 1").get();
+    if (!admin && bootstrapPassword) {
+      const username = String(process.env.QY4_ADMIN_USERNAME || "admin").trim() || "admin";
+      const info = db.prepare(`
+        INSERT INTO users (full_name,username,role,department_code,status,phone)
+        VALUES (?,?,?,?,?,?)
+      `).run("Quản trị viên", username, "Quản trị viên", null, "Hoạt động", "");
+      admin = db.prepare("SELECT * FROM users WHERE id=?").get(info.lastInsertRowid);
+    }
+    if (admin && !admin.password_hash && bootstrapPassword) {
+      setUserPassword(admin.id, bootstrapPassword);
+      console.log("Đã thiết lập mật khẩu quản trị ban đầu từ QY4_ADMIN_PASSWORD.");
+    }
+    const readyAdmin = db.prepare("SELECT id FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND COALESCE(password_hash,'')<>'' LIMIT 1").get();
+    if (!readyAdmin) {
+      console.warn("QY4_AUTH_REQUIRED=1 nhưng chưa có tài khoản Quản trị viên có mật khẩu. Hãy đặt QY4_ADMIN_PASSWORD khi khởi động lần đầu.");
+    }
+  }
+}
+
 initDb();
+ensureCoreManagementSchema();
+ensureAuthSchema();
 ensureDeviceCodeColumnsAndData();
 normalizeIncidentStatusesInDb();
 try {
-  db.prepare("UPDATE devices SET status='Chờ sửa chữa' WHERE status='Hoạt động hạn chế'").run();
-  db.prepare("UPDATE repairs SET processing_status='Đang xử lý' WHERE processing_status IN ('Mới tiếp nhận','Đang kiểm tra','Đang sửa chữa')").run();
-  db.prepare("UPDATE repairs SET processing_status='Đã hoàn thành' WHERE processing_status IN ('Đã sửa xong','Bàn giao sử dụng')").run();
+  // Chuẩn hóa dữ liệu sửa chữa cũ ngay khi mở database để mọi kiểm tra "đang mở"
+  // dùng cùng một tập trạng thái. Bản ghi legacy để trống được coi là chưa hoàn tất,
+  // tránh lọt qua các chốt lưu trữ/điều chuyển hoặc tạo trùng phiếu.
+  db.prepare("UPDATE repairs SET processing_status='Đang xử lý' WHERE processing_status IS NULL OR trim(processing_status)='' OR processing_status IN ('Mới tiếp nhận','Đang kiểm tra','Đang sửa chữa')").run();
+  db.prepare("UPDATE repairs SET processing_status='Đã hoàn thành' WHERE processing_status IN ('Đã sửa xong','Bàn giao sử dụng','Hoàn thành')").run();
+  db.prepare("UPDATE repairs SET processing_status='Không sửa được' WHERE processing_status IN ('Hủy','Không thể sửa')").run();
   db.prepare("UPDATE repairs SET received_at=COALESCE(NULLIF(received_at,''), repair_date) WHERE received_at IS NULL OR received_at=''").run();
   db.prepare("UPDATE repairs SET updated_at=COALESCE(NULLIF(updated_at,''), repair_date) WHERE updated_at IS NULL OR updated_at=''").run();
-  db.prepare("UPDATE repairs SET completed_at=COALESCE(NULLIF(completed_at,''), repair_date) WHERE processing_status IN ('Đã hoàn thành') AND (completed_at IS NULL OR completed_at='')").run();
+  db.prepare("UPDATE repairs SET completed_at=COALESCE(NULLIF(completed_at,''), NULLIF(updated_at,''), repair_date) WHERE processing_status IN ('Đã hoàn thành','Không sửa được') AND (completed_at IS NULL OR completed_at='')").run();
 } catch (e) {}
 
 
+
+app.get("/api/auth/status", (req, res) => {
+  const ready = AUTH_REQUIRED
+    ? Boolean(db.prepare("SELECT id FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND COALESCE(password_hash,'')<>'' LIMIT 1").get())
+    : true;
+  res.json({ auth_required: AUTH_REQUIRED, ready });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  if (!AUTH_REQUIRED) return res.json({ auth_required: false, user: null });
+  const user = readAuthenticatedUser(req);
+  if (!user) return res.status(401).json({ error: "Chưa đăng nhập." });
+  res.json({
+    auth_required: true,
+    user: {
+      id: user.id,
+      full_name: user.full_name,
+      username: user.username,
+      role: user.role,
+      department_code: user.department_code || ""
+    }
+  });
+});
+
+const authLoginFailures = new Map();
+function authLoginKey(req, username) {
+  return `${String(req.ip || req.socket?.remoteAddress || "unknown")}|${String(username || "").trim().toLowerCase()}`;
+}
+function authLoginRateState(req, username) {
+  const now=Date.now();
+  const key=authLoginKey(req,username);
+  const item=authLoginFailures.get(key);
+  if(!item || now-item.started_at>=AUTH_LOGIN_WINDOW_MS) {
+    if(item) authLoginFailures.delete(key);
+    return {key,blocked:false,retrySeconds:0};
+  }
+  const blocked=item.count>=AUTH_LOGIN_LIMIT;
+  return {
+    key,
+    blocked,
+    retrySeconds:blocked ? Math.max(1,Math.ceil((AUTH_LOGIN_WINDOW_MS-(now-item.started_at))/1000)) : 0
+  };
+}
+function recordAuthLoginFailure(req, username) {
+  const now=Date.now();
+  const key=authLoginKey(req,username);
+  let item=authLoginFailures.get(key);
+  if(!item || now-item.started_at>=AUTH_LOGIN_WINDOW_MS) item={started_at:now,count:0};
+  item.count+=1;
+  authLoginFailures.set(key,item);
+  if(authLoginFailures.size>1000){
+    for(const [k,v] of authLoginFailures.entries()) if(now-v.started_at>=AUTH_LOGIN_WINDOW_MS) authLoginFailures.delete(k);
+  }
+  return authLoginRateState(req,username);
+}
+
+app.post("/api/auth/login", (req, res) => {
+  if (!AUTH_REQUIRED) return res.status(400).json({ error: "Chế độ đăng nhập chưa được bật." });
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+  const rate=authLoginRateState(req,username);
+  if(rate.blocked){
+    res.setHeader("Retry-After",String(rate.retrySeconds));
+    return res.status(429).json({error:"Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau."});
+  }
+  const matches=db.prepare("SELECT * FROM users WHERE lower(trim(username))=lower(trim(?)) ORDER BY id").all(username);
+  if(matches.length>1){
+    return res.status(409).json({error:"Tài khoản bị trùng chữ hoa/thường trong dữ liệu cũ. Quản trị viên cần đổi tên một tài khoản trước khi đăng nhập."});
+  }
+  const user=matches[0];
+  if (!user || user.status !== "Hoạt động" || !verifyUserPassword(user, password)) {
+    const failed=recordAuthLoginFailure(req,username);
+    if(failed.blocked) res.setHeader("Retry-After",String(failed.retrySeconds));
+    return res.status(failed.blocked ? 429 : 401).json({ error: failed.blocked ? "Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau." : "Tài khoản hoặc mật khẩu không đúng." });
+  }
+  authLoginFailures.delete(authLoginKey(req,username));
+  const token = crypto.randomBytes(32).toString("hex");
+  const created = Date.now();
+  const expires = created + SESSION_HOURS * 3600 * 1000;
+  db.prepare("DELETE FROM auth_sessions WHERE expires_at<=?").run(created);
+  db.prepare("INSERT INTO auth_sessions (token_hash,user_id,created_at,expires_at) VALUES (?,?,?,?)")
+    .run(sessionTokenHash(token), user.id, created, expires);
+  const secure = req.secure || String(req.headers["x-forwarded-proto"] || "").toLowerCase() === "https";
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_HOURS*3600}${secure ? "; Secure" : ""}`);
+  writeAudit(user.full_name || user.username, "Đăng nhập", "auth", user.id, user.username);
+  res.json({ ok: true, user: { id:user.id, full_name:user.full_name, username:user.username, role:user.role, department_code:user.department_code || "" } });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = parseCookies(req.headers.cookie || "")[SESSION_COOKIE];
+  if (token) db.prepare("DELETE FROM auth_sessions WHERE token_hash=?").run(sessionTokenHash(token));
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+  res.json({ ok: true });
+});
+
+function ensureQualityRatingHistorySchema() {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='quality_ratings'").get();
+  if (!table) return;
+  const sql = String(table.sql || "");
+  const hasLegacyDeviceUnique = /device_id\s+INTEGER\s+NOT\s+NULL\s+UNIQUE/i.test(sql);
+  if (hasLegacyDeviceUnique) {
+    const migrate = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE quality_ratings_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER NOT NULL,
+          rating_date TEXT,
+          age_score INTEGER DEFAULT 0,
+          performance_score INTEGER DEFAULT 0,
+          repair_score INTEGER DEFAULT 0,
+          inspection_score INTEGER DEFAULT 0,
+          sparepart_score INTEGER DEFAULT 0,
+          total_score INTEGER DEFAULT 0,
+          grade TEXT,
+          recommendation TEXT,
+          evaluator TEXT,
+          note TEXT,
+          FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        INSERT INTO quality_ratings_history
+          (id,device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note)
+        SELECT
+          id,device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note
+        FROM quality_ratings;
+        DROP TABLE quality_ratings;
+        ALTER TABLE quality_ratings_history RENAME TO quality_ratings;
+      `);
+    });
+    migrate();
+    console.log("Đã chuyển quality_ratings sang mô hình lịch sử nhiều lần đánh giá.");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_quality_ratings_device_date ON quality_ratings(device_id, rating_date DESC, id DESC)");
+}
+
+
+function historicalDeviceContext(deviceId, eventTime = "") {
+  const current = db.prepare("SELECT department_code, location FROM devices WHERE id=?").get(Number(deviceId)) || {};
+  const event = normalizeDateTime(eventTime || "");
+  let nextTransfer = null;
+  if (event) {
+    nextTransfer = db.prepare(`
+      SELECT from_department_code, from_location
+      FROM device_transfers
+      WHERE device_id=? AND COALESCE(transfer_datetime,'') > ?
+      ORDER BY transfer_datetime ASC, id ASC
+      LIMIT 1
+    `).get(Number(deviceId), event);
+  }
+  return {
+    department_code: String(nextTransfer?.from_department_code || current.department_code || "").trim(),
+    location: String(nextTransfer?.from_location ?? current.location ?? "").trim()
+  };
+}
+
+function ensureTechnicalContextSnapshots() {
+  const ensureColumn = (table, column, definition = "TEXT") => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(x => x.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  };
+  for (const table of ["repairs","maintenances","operation_logs","inspections","documents"]) {
+    ensureColumn(table, "department_code_snapshot");
+    ensureColumn(table, "location_snapshot");
+  }
+
+  const backfill = (table, timeExpr, legacyDepartmentColumn = "") => {
+    const legacySelect = legacyDepartmentColumn ? `, ${legacyDepartmentColumn} AS legacy_department_code` : "";
+    const rows = db.prepare(`
+      SELECT id, device_id, ${timeExpr} AS event_time,
+             department_code_snapshot, location_snapshot${legacySelect}
+      FROM ${table}
+      WHERE COALESCE(TRIM(department_code_snapshot),'')=''
+         OR COALESCE(TRIM(location_snapshot),'')=''
+    `).all();
+    const update = db.prepare(`
+      UPDATE ${table}
+      SET department_code_snapshot=?, location_snapshot=?
+      WHERE id=?
+    `);
+    for (const row of rows) {
+      const ctx = historicalDeviceContext(row.device_id, row.event_time);
+      const departmentCode = String(row.department_code_snapshot || row.legacy_department_code || ctx.department_code || "").trim();
+      const location = String(row.location_snapshot || ctx.location || "").trim();
+      update.run(departmentCode, location, row.id);
+    }
+  };
+
+  backfill("repairs", "COALESCE(NULLIF(received_at,''), repair_date)");
+  backfill("maintenances", "maintenance_date");
+  backfill("inspections", "inspection_date");
+  backfill("operation_logs", "log_datetime", "department_code");
+  backfill("documents", "COALESCE(NULLIF(doc_date,''), datetime('now'))");
+  // daily_checks legacy (R15) chưa có snapshot; sau migration cột đã được thêm
+  // ở ensureCoreManagementSchema nên có thể suy lại đúng khoa/vị trí theo mốc điều chuyển.
+  backfill("daily_checks", "check_datetime");
+}
 
 function initExtendedModules() {
   db.exec(`
@@ -788,12 +1751,14 @@ function initExtendedModules() {
       next_date TEXT,
       file_note TEXT,
       note TEXT,
+      department_code_snapshot TEXT,
+      location_snapshot TEXT,
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS quality_ratings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      device_id INTEGER NOT NULL UNIQUE,
+      device_id INTEGER NOT NULL,
       rating_date TEXT,
       age_score INTEGER DEFAULT 0,
       performance_score INTEGER DEFAULT 0,
@@ -821,6 +1786,11 @@ function initExtendedModules() {
     );
   `);
 
+  ensureQualityRatingHistorySchema();
+  ensureTechnicalContextSnapshots();
+
+  if (process.env.QY4_DEMO_SEED !== "1") return;
+
   const inspectionCount = db.prepare("SELECT COUNT(*) c FROM inspections").get().c;
   if (inspectionCount === 0) {
     const devices = db.prepare("SELECT id, group_code FROM devices ORDER BY id LIMIT 12").all();
@@ -836,7 +1806,7 @@ function initExtendedModules() {
   if (qualityCount === 0) {
     const devices = db.prepare("SELECT id, year_in_use, status FROM devices ORDER BY id").all();
     const insertQuality = db.prepare(`INSERT INTO quality_ratings (device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-    const currentYear = new Date().getFullYear();
+    const currentYear = Number(localDateISO().slice(0,4));
     devices.forEach(d => {
       const age = Math.max(0, currentYear - Number(d.year_in_use || currentYear));
       const age_score = age <= 3 ? 25 : age <= 7 ? 20 : age <= 10 ? 15 : 8;
@@ -863,11 +1833,43 @@ function initExtendedModules() {
       insertUsage.run(d.id, 2026, null, indicator, (idx+1)*120 + 450, unit, "Dữ liệu mẫu phục vụ báo cáo thực lực");
     });
   }
+  ensureTechnicalContextSnapshots();
 }
 
 initExtendedModules();
 
 
+
+function safeCount(table, whereSql, params = []) {
+  try { return Number(db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE ${whereSql}`).get(...params)?.c || 0); }
+  catch { return 0; }
+}
+function departmentReferenceCount(code) {
+  const value=String(code || "").trim();
+  if(!value) return 0;
+  return [
+    ["devices","department_code=?"],
+    ["users","department_code=?"],
+    ["operation_logs","department_code=? OR department_code_snapshot=?"],
+    ["daily_checks","department_code_snapshot=?"],
+    ["incidents","department_code_snapshot=?"],
+    ["repairs","department_code_snapshot=?"],
+    ["maintenances","department_code_snapshot=?"],
+    ["documents","department_code_snapshot=?"],
+    ["inspections","department_code_snapshot=?"],
+    ["device_transfers","from_department_code=? OR to_department_code=?"],
+    ["inventory_sessions","department_code=?"],
+    ["inventory_items","expected_department_code=? OR actual_department_code=?"]
+  ].reduce((sum,[table,where])=>{
+    const paramCount=(where.match(/\?/g)||[]).length;
+    return sum + safeCount(table,where,Array(paramCount).fill(value));
+  },0);
+}
+function groupReferenceCount(code) {
+  const value=String(code || "").trim();
+  if(!value) return 0;
+  return safeCount("devices","group_code=?",[value]);
+}
 
 app.get("/api/departments", (req, res) => {
   const rows = db.prepare(`
@@ -881,33 +1883,60 @@ app.get("/api/departments", (req, res) => {
 });
 
 app.post("/api/departments", (req, res) => {
-  const { code, name } = req.body;
-  db.prepare("INSERT INTO departments (code, name) VALUES (?, ?)").run(code, name);
-  res.json({ ok: true });
+  try {
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên khoa/phòng."});
+    if(db.prepare("SELECT code FROM departments WHERE code=?").get(code)) return res.status(400).json({error:"Mã khoa/phòng đã tồn tại."});
+    db.prepare("INSERT INTO departments (code,name) VALUES (?,?)").run(code,name);
+    writeAudit(requestActor(req),"Tạo khoa/phòng","department",code,name);
+    res.json({ok:true,code});
+  } catch(e) {
+    res.status(400).json({error:e.message || "Không thể tạo khoa/phòng."});
+  }
 });
 
 app.put("/api/departments/:code", (req, res) => {
-  const oldCode = req.params.code;
-  const { code, name } = req.body;
-  const tx = db.transaction(() => {
-    if (oldCode !== code) {
-      db.prepare("UPDATE devices SET department_code = ? WHERE department_code = ?").run(code, oldCode);
-      db.prepare("UPDATE users SET department_code = ? WHERE department_code = ?").run(code, oldCode);
-      db.prepare("UPDATE operation_logs SET department_code = ? WHERE department_code = ?").run(code, oldCode);
+  try {
+    const oldCode=String(req.params.code || "").trim().toUpperCase();
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    const old=db.prepare("SELECT * FROM departments WHERE code=?").get(oldCode);
+    if(!old) return res.status(404).json({error:"Không tìm thấy khoa/phòng."});
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên khoa/phòng."});
+    if(oldCode!==code && db.prepare("SELECT code FROM departments WHERE code=?").get(code)) {
+      return res.status(400).json({error:"Mã khoa/phòng mới đã tồn tại."});
     }
-    db.prepare("UPDATE departments SET code = ?, name = ? WHERE code = ?").run(code, name, oldCode);
-  });
-  tx();
-  res.json({ ok: true });
+    if(oldCode!==code){
+      const refs=departmentReferenceCount(oldCode);
+      if(refs>0) return res.status(409).json({error:`Mã khoa/phòng ${oldCode} đã được sử dụng trong ${refs} bản ghi hiện tại/lịch sử nên không được đổi mã. Có thể sửa tên khoa/phòng mà không đổi mã.`});
+    }
+    const tx=db.transaction(()=>{
+      if(oldCode===code){
+        db.prepare("UPDATE departments SET name=? WHERE code=?").run(name,oldCode);
+      } else {
+        db.prepare("INSERT INTO departments (code,name) VALUES (?,?)").run(code,name);
+        db.prepare("DELETE FROM departments WHERE code=?").run(oldCode);
+      }
+      writeAudit(requestActor(req),"Cập nhật khoa/phòng","department",code,`${oldCode} - ${old.name || ""} → ${code} - ${name}`);
+    });
+    tx();
+    res.json({ok:true,code});
+  } catch(e) {
+    console.error("PUT /api/departments/:code error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật khoa/phòng."});
+  }
 });
 
 app.delete("/api/departments/:code", (req, res) => {
-  const code = req.params.code;
-  const used = db.prepare("SELECT COUNT(*) AS c FROM devices WHERE department_code = ?").get(code).c
-             + db.prepare("SELECT COUNT(*) AS c FROM users WHERE department_code = ?").get(code).c;
-  if (used > 0) return res.status(400).json({ error: "Khoa/phòng đang được sử dụng, không thể xóa." });
-  db.prepare("DELETE FROM departments WHERE code = ?").run(code);
-  res.json({ ok: true });
+  const code=String(req.params.code || "").trim().toUpperCase();
+  const old=db.prepare("SELECT * FROM departments WHERE code=?").get(code);
+  if(!old) return res.status(404).json({error:"Không tìm thấy khoa/phòng."});
+  const used=departmentReferenceCount(code);
+  if(used>0) return res.status(409).json({error:`Khoa/phòng đang được tham chiếu bởi ${used} bản ghi hiện tại/lịch sử nên không thể xóa.`});
+  db.prepare("DELETE FROM departments WHERE code=?").run(code);
+  writeAudit(requestActor(req),"Xóa khoa/phòng","department",code,old.name || "");
+  res.json({ok:true});
 });
 
 app.get("/api/device-groups", (req, res) => {
@@ -921,42 +1950,108 @@ app.get("/api/device-groups", (req, res) => {
 });
 
 app.post("/api/device-groups", (req, res) => {
-  const { code, name } = req.body;
-  db.prepare("INSERT INTO device_groups (code, name) VALUES (?, ?)").run(code, name);
-  res.json({ ok: true });
+  try {
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên nhóm thiết bị."});
+    if(db.prepare("SELECT code FROM device_groups WHERE code=?").get(code)) return res.status(400).json({error:"Mã nhóm thiết bị đã tồn tại."});
+    db.prepare("INSERT INTO device_groups (code,name) VALUES (?,?)").run(code,name);
+    writeAudit(requestActor(req),"Tạo nhóm thiết bị","device_group",code,name);
+    res.json({ok:true,code});
+  } catch(e) {
+    res.status(400).json({error:e.message || "Không thể tạo nhóm thiết bị."});
+  }
 });
 
 app.put("/api/device-groups/:code", (req, res) => {
-  const oldCode = req.params.code;
-  const { code, name } = req.body;
-  const tx = db.transaction(() => {
-    if (oldCode !== code) {
-      db.prepare("UPDATE devices SET group_code = ? WHERE group_code = ?").run(code, oldCode);
+  try {
+    const oldCode=String(req.params.code || "").trim().toUpperCase();
+    const code=String(req.body?.code || "").trim().toUpperCase();
+    const name=String(req.body?.name || "").trim();
+    const old=db.prepare("SELECT * FROM device_groups WHERE code=?").get(oldCode);
+    if(!old) return res.status(404).json({error:"Không tìm thấy nhóm thiết bị."});
+    if(!code || !name) return res.status(400).json({error:"Thiếu mã hoặc tên nhóm thiết bị."});
+    if(oldCode!==code && db.prepare("SELECT code FROM device_groups WHERE code=?").get(code)) {
+      return res.status(400).json({error:"Mã nhóm thiết bị mới đã tồn tại."});
     }
-    db.prepare("UPDATE device_groups SET code = ?, name = ? WHERE code = ?").run(code, name, oldCode);
-  });
-  tx();
-  res.json({ ok: true });
+    if(oldCode!==code){
+      const refs=groupReferenceCount(oldCode);
+      if(refs>0) return res.status(409).json({error:`Mã nhóm ${oldCode} đã được sử dụng bởi ${refs} thiết bị/hồ sơ nên không được đổi mã. Có thể sửa tên nhóm mà không đổi mã.`});
+    }
+    const tx=db.transaction(()=>{
+      if(oldCode===code){
+        db.prepare("UPDATE device_groups SET name=? WHERE code=?").run(name,oldCode);
+      } else {
+        db.prepare("INSERT INTO device_groups (code,name) VALUES (?,?)").run(code,name);
+        db.prepare("DELETE FROM device_groups WHERE code=?").run(oldCode);
+      }
+      writeAudit(requestActor(req),"Cập nhật nhóm thiết bị","device_group",code,`${oldCode} - ${old.name || ""} → ${code} - ${name}`);
+    });
+    tx();
+    res.json({ok:true,code});
+  } catch(e) {
+    console.error("PUT /api/device-groups/:code error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật nhóm thiết bị."});
+  }
 });
 
 app.delete("/api/device-groups/:code", (req, res) => {
-  const code = req.params.code;
-  const used = db.prepare("SELECT COUNT(*) AS c FROM devices WHERE group_code = ?").get(code).c;
-  if (used > 0) return res.status(400).json({ error: "Nhóm thiết bị đang được sử dụng, không thể xóa." });
-  db.prepare("DELETE FROM device_groups WHERE code = ?").run(code);
-  res.json({ ok: true });
+  const code=String(req.params.code || "").trim().toUpperCase();
+  const old=db.prepare("SELECT * FROM device_groups WHERE code=?").get(code);
+  if(!old) return res.status(404).json({error:"Không tìm thấy nhóm thiết bị."});
+  const used=groupReferenceCount(code);
+  if(used>0) return res.status(409).json({error:`Nhóm thiết bị đang được tham chiếu bởi ${used} thiết bị nên không thể xóa.`});
+  db.prepare("DELETE FROM device_groups WHERE code=?").run(code);
+  writeAudit(requestActor(req),"Xóa nhóm thiết bị","device_group",code,old.name || "");
+  res.json({ok:true});
 });
 
 app.get("/api/meta", (req, res) => {
+  const departmentLimited = AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa";
+  const departments = departmentLimited
+    ? db.prepare("SELECT * FROM departments WHERE code=? ORDER BY code").all(String(req.authUser.department_code || ""))
+    : db.prepare("SELECT * FROM departments ORDER BY code").all();
   res.json({
-    departments: db.prepare("SELECT * FROM departments ORDER BY code").all(),
+    departments,
     groups: db.prepare("SELECT * FROM device_groups ORDER BY code").all()
   });
 });
 
+const USER_ROLES = ["Quản trị viên","Kỹ sư TTBYT","Người dùng khoa"];
+function normalizeUsername(value) {
+  return String(value || "").trim();
+}
+function validateUserInput(input = {}, excludeId = 0, requirePassword = false) {
+  const fullName=String(input.full_name || "").trim();
+  const username=normalizeUsername(input.username);
+  const role=String(input.role || "").trim();
+  const status=String(input.status || "Hoạt động").trim() || "Hoạt động";
+  const departmentCode=String(input.department_code || "").trim();
+  const password=String(input.password || "");
+  if(!fullName || !username || !role) return {error:"Thiếu họ tên, tài khoản hoặc vai trò."};
+  if(!/^[A-Za-z0-9._-]{3,50}$/.test(username)) return {error:"Tài khoản chỉ dùng chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang; dài 3–50 ký tự."};
+  if(!USER_ROLES.includes(role)) return {error:"Vai trò người dùng không hợp lệ."};
+  if(!["Hoạt động","Ngừng hoạt động"].includes(status)) return {error:"Trạng thái người dùng không hợp lệ."};
+  if(requirePassword && !password) return {error:"Khi bật xác thực, người dùng mới phải có mật khẩu."};
+  if(password && password.length < 8) return {error:"Mật khẩu phải có ít nhất 8 ký tự."};
+  if(role==="Người dùng khoa" && !departmentCode) return {error:"Tài khoản Người dùng khoa phải được gán một khoa/phòng."};
+  if(departmentCode && !db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode)) return {error:"Khoa/phòng được gán không tồn tại trong danh mục."};
+  const duplicate=db.prepare("SELECT id,username FROM users WHERE lower(trim(username))=lower(trim(?)) AND (?=0 OR id<>?) LIMIT 1").get(username,Number(excludeId||0),Number(excludeId||0));
+  if(duplicate) return {error:`Tài khoản “${username}” đã tồn tại (không phân biệt chữ hoa/thường).`};
+  return {value:{full_name:fullName,username,role,department_code:departmentCode || null,status,phone:String(input.phone || "").trim(),password}};
+}
+function activeAdminCount(excludeId = 0) {
+  return db.prepare(`
+    SELECT COUNT(*) AS c FROM users
+    WHERE role='Quản trị viên' AND status='Hoạt động' AND (?=0 OR id<>?)
+  `).get(Number(excludeId || 0), Number(excludeId || 0)).c;
+}
+
 app.get("/api/users", (req, res) => {
   const rows = db.prepare(`
-    SELECT u.*, d.name AS department_name
+    SELECT u.id,u.full_name,u.username,u.role,u.department_code,u.status,u.phone,
+           CASE WHEN COALESCE(u.password_hash,'')<>'' THEN 1 ELSE 0 END AS has_password,
+           d.name AS department_name
     FROM users u
     LEFT JOIN departments d ON d.code = u.department_code
     ORDER BY u.id
@@ -965,37 +2060,134 @@ app.get("/api/users", (req, res) => {
 });
 
 app.post("/api/users", (req, res) => {
-  const { full_name, username, role, department_code, status, phone } = req.body;
-  const info = db.prepare(`
-    INSERT INTO users (full_name, username, role, department_code, status, phone)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(full_name, username, role, department_code, status, phone || "");
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const built=validateUserInput(req.body || {},0,AUTH_REQUIRED);
+    if(built.error) return res.status(400).json({error:built.error});
+    const p=built.value;
+    const tx=db.transaction(()=>{
+      const info = db.prepare(`
+        INSERT INTO users (full_name, username, role, department_code, status, phone)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(p.full_name,p.username,p.role,p.department_code,p.status,p.phone);
+      if(p.password) setUserPassword(info.lastInsertRowid,p.password);
+      writeAudit(req.authUser?.full_name || "Quản trị viên","Tạo người dùng","user",info.lastInsertRowid,p.username);
+      return info.lastInsertRowid;
+    });
+    res.json({id:tx()});
+  } catch(e) {
+    console.error("POST /api/users error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo người dùng."});
+  }
 });
 
 app.put("/api/users/:id", (req, res) => {
-  const { full_name, username, role, department_code, status, phone } = req.body;
-  db.prepare(`
-    UPDATE users SET full_name=?, username=?, role=?, department_code=?, status=?, phone=?
-    WHERE id=?
-  `).run(full_name, username, role, department_code, status, phone || "", req.params.id);
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM users WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy người dùng."});
+    const built=validateUserInput(req.body || {},id,false);
+    if(built.error) return res.status(400).json({error:built.error});
+    const p=built.value;
+    const wouldRemoveActiveAdmin=old.role==="Quản trị viên" && old.status==="Hoạt động"
+      && (p.role!=="Quản trị viên" || p.status!=="Hoạt động");
+    if(wouldRemoveActiveAdmin && activeAdminCount(old.id)===0){
+      return res.status(400).json({error:"Không thể hạ quyền hoặc ngừng hoạt động Quản trị viên cuối cùng."});
+    }
+    const tx=db.transaction(()=>{
+      db.prepare(`
+        UPDATE users SET full_name=?,username=?,role=?,department_code=?,status=?,phone=? WHERE id=?
+      `).run(p.full_name,p.username,p.role,p.department_code,p.status,p.phone,id);
+      if(p.password){
+        setUserPassword(id,p.password);
+        db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+      }
+      if(p.status!=="Hoạt động") db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+      writeAudit(req.authUser?.full_name || "Quản trị viên","Cập nhật người dùng","user",id,`${old.username} → ${p.username}${p.password ? " | đã đổi mật khẩu và thu hồi phiên đăng nhập" : ""}`);
+    });
+    tx();
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/users/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật người dùng."});
+  }
 });
 
 app.delete("/api/users/:id", (req, res) => {
-  db.prepare("DELETE FROM users WHERE id=?").run(req.params.id);
+  const id = Number(req.params.id);
+  const old = db.prepare("SELECT * FROM users WHERE id=?").get(id);
+  if (!old) return res.status(404).json({ error: "Không tìm thấy người dùng." });
+  if (AUTH_REQUIRED && Number(req.authUser?.id || 0) === id) {
+    return res.status(400).json({ error: "Không thể tự xóa tài khoản đang đăng nhập." });
+  }
+  if (old.role === "Quản trị viên" && old.status === "Hoạt động" && activeAdminCount(id) === 0) {
+    return res.status(400).json({ error: "Không thể xóa Quản trị viên cuối cùng." });
+  }
+  db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+  db.prepare("DELETE FROM users WHERE id=?").run(id);
+  writeAudit(req.authUser?.full_name || "Quản trị viên", "Xóa người dùng", "user", id, old.username || "");
   res.json({ ok: true });
 });
 
 app.get("/api/devices", (req, res) => {
-  const rows = db.prepare(`
+  const departmentLimited = AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa";
+  const includeArchived = departmentLimited ? false : String(req.query.include_archived || "") === "1";
+  const scopedDepartment = departmentLimited ? String(req.authUser.department_code || "") : "";
+  const baseRows = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
     FROM devices dv
     LEFT JOIN departments d ON d.code = dv.department_code
     LEFT JOIN device_groups g ON g.code = dv.group_code
+    WHERE (? = 1 OR COALESCE(dv.is_archived,0)=0)
+      AND (? = '' OR dv.department_code = ?)
     ORDER BY dv.id
-  `).all().map(enrichDevice);
+  `).all(includeArchived ? 1 : 0, scopedDepartment, scopedDepartment);
+  const rows = departmentLimited ? baseRows.map(departmentDeviceView) : baseRows.map(enrichDevice);
   res.json(rows);
+});
+
+function serialKey(value) {
+  return String(value || "").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+function isMeaningfulSerial(value) {
+  const key=serialKey(value);
+  if(!key) return false;
+  return !new Set(["NN","N/A","NA","UNKNOWN","KHONG CO","CHUA RO","NONE","NIL","0","-","--"]).has(key);
+}
+function findSerialDuplicate(serial, excludeId = 0) {
+  if(!isMeaningfulSerial(serial)) return null;
+  return db.prepare(`
+    SELECT id,device_code,name,department_code,is_archived
+    FROM devices
+    WHERE lower(trim(serial))=lower(trim(?)) AND trim(serial)<>''
+      AND (?=0 OR id<>?)
+    ORDER BY COALESCE(is_archived,0),id
+    LIMIT 1
+  `).get(String(serial).trim(), Number(excludeId||0), Number(excludeId||0)) || null;
+}
+
+app.get("/api/devices/duplicate-check", (req, res) => {
+  const serial = String(req.query.serial || "").trim();
+  const name = String(req.query.name || "").trim();
+  const model = String(req.query.model || "").trim();
+  const excludeId = Number(req.query.exclude_id || 0);
+  const serialMatches = isMeaningfulSerial(serial) ? db.prepare(`
+    SELECT id, device_code, name, model, serial, department_code
+    FROM devices
+    WHERE lower(trim(serial))=lower(trim(?)) AND trim(serial)<>'' AND (?=0 OR id<>?)
+    ORDER BY id
+  `).all(serial, excludeId, excludeId).map(enrichDevice) : [];
+  const similarMatches = (name && model) ? db.prepare(`
+    SELECT id, device_code, name, model, serial, department_code
+    FROM devices
+    WHERE lower(trim(name))=lower(trim(?)) AND lower(trim(model))=lower(trim(?))
+      AND (?=0 OR id<>?)
+    ORDER BY id
+  `).all(name, model, excludeId, excludeId).map(enrichDevice) : [];
+  res.json({
+    serial_duplicate: serialMatches.length > 0,
+    serial_matches: serialMatches,
+    similar_matches: similarMatches
+  });
 });
 
 app.get("/api/devices/:id", (req, res) => {
@@ -1007,6 +2199,13 @@ app.get("/api/devices/:id", (req, res) => {
     WHERE dv.id = ?
   `).get(req.params.id);
   if (!device) return res.status(404).json({ error: "Not found" });
+  if (AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa"
+      && String(device.department_code || "") !== String(req.authUser.department_code || "")) {
+    return res.status(403).json({ error: "Thiết bị không thuộc khoa của tài khoản này." });
+  }
+  if (AUTH_REQUIRED && req.authUser?.role === "Người dùng khoa") {
+    return res.json(departmentDeviceView(device));
+  }
   const id = Number(req.params.id);
   const incidentRows = db.prepare(`
       SELECT i.*, lr.id AS linked_repair_id, lr.processing_status AS linked_repair_status
@@ -1028,48 +2227,193 @@ app.get("/api/devices/:id", (req, res) => {
     `).all(id).map(r => ({ ...r, processing_status: normalizeRepairStatus(r.processing_status) })),
     incidents: incidentRows.map(r => ({ ...r, status: normalizeIncidentStatusForUi(r.status, r.linked_repair_id), files: incidentFiles[r.id] || [] })),
     maintenances: db.prepare("SELECT * FROM maintenances WHERE device_id = ? ORDER BY id DESC").all(id),
-    inspections: db.prepare("SELECT * FROM inspections WHERE device_id = ? ORDER BY id DESC").all(id).map(r => ({ ...r, device_code: getDeviceCode(r.device_id), device_name: device.name, department_code: device.department_code })),
+    inspections: db.prepare("SELECT * FROM inspections WHERE device_id = ? ORDER BY id DESC").all(id).map(r => ({ ...r, device_code: getDeviceCode(r.device_id), device_name: device.name, department_code: r.department_code_snapshot || device.department_code, location: r.location_snapshot || device.location })),
     operation_logs: db.prepare("SELECT * FROM operation_logs WHERE device_id = ? ORDER BY id DESC").all(id),
-    documents: db.prepare("SELECT * FROM documents WHERE device_id = ? ORDER BY id DESC").all(id)
+    documents: db.prepare("SELECT * FROM documents WHERE device_id = ? ORDER BY id DESC").all(id),
+    transfers: db.prepare("SELECT * FROM device_transfers WHERE device_id = ? ORDER BY transfer_datetime DESC, id DESC").all(id)
   };
   res.json(data);
 });
 
+function buildDevicePayload(input = {}, current = null) {
+  const src = input || {};
+  const old = current || {};
+  const num = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : Number(fallback || 0);
+  };
+  const text = (value, fallback = "") => String(value ?? fallback ?? "").trim();
+  const quality = Math.max(1, Math.min(5, Math.round(num(src.quality_level, old.quality_level || 3) || 3)));
+  return {
+    department_code:text(src.department_code, old.department_code),
+    group_code:text(src.group_code, old.group_code),
+    name:text(src.name, old.name),
+    manufacturer:text(src.manufacturer, old.manufacturer),
+    model:text(src.model, old.model),
+    year_in_use:num(src.year_in_use, old.year_in_use),
+    warranty_end:text(src.warranty_end, old.warranty_end),
+    status:text(src.status, old.status || "Đang hoạt động") || "Đang hoạt động",
+    quality_level:quality,
+    serial:text(src.serial, old.serial),
+    country:text(src.country, old.country),
+    year_manufactured:num(src.year_manufactured, old.year_manufactured),
+    cost:Math.max(0, num(src.cost, old.cost)),
+    funding:text(src.funding, old.funding),
+    location:text(src.location, old.location),
+    note:text(src.note, old.note),
+    device_code:text(src.device_code, old.device_code),
+    insurance_code:text(src.insurance_code, old.insurance_code),
+    inspection_required_types: serializeRequiredInspectionTypes(
+      Object.prototype.hasOwnProperty.call(src, "inspection_required_types")
+        ? src.inspection_required_types
+        : old.inspection_required_types
+    )
+  };
+}
+function validateDevicePayload(payload) {
+  const missing=[];
+  if(!payload.department_code) missing.push("Khoa sử dụng");
+  if(!payload.group_code) missing.push("Nhóm thiết bị");
+  if(!payload.name) missing.push("Tên thiết bị");
+  if(missing.length) return `Thiếu thông tin bắt buộc: ${missing.join(", ")}`;
+  if(!db.prepare("SELECT code FROM departments WHERE code=?").get(payload.department_code)) return "Khoa sử dụng không tồn tại trong danh mục.";
+  if(!db.prepare("SELECT code FROM device_groups WHERE code=?").get(payload.group_code)) return "Nhóm thiết bị không tồn tại trong danh mục.";
+  if(!["Đang hoạt động","Hoạt động hạn chế","Chờ sửa chữa","Ngừng hoạt động"].includes(payload.status)) return "Tình trạng thiết bị không hợp lệ.";
+  if(payload.year_in_use && (payload.year_in_use < 1900 || payload.year_in_use > 2100)) return "Năm sử dụng không hợp lệ.";
+  if(payload.year_manufactured && (payload.year_manufactured < 1900 || payload.year_manufactured > 2100)) return "Năm sản xuất không hợp lệ.";
+  if(payload.warranty_end && !isValidIsoDate(payload.warranty_end)) return "Hạn bảo hành phải theo định dạng YYYY-MM-DD và là ngày hợp lệ.";
+  return "";
+}
+
 app.post("/api/devices", (req, res) => {
-  const payload = { ...req.body, quality_level: Number(req.body.quality_level || 3) };
-  payload.device_code = payload.device_code || generateDeviceCode(payload.department_code, payload.group_code);
-  payload.insurance_code = payload.insurance_code || "";
-  const info = db.prepare(`
-    INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code)
-    VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code)
-  `).run(payload);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const payload = buildDevicePayload(req.body || {});
+    const error = validateDevicePayload(payload);
+    if (error) return res.status(400).json({ error });
+    payload.device_code = payload.device_code
+      ? (normalizeDeviceCode(payload.device_code, payload.department_code, payload.group_code) || payload.device_code)
+      : generateDeviceCode(payload.department_code, payload.group_code);
+    if (db.prepare("SELECT id FROM devices WHERE device_code=? LIMIT 1").get(payload.device_code)) {
+      return res.status(400).json({ error:"Mã thiết bị đã được sử dụng, kể cả trong hồ sơ đã lưu trữ." });
+    }
+    const serialDuplicate=findSerialDuplicate(payload.serial,0);
+    const allowDuplicateSerial = req.body?.allow_duplicate_serial === true || String(req.body?.allow_duplicate_serial || "") === "1";
+    if(serialDuplicate && !allowDuplicateSerial){
+      return res.status(409).json({ error:`Serial ${payload.serial} đã có ở ${serialDuplicate.device_code || "thiết bị #"+serialDuplicate.id}. Hãy kiểm tra lại trước khi lưu.` });
+    }
+    const info = db.prepare(`
+      INSERT INTO devices (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code,inspection_required_types)
+      VALUES (@department_code,@group_code,@name,@manufacturer,@model,@year_in_use,@warranty_end,@status,@quality_level,@serial,@country,@year_manufactured,@cost,@funding,@location,@note,@device_code,@insurance_code,@inspection_required_types)
+    `).run(payload);
+    const qrUid = ensureDeviceQrUid(info.lastInsertRowid);
+    writeAudit(requestActor(req), "Tạo thiết bị", "device", info.lastInsertRowid, `${payload.device_code} | ${payload.name}`);
+    if(serialDuplicate && allowDuplicateSerial) writeAudit(requestActor(req), "Xác nhận Serial trùng", "device", info.lastInsertRowid, `${payload.serial} trùng với ${serialDuplicate.device_code || "#"+serialDuplicate.id}`);
+    res.json({ id: info.lastInsertRowid, qr_uid: qrUid });
+  } catch (e) {
+    console.error("POST /api/devices error:", e);
+    res.status(400).json({ error:e.message || "Không thể tạo thiết bị." });
+  }
 });
 
 app.put("/api/devices/:id", (req, res) => {
-  const payload = { ...req.body, quality_level: Number(req.body.quality_level || 3), device_code: req.body.device_code || "", insurance_code: req.body.insurance_code || "" };
-  db.prepare(`
-    UPDATE devices SET
-      department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
-      model=@model, year_in_use=@year_in_use, warranty_end=@warranty_end, status=@status, quality_level=@quality_level, serial=@serial,
-      country=@country, year_manufactured=@year_manufactured, cost=@cost, funding=@funding, location=@location, note=@note,
-      device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code
-    WHERE id=@id
-  `).run({ ...payload, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const old = db.prepare("SELECT * FROM devices WHERE id=?").get(Number(req.params.id));
+    if (!old) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+    if (Number(old.is_archived || 0) === 1) {
+      return res.status(409).json({ error:"Thiết bị đã lưu trữ; không chỉnh sửa trực tiếp hồ sơ lưu trữ." });
+    }
+    const payload = buildDevicePayload(req.body || {}, old);
+    const error = validateDevicePayload(payload);
+    if (error) return res.status(400).json({ error });
+    const departmentChanged = String(payload.department_code || "") !== String(old.department_code || "");
+    const locationChanged = String(payload.location || "") !== String(old.location || "");
+    const openRepair = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
+    if (openRepair && payload.status !== "Chờ sửa chữa") {
+      return res.status(409).json({ error:`Thiết bị đang có phiếu sửa chữa #${openRepair.id} chưa hoàn thành; trạng thái phải giữ “Chờ sửa chữa” cho đến khi phiếu kết thúc.` });
+    }
+    if (departmentChanged || locationChanged) {
+      return res.status(409).json({
+        error:"Khoa sử dụng và vị trí chỉ được thay đổi bằng chức năng Điều chuyển để bảo toàn lịch sử."
+      });
+    }
+    if (payload.device_code) {
+      payload.device_code = normalizeDeviceCode(payload.device_code, payload.department_code, payload.group_code) || payload.device_code;
+      const duplicateCode = db.prepare("SELECT id FROM devices WHERE device_code=? AND id<>? LIMIT 1").get(payload.device_code, Number(req.params.id));
+      if (duplicateCode) return res.status(400).json({ error:"Mã thiết bị đã được sử dụng, kể cả trong hồ sơ đã lưu trữ." });
+    }
+    const serialDuplicate=findSerialDuplicate(payload.serial,Number(req.params.id));
+    const allowDuplicateSerial = req.body?.allow_duplicate_serial === true || String(req.body?.allow_duplicate_serial || "") === "1";
+    if(serialDuplicate && !allowDuplicateSerial){
+      return res.status(409).json({ error:`Serial ${payload.serial} đã có ở ${serialDuplicate.device_code || "thiết bị #"+serialDuplicate.id}. Hãy kiểm tra lại trước khi lưu.` });
+    }
+    db.prepare(`
+      UPDATE devices SET
+        department_code=@department_code, group_code=@group_code, name=@name, manufacturer=@manufacturer,
+        model=@model, year_in_use=@year_in_use, warranty_end=@warranty_end, status=@status, quality_level=@quality_level, serial=@serial,
+        country=@country, year_manufactured=@year_manufactured, cost=@cost, funding=@funding, location=@location, note=@note,
+        device_code=COALESCE(NULLIF(@device_code,''), device_code), insurance_code=@insurance_code,
+        inspection_required_types=@inspection_required_types
+      WHERE id=@id
+    `).run({ ...payload, id: Number(req.params.id) });
+    ensureDeviceQrUid(req.params.id);
+    writeAudit(requestActor(req), "Cập nhật thiết bị", "device", req.params.id, `Mã: ${old.device_code || ""}; Serial: ${old.serial || ""} → ${payload.serial || ""}; Khoa: ${old.department_code || ""} → ${payload.department_code || ""}`);
+    if(serialDuplicate && allowDuplicateSerial) writeAudit(requestActor(req), "Xác nhận Serial trùng", "device", req.params.id, `${payload.serial} trùng với ${serialDuplicate.device_code || "#"+serialDuplicate.id}`);
+    res.json({ ok: true, qr_uid: ensureDeviceQrUid(req.params.id) });
+  } catch (e) {
+    console.error("PUT /api/devices/:id error:", e);
+    res.status(400).json({ error:e.message || "Không thể cập nhật thiết bị." });
+  }
 });
 
 app.delete("/api/devices/:id", (req, res) => {
   const id = Number(req.params.id);
-  db.prepare("DELETE FROM accessories WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM repairs WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM maintenances WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM inspections WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM operation_logs WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM documents WHERE device_id=?").run(id);
-  db.prepare("DELETE FROM devices WHERE id=?").run(id);
-  res.json({ ok: true });
+  const device = db.prepare("SELECT * FROM devices WHERE id=?").get(id);
+  if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  if (Number(device.is_archived || 0) === 1) return res.json({ ok:true, archived:true, qr_uid:ensureDeviceQrUid(id), already_archived:true });
+
+  const openRepair=db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') LIMIT 1").get(id);
+  if(openRepair) return res.status(400).json({error:`Thiết bị còn phiếu sửa chữa #${openRepair.id} chưa hoàn thành; chưa thể lưu trữ.`});
+  const openIncident=db.prepare("SELECT id FROM incidents WHERE device_id=? AND status IN ('Mới ghi nhận','Đã tiếp nhận') LIMIT 1").get(id);
+  if(openIncident) return res.status(400).json({error:`Thiết bị còn sự cố #${openIncident.id} chưa hoàn tất; chưa thể lưu trữ.`});
+  const openInventory=db.prepare(`
+    SELECT s.id
+    FROM inventory_items i JOIN inventory_sessions s ON s.id=i.session_id
+    WHERE i.device_id=? AND s.status='Đang kiểm kê'
+    LIMIT 1
+  `).get(id);
+  if(openInventory) return res.status(400).json({error:`Thiết bị đang nằm trong đợt kiểm kê #${openInventory.id}; hãy hoàn thành kiểm kê trước khi lưu trữ.`});
+
+  db.prepare("UPDATE devices SET is_archived=1, archived_at=?, status='Ngừng hoạt động' WHERE id=?").run(nowSql(), id);
+  writeAudit(requestActor(req), "Lưu trữ thiết bị", "device", id, `${device.device_code || ""} | ${device.name || ""}`);
+  res.json({ ok: true, archived: true, qr_uid: ensureDeviceQrUid(id) });
 });
+
+function validateRepairPayload(payload) {
+  if (!Number(payload?.device_id || 0)) return "Vui lòng chọn thiết bị.";
+  if (!String(payload?.repair_date || payload?.received_at || "").trim()) return "Vui lòng nhập thời gian tiếp nhận.";
+  if (!String(payload?.issue || "").trim()) return "Vui lòng nhập tình trạng/nguyên nhân hỏng.";
+  const cost=Number(payload?.cost ?? 0);
+  if (!Number.isFinite(cost) || cost < 0) return "Kinh phí sửa chữa phải là số không âm.";
+  const status=normalizeRepairStatus(payload?.processing_status || "Đang xử lý");
+  if (status === "Đã hoàn thành" && !String(payload?.result || payload?.work || "").trim()) {
+    return "Phiếu hoàn thành phải có nội dung thực hiện hoặc kết quả sửa chữa.";
+  }
+  if (status === "Không sửa được" && !String(payload?.result || payload?.work || "").trim()) {
+    return "Phiếu không sửa được phải ghi rõ kết quả hoặc nội dung xử lý.";
+  }
+  return "";
+}
+
+function repairDeletePolicy(repair) {
+  if (!repair) return { can_delete:false, reason:"Không tìm thấy phiếu sửa chữa." };
+  if (repair.incident_id) return { can_delete:false, reason:"Phiếu được tạo từ sự cố nên phải giữ để bảo toàn chuỗi hồ sơ." };
+  const status=normalizeRepairStatus(repair.processing_status || "Đang xử lý");
+  if (status !== "Đang xử lý") return { can_delete:false, reason:"Chỉ phiếu độc lập đang xử lý mới có thể xóa khi nhập nhầm." };
+  const historyCount=db.prepare("SELECT COUNT(*) c FROM activity_history WHERE module='repair' AND record_id=?").get(Number(repair.id)).c;
+  if (historyCount > 1) return { can_delete:false, reason:"Phiếu đã có lịch sử xử lý quan trọng." };
+  if (!String(repair.status_before || "").trim()) return { can_delete:false, reason:"Phiếu cũ thiếu trạng thái thiết bị trước sửa chữa nên không thể khôi phục an toàn." };
+  return { can_delete:true, reason:"Chỉ dùng khi phiếu độc lập được tạo nhầm và chưa có lịch sử xử lý quan trọng." };
+}
 
 app.get("/api/repairs", (req, res) => {
   const rows = db.prepare(`
@@ -1077,9 +2421,9 @@ app.get("/api/repairs", (req, res) => {
       r.*,
       COALESCE(r.processing_status, 'Đang xử lý') AS processing_status,
       dv.name AS device_name,
-      dv.department_code,
+      COALESCE(NULLIF(r.department_code_snapshot,''), dv.department_code) AS department_code,
       dv.group_code,
-      dv.location,
+      COALESCE(NULLIF(r.location_snapshot,''), dv.location) AS location,
       dv.model,
       dv.serial,
       i.id AS source_incident_id,
@@ -1089,36 +2433,56 @@ app.get("/api/repairs", (req, res) => {
     FROM repairs r
     LEFT JOIN devices dv ON dv.id = r.device_id
     LEFT JOIN incidents i ON i.id = r.incident_id
-    LEFT JOIN departments d ON d.code = dv.department_code
+    LEFT JOIN departments d ON d.code = COALESCE(NULLIF(r.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY r.id DESC
-  `).all().map(r => ({ ...r, processing_status: normalizeRepairStatus(r.processing_status), device_code: getDeviceCode(r.device_id) }));
+  `).all().map(r => {
+    const normalized={ ...r, processing_status: normalizeRepairStatus(r.processing_status), device_code: getDeviceCode(r.device_id) };
+    const policy=repairDeletePolicy(normalized);
+    return { ...normalized, can_delete:policy.can_delete, delete_reason:policy.reason };
+  });
   res.json(rows);
 });
 
 app.post("/api/repairs", (req, res) => {
   try {
     const p = req.body || {};
-    if (!p.device_id) return res.status(400).json({ error: "device_id is required" });
+    if (p.incident_id) return res.status(400).json({ error: "Phiếu liên kết sự cố phải được tạo từ chức năng Chuyển sửa chữa của sự cố." });
+    if (!p.device_id) return res.status(400).json({ error: "Vui lòng chọn thiết bị." });
+    const device = db.prepare("SELECT id,status,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(p.device_id));
+    if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    const existingOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(p.device_id));
+    if (existingOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${existingOpen.id} chưa hoàn thành.` });
     const payload = {
       device_id: Number(p.device_id),
       repair_date: normalizeDateTime(p.repair_date || ""),
       issue: p.issue || "",
       work: p.work || "",
-      person: p.person || "",
+      person: String(p.person || requestActor(req)).trim(),
+      priority: ["Bình thường","Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(p.priority || "").trim()) ? String(p.priority).trim() : "Bình thường",
+      reporter: String(p.reporter || "").trim(),
+      note: String(p.note || ""),
       method: p.method || "",
       cost: Number(p.cost || 0),
       result: p.result || "",
       status_after: statusAfterFromRepairStatus(p.processing_status || "Đang xử lý", p.status_after || "Đang hoạt động"),
+      status_before: device.status || "Đang hoạt động",
       processing_status: normalizeRepairStatus(p.processing_status || "Đang xử lý"),
       incident_id: p.incident_id ? Number(p.incident_id) : null,
       received_at: normalizeDateTime(p.received_at || p.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || "Đang xử lý")) ? nowSql() : ""
+      completed_at: isTerminalRepairStatus(p.processing_status || "Đang xử lý") ? nowSql() : "",
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
     };
+    const repairError=validateRepairPayload(payload);
+    if(repairError) return res.status(400).json({error:repairError});
+    const repairContext = historicalDeviceContext(payload.device_id, payload.received_at || payload.repair_date);
+    payload.department_code_snapshot = String(repairContext.department_code || "").trim();
+    payload.location_snapshot = String(repairContext.location || "").trim();
     const info = db.prepare(`
-      INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, processing_status, incident_id, received_at, updated_at, completed_at)
-      VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+      INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at, department_code_snapshot, location_snapshot)
+      VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at, @department_code_snapshot, @location_snapshot)
     `).run(payload);
     db.prepare(`UPDATE devices SET status=? WHERE id=?`).run(payload.status_after, payload.device_id);
     if (!p.skip_history) {
@@ -1126,6 +2490,7 @@ app.post("/api/repairs", (req, res) => {
         ? `Tạo phiếu sửa chữa từ sự cố ${p.incident_code || ('#' + payload.incident_id)}`
         : (payload.issue || payload.work || "Tạo phiếu sửa chữa");
       writeHistory("repair", info.lastInsertRowid, payload.person || "Khoa Trang bị", payload.incident_id ? "Tạo từ sự cố" : "Tạo phiếu", "", payload.processing_status, note, payload.cost, payload.incident_id ? "Tự động" : "Tự động", p.action_time || payload.received_at || payload.repair_date);
+      writeAudit(requestActor(req, payload.person || "Khoa Trang bị"), "Tạo phiếu sửa chữa", "repair", info.lastInsertRowid, note);
     }
     res.json({ id: info.lastInsertRowid });
   } catch (e) {
@@ -1136,75 +2501,157 @@ app.post("/api/repairs", (req, res) => {
 
 
 app.post("/api/accessories", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`
-    INSERT INTO accessories (device_id,name,code,maker_country,serial,note)
-    VALUES (@device_id,@name,@code,@maker_country,@serial,@note)
-  `).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    if(!db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId)) {
+      return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+    }
+    const payload={
+      device_id:deviceId,
+      name:String(p.name || "").trim(),
+      code:String(p.code || "").trim(),
+      maker_country:String(p.maker_country || "").trim(),
+      serial:String(p.serial || "").trim(),
+      note:String(p.note || "")
+    };
+    if(!payload.name) return res.status(400).json({error:"Vui lòng nhập tên bộ phận/phụ kiện."});
+    const info=db.prepare(`
+      INSERT INTO accessories (device_id,name,code,maker_country,serial,note)
+      VALUES (@device_id,@name,@code,@maker_country,@serial,@note)
+    `).run(payload);
+    writeAudit(requestActor(req),"Tạo phụ kiện","accessory",info.lastInsertRowid,`${payload.name} | ${payload.serial || payload.code || ""}`);
+    res.json({id:info.lastInsertRowid});
+  } catch(e) {
+    console.error("POST /api/accessories error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo phụ kiện."});
+  }
 });
 
 app.put("/api/accessories/:id", (req, res) => {
-  const p = req.body;
-  db.prepare(`
-    UPDATE accessories SET name=@name, code=@code, maker_country=@maker_country, serial=@serial, note=@note
-    WHERE id=@id
-  `).run({ ...p, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM accessories WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy phụ kiện."});
+    const p=req.body || {};
+    const payload={
+      id,
+      name:String(p.name ?? old.name ?? "").trim(),
+      code:String(p.code ?? old.code ?? "").trim(),
+      maker_country:String(p.maker_country ?? old.maker_country ?? "").trim(),
+      serial:String(p.serial ?? old.serial ?? "").trim(),
+      note:String(p.note ?? old.note ?? "")
+    };
+    if(!payload.name) return res.status(400).json({error:"Vui lòng nhập tên bộ phận/phụ kiện."});
+    db.prepare(`
+      UPDATE accessories SET name=@name, code=@code, maker_country=@maker_country, serial=@serial, note=@note
+      WHERE id=@id
+    `).run(payload);
+    writeAudit(requestActor(req),"Cập nhật phụ kiện","accessory",id,`${old.name || ""} → ${payload.name}`);
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/accessories/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật phụ kiện."});
+  }
 });
 
 app.delete("/api/accessories/:id", (req, res) => {
-  db.prepare("DELETE FROM accessories WHERE id=?").run(req.params.id);
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM accessories WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy phụ kiện."});
+  db.prepare("DELETE FROM accessories WHERE id=?").run(id);
+  writeAudit(requestActor(req), "Xóa phụ kiện", "accessory", id, `${old.name || ""} | ${old.serial || old.code || ""}`);
   res.json({ ok: true });
 });
 
 app.put("/api/repairs/:id", (req, res) => {
   try {
-    const p = req.body;
-    if (!p.device_id) return res.status(400).json({ error: "device_id is required" });
-    const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(req.params.id) || {};
+    const p = req.body || {};
+    if (!p.device_id) return res.status(400).json({ error: "Vui lòng chọn thiết bị." });
+    const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(req.params.id);
+    if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
+    if (Number(old.device_id) !== Number(p.device_id)) {
+      return res.status(400).json({ error: "Không thể đổi thiết bị của phiếu sửa chữa đã tạo. Nếu là phiếu độc lập tạo nhầm, hãy xóa phiếu khi còn đủ điều kiện và tạo lại." });
+    }
+    const oldProcessingStatus=normalizeRepairStatus(old.processing_status || "Đang xử lý");
+    const requestedProcessingStatus=normalizeRepairStatus(p.processing_status || old.processing_status || "Đang xử lý");
+    if (isTerminalRepairStatus(oldProcessingStatus) && requestedProcessingStatus !== oldProcessingStatus) {
+      return res.status(409).json({
+        error:`Phiếu sửa chữa đã kết thúc ở trạng thái “${oldProcessingStatus}”; không được mở lại hoặc đổi kết quả kết thúc. Có thể hiệu chỉnh nội dung, chi phí và ghi chú nhưng phải giữ nguyên trạng thái kết thúc.`
+      });
+    }
     const payload = {
       device_id: Number(p.device_id),
       repair_date: normalizeDateTime(p.repair_date || ""),
       issue: p.issue || "",
       work: p.work || "",
-      person: p.person || "",
+      person: String(p.person ?? old.person ?? requestActor(req)).trim(),
+      priority: ["Bình thường","Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(p.priority ?? old.priority ?? "").trim()) ? String(p.priority ?? old.priority).trim() : "Bình thường",
+      reporter: String(p.reporter ?? old.reporter ?? "").trim(),
+      note: String(p.note ?? old.note ?? ""),
       method: p.method || "",
       cost: Number(p.cost || 0),
       result: p.result || "",
       status_after: statusAfterFromRepairStatus(p.processing_status || old.processing_status || "Đang xử lý", p.status_after || old.status_after || "Đang hoạt động"),
-      processing_status: normalizeRepairStatus(p.processing_status || old.processing_status || "Đang xử lý"),
+      processing_status: requestedProcessingStatus,
       incident_id: old.incident_id || null,
       received_at: normalizeDateTime(p.received_at || old.received_at || old.repair_date || p.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ["Đã hoàn thành"].includes(normalizeRepairStatus(p.processing_status || old.processing_status || "Đang xử lý")) ? (old.completed_at || nowSql()) : "",
+      completed_at: isTerminalRepairStatus(p.processing_status || old.processing_status || "Đang xử lý") ? (old.completed_at || nowSql()) : "",
       id: Number(req.params.id)
     };
-    db.prepare(`
-      UPDATE repairs SET
-        device_id=@device_id,
-        repair_date=@repair_date,
-        issue=@issue,
-        work=@work,
-        person=@person,
-        method=@method,
-        cost=@cost,
-        result=@result,
-        status_after=@status_after,
-        processing_status=@processing_status,
-        incident_id=@incident_id,
-        received_at=@received_at,
-        updated_at=@updated_at,
-        completed_at=@completed_at
-      WHERE id=@id
-    `).run(payload);
-    db.prepare(`UPDATE devices SET status=? WHERE id=?`).run(payload.status_after, payload.device_id);
-    if (!p.skip_history) {
-      const actionType = payload.processing_status === "Đã hoàn thành" ? "Hoàn thành" : (payload.processing_status === "Không sửa được" ? "Không sửa được" : "Cập nhật");
-      const note = payload.work || payload.result || payload.issue || "Cập nhật phiếu sửa chữa";
-      writeHistory("repair", Number(req.params.id), payload.person || "Khoa Trang bị", actionType, old.processing_status || "", payload.processing_status || "", note, payload.cost, actionType, p.action_time || payload.updated_at);
-    }
-    res.json({ ok: true });
+    const repairError=validateRepairPayload(payload);
+    if(repairError) return res.status(400).json({error:repairError});
+    let appliedDeviceStatus = payload.status_after;
+    const tx=db.transaction(()=>{
+      db.prepare(`
+        UPDATE repairs SET
+          device_id=@device_id,
+          repair_date=@repair_date,
+          issue=@issue,
+          work=@work,
+          person=@person,
+          priority=@priority,
+          reporter=@reporter,
+          note=@note,
+          method=@method,
+          cost=@cost,
+          result=@result,
+          status_after=@status_after,
+          processing_status=@processing_status,
+          incident_id=@incident_id,
+          received_at=@received_at,
+          updated_at=@updated_at,
+          completed_at=@completed_at
+        WHERE id=@id
+      `).run(payload);
+
+      const otherOpenRepair = db.prepare(`
+        SELECT id
+        FROM repairs
+        WHERE device_id=? AND id<>?
+          AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+        ORDER BY id DESC
+        LIMIT 1
+      `).get(payload.device_id, payload.id);
+      appliedDeviceStatus = otherOpenRepair ? "Chờ sửa chữa" : payload.status_after;
+      db.prepare("UPDATE devices SET status=? WHERE id=?").run(appliedDeviceStatus, payload.device_id);
+
+      if (!p.skip_history) {
+        const actionType = payload.processing_status === "Đã hoàn thành" ? "Hoàn thành" : (payload.processing_status === "Không sửa được" ? "Không sửa được" : "Cập nhật");
+        const note = payload.work || payload.result || payload.issue || "Cập nhật phiếu sửa chữa";
+        writeHistory("repair", Number(req.params.id), payload.person || "Khoa Trang bị", actionType, old.processing_status || "", payload.processing_status || "", note, payload.cost, actionType, p.action_time || payload.updated_at);
+        writeAudit(
+          requestActor(req, payload.person || "Khoa Trang bị"),
+          "Cập nhật sửa chữa",
+          "repair",
+          req.params.id,
+          `${old.processing_status || ""} → ${payload.processing_status || ""} | trạng thái máy: ${appliedDeviceStatus} | ${note}`
+        );
+      }
+    });
+    tx();
+    res.json({ ok: true, device_status: appliedDeviceStatus });
   } catch (e) {
     console.error("PUT /api/repairs/:id error:", e);
     res.status(500).json({ error: e.message });
@@ -1212,16 +2659,41 @@ app.put("/api/repairs/:id", (req, res) => {
 });
 
 app.delete("/api/repairs/:id", (req, res) => {
-  const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(req.params.id);
-  if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
-  const status = normalizeRepairStatus(old.processing_status || "Đang xử lý");
-  const historyCount = db.prepare("SELECT COUNT(*) c FROM activity_history WHERE module='repair' AND record_id=?").get(req.params.id).c;
-  if (status !== "Đang xử lý" || historyCount > 1) {
-    return res.status(400).json({ error: "Chỉ được xóa phiếu sửa chữa khi chưa có lịch sử xử lý quan trọng." });
+  try {
+    const id=Number(req.params.id);
+    const old = db.prepare("SELECT * FROM repairs WHERE id=?").get(id);
+    if (!old) return res.status(404).json({ error: "Không tìm thấy phiếu sửa chữa." });
+    const policy=repairDeletePolicy(old);
+    if(!policy.can_delete) return res.status(409).json({error:policy.reason});
+    let restoredDeviceStatus=old.status_before;
+    const tx=db.transaction(()=>{
+      writeHistory("repair", id, old.person || "Khoa Trang bị", "Xóa", old.processing_status || "", "", old.issue || old.work || "Xóa phiếu sửa chữa", old.cost || 0, "Cập nhật");
+      db.prepare("DELETE FROM repairs WHERE id=?").run(id);
+      const otherOpenRepair=db.prepare(`
+        SELECT id
+        FROM repairs
+        WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+        ORDER BY id DESC
+        LIMIT 1
+      `).get(old.device_id);
+      restoredDeviceStatus=otherOpenRepair ? "Chờ sửa chữa" : old.status_before;
+      db.prepare("UPDATE devices SET status=? WHERE id=?").run(restoredDeviceStatus, old.device_id);
+      writeAudit(
+        requestActor(req, old.person || "Khoa Trang bị"),
+        "Xóa phiếu sửa chữa",
+        "repair",
+        id,
+        otherOpenRepair
+          ? `Đã xóa phiếu nhập nhầm; còn phiếu sửa chữa #${otherOpenRepair.id} đang mở nên giữ trạng thái Chờ sửa chữa.`
+          : `Khôi phục trạng thái thiết bị: ${old.status_before}`
+      );
+    });
+    tx();
+    res.json({ ok: true, restored_device_status: restoredDeviceStatus });
+  } catch(e) {
+    console.error("DELETE /api/repairs/:id error:",e);
+    res.status(500).json({error:e.message});
   }
-  writeHistory("repair", Number(req.params.id), old.person, "Xóa", old.processing_status || "", "", old.issue || old.work || "Xóa phiếu sửa chữa", old.cost || 0, "Cập nhật");
-  db.prepare("DELETE FROM repairs WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
 });
 
 app.get("/api/repairs/:id/history", (req, res) => {
@@ -1271,20 +2743,23 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
     const id = Number(req.params.id);
     const old = db.prepare("SELECT * FROM maintenances WHERE id=?").get(id);
     if (!old) {
-      if (req.file) safeUnlink(req.file.path);
+      cleanupSingleUpload(req);
       return res.status(404).json({ error: "Không tìm thấy bản ghi bảo dưỡng." });
     }
+    const deviceId = Number(p.device_id || 0);
+    if (Number(old.device_id) !== deviceId) {
+      cleanupSingleUpload(req);
+      return res.status(409).json({ error: "Không thể đổi thiết bị của bản ghi bảo dưỡng đã lưu. Nếu chọn nhầm thiết bị, hãy tạo bản ghi hiệu chỉnh mới và ghi chú rõ." });
+    }
+    const device = db.prepare("SELECT id FROM devices WHERE id=?").get(deviceId);
+    if (!device) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiết bị không tồn tại." });
+    }
     const file = req.file || null;
-    if (file && old.file_path) safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
-    db.prepare(`
-      UPDATE maintenances SET
-        device_id=@device_id, maintenance_date=@maintenance_date, type=@type, content=@content, result=@result,
-        performer=@performer, user_confirm=@user_confirm, vendor=@vendor, next_date=@next_date, note=@note,
-        original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
-      WHERE id=@id
-    `).run({
+    const payload = {
       id,
-      device_id: Number(p.device_id),
+      device_id: deviceId,
       maintenance_date: normalizeDateTime(p.maintenance_date || ""),
       type: p.type || "",
       content: p.content || "",
@@ -1298,113 +2773,265 @@ app.put("/api/maintenances/:id", uploadDocument.single("file"), (req, res) => {
       stored_name: file ? file.filename : old.stored_name,
       file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
       file_mime: file ? file.mimetype : old.file_mime,
-      file_size: file ? file.size : (old.file_size || 0)
-    });
-    if (file) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-      `).run({
-        device_id: Number(p.device_id),
-        name: `Tài liệu bảo dưỡng - ${p.maintenance_date || nowSql().slice(0,10)}`,
-        type: "Bảo dưỡng",
-        doc_date: p.maintenance_date || nowSql().slice(0,10),
-        updated_by: p.performer || "",
-        note: p.note || "Tệp đính kèm từ phiếu bảo dưỡng",
-        original_name: file.originalname,
-        stored_name: file.filename,
-        file_path: `/uploads/documents/${file.filename}`,
-        file_mime: file.mimetype,
-        file_size: file.size
-      });
+      file_size: file ? file.size : (old.file_size || 0),
+      department_code_snapshot:String(old.department_code_snapshot || historicalDeviceContext(deviceId, old.maintenance_date).department_code || "").trim(),
+      location_snapshot:String(old.location_snapshot || historicalDeviceContext(deviceId, old.maintenance_date).location || "").trim()
+    };
+    const maintenanceError=validateMaintenancePayload(payload);
+    if (maintenanceError) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: maintenanceError });
     }
-    writeHistory("maintenance", id, p.performer, "Cập nhật", old.result || "", p.result || "", p.content || p.note || "");
-    res.json({ ok: true, file_path: file ? `/uploads/documents/${file.filename}` : old.file_path });
+    const maintenanceContext = historicalDeviceContext(deviceId, payload.maintenance_date);
+    payload.department_code_snapshot = String(maintenanceContext.department_code || "").trim();
+    payload.location_snapshot = String(maintenanceContext.location || "").trim();
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE maintenances SET
+          device_id=@device_id, maintenance_date=@maintenance_date, type=@type, content=@content, result=@result,
+          performer=@performer, user_confirm=@user_confirm, vendor=@vendor, next_date=@next_date, note=@note,
+          original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size,
+          department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot
+        WHERE id=@id
+      `).run(payload);
+      if (file) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
+        `).run({
+          device_id: deviceId,
+          name: `Tài liệu bảo dưỡng - ${payload.maintenance_date.slice(0,10)}`,
+          type: "Bảo dưỡng",
+          doc_date: payload.maintenance_date.slice(0,10),
+          updated_by: payload.performer,
+          note: payload.note || "Tệp đính kèm từ phiếu bảo dưỡng",
+          original_name: file.originalname,
+          stored_name: file.filename,
+          file_path: payload.file_path,
+          file_mime: file.mimetype,
+          file_size: file.size,
+          department_code_snapshot: payload.department_code_snapshot || "",
+          location_snapshot: payload.location_snapshot || ""
+        });
+      }
+      writeHistory("maintenance", id, payload.performer, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
+      writeAudit(requestActor(req, payload.performer || "Khoa Trang bị"), "Cập nhật bảo dưỡng", "maintenance", id, payload.content || payload.note || "");
+    });
+    tx();
+    // Không xóa file cũ: file đã được ghi vào bảng documents là một phần của lịch sử hồ sơ.
+    res.json({ ok: true, file_path: payload.file_path });
   } catch (e) {
+    cleanupSingleUpload(req);
     console.error("PUT /api/maintenances/:id error:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
 app.delete("/api/maintenances/:id", (req, res) => {
-  db.prepare("DELETE FROM maintenances WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT id FROM maintenances WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi bảo dưỡng."});
+  return res.status(409).json({
+    error:"Bản ghi bảo dưỡng là lịch sử kỹ thuật và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để chỉnh lại nội dung."
+  });
 });
 
 app.post("/api/operation-logs", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`
-    INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,usage_count,status_before,status_after,note)
-    VALUES (@device_id,@log_datetime,@user_name,@department_code,@usage_count,@status_before,@status_after,@note)
-  `).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    const device=db.prepare("SELECT department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+    const payload={
+      device_id:deviceId,
+      log_datetime:normalizeDateTime(p.log_datetime || nowSql()),
+      user_name:String(p.user_name || "").trim(),
+      department_code:String(device.department_code || "").trim(),
+      department_code_snapshot:String(device.department_code || "").trim(),
+      location_snapshot:String(device.location || "").trim(),
+      usage_count:String(p.usage_count || "").trim(),
+      status_before:String(p.status_before || "").trim(),
+      status_after:String(p.status_after || "").trim(),
+      note:String(p.note || "")
+    };
+    if(!payload.log_datetime) return res.status(400).json({error:"Thời gian vận hành không hợp lệ."});
+    if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
+    const operationContext = historicalDeviceContext(deviceId, payload.log_datetime);
+    payload.department_code = String(operationContext.department_code || "").trim();
+    payload.department_code_snapshot = payload.department_code;
+    payload.location_snapshot = String(operationContext.location || "").trim();
+    const info=db.prepare(`
+      INSERT INTO operation_logs (device_id,log_datetime,user_name,department_code,department_code_snapshot,location_snapshot,usage_count,status_before,status_after,note)
+      VALUES (@device_id,@log_datetime,@user_name,@department_code,@department_code_snapshot,@location_snapshot,@usage_count,@status_before,@status_after,@note)
+    `).run(payload);
+    writeAudit(requestActor(req,payload.user_name),"Tạo nhật ký vận hành","operation_log",info.lastInsertRowid,`${payload.log_datetime} | ${payload.note || payload.status_after || ""}`);
+    res.json({id:info.lastInsertRowid});
+  } catch(e) {
+    console.error("POST /api/operation-logs error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo nhật ký vận hành."});
+  }
 });
 
 app.put("/api/operation-logs/:id", (req, res) => {
-  const p = req.body;
-  db.prepare(`
-    UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code, usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
-    WHERE id=@id
-  `).run({ ...p, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM operation_logs WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy nhật ký vận hành."});
+    const p=req.body || {};
+    if (p.device_id !== undefined && Number(p.device_id) !== Number(old.device_id)) {
+      return res.status(409).json({error:"Không thể đổi thiết bị của nhật ký vận hành đã lưu."});
+    }
+    if (p.department_code !== undefined && String(p.department_code || "").trim() !== String(old.department_code || "").trim()) {
+      return res.status(409).json({error:"Khoa tại thời điểm vận hành là dữ liệu lịch sử và không được đổi trực tiếp."});
+    }
+    const payload={
+      id,
+      log_datetime:normalizeDateTime(p.log_datetime || old.log_datetime || nowSql()),
+      user_name:String(p.user_name ?? old.user_name ?? "").trim(),
+      department_code:String(old.department_code || old.department_code_snapshot || "").trim(),
+      usage_count:String(p.usage_count ?? old.usage_count ?? "").trim(),
+      status_before:String(p.status_before ?? old.status_before ?? "").trim(),
+      status_after:String(p.status_after ?? old.status_after ?? "").trim(),
+      note:String(p.note ?? old.note ?? "")
+    };
+    if(!payload.log_datetime) return res.status(400).json({error:"Thời gian vận hành không hợp lệ."});
+    if(!payload.user_name) return res.status(400).json({error:"Vui lòng nhập người sử dụng/ghi nhận."});
+    const operationContext = historicalDeviceContext(old.device_id, payload.log_datetime);
+    payload.department_code = String(operationContext.department_code || old.department_code_snapshot || old.department_code || "").trim();
+    payload.department_code_snapshot = payload.department_code;
+    payload.location_snapshot = String(operationContext.location ?? old.location_snapshot ?? "").trim();
+    db.prepare(`
+      UPDATE operation_logs SET log_datetime=@log_datetime, user_name=@user_name, department_code=@department_code,
+          department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot,
+          usage_count=@usage_count, status_before=@status_before, status_after=@status_after, note=@note
+      WHERE id=@id
+    `).run(payload);
+    writeAudit(requestActor(req,payload.user_name),"Cập nhật nhật ký vận hành","operation_log",id,`${old.log_datetime || ""} → ${payload.log_datetime}`);
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/operation-logs/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật nhật ký vận hành."});
+  }
 });
 
 app.delete("/api/operation-logs/:id", (req, res) => {
-  db.prepare("DELETE FROM operation_logs WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM operation_logs WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy nhật ký vận hành."});
+  return res.status(409).json({
+    error:"Nhật ký vận hành là dữ liệu lịch sử và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để hiệu chỉnh nội dung."
+  });
 });
 
 app.post("/api/documents", uploadDocument.single("file"), (req, res) => {
-  const p = req.body || {};
-  const file = req.file || null;
-  const info = db.prepare(`
-    INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-    VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-  `).run({
-    device_id: Number(p.device_id),
-    name: p.name || "",
-    type: p.type || "",
-    doc_date: p.doc_date || "",
-    updated_by: p.updated_by || "",
-    note: p.note || "",
-    original_name: file ? file.originalname : null,
-    stored_name: file ? file.filename : null,
-    file_path: file ? `/uploads/documents/${file.filename}` : null,
-    file_mime: file ? file.mimetype : null,
-    file_size: file ? file.size : 0
-  });
-  res.json({ id: info.lastInsertRowid, file_path: file ? `/uploads/documents/${file.filename}` : null, original_name: file ? file.originalname : null });
+  try {
+    const p = req.body || {};
+    const file = req.file || null;
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT id,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
+    if (!String(p.name || "").trim() && !file) {
+      return res.status(400).json({ error: "Tài liệu phải có tên hoặc file đính kèm." });
+    }
+    const payload = {
+      device_id: deviceId,
+      name: String(p.name || file?.originalname || "Tài liệu").trim(),
+      type: String(p.type || "").trim(),
+      doc_date: String(p.doc_date || localDateISO()).slice(0,10),
+      updated_by: String(p.updated_by || "").trim(),
+      note: p.note || "",
+      original_name: file ? file.originalname : null,
+      stored_name: file ? file.filename : null,
+      file_path: file ? `/uploads/documents/${file.filename}` : null,
+      file_mime: file ? file.mimetype : null,
+      file_size: file ? file.size : 0,
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
+    };
+    if(!isValidIsoDate(payload.doc_date)){
+      cleanupSingleUpload(req);
+      return res.status(400).json({error:"Ngày tài liệu phải là ngày hợp lệ theo YYYY-MM-DD."});
+    }
+    const documentContext = historicalDeviceContext(deviceId, payload.doc_date);
+    payload.department_code_snapshot = String(documentContext.department_code || "").trim();
+    payload.location_snapshot = String(documentContext.location || "").trim();
+    const info = db.prepare(`
+      INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+      VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
+    `).run(payload);
+    writeAudit(requestActor(req, payload.updated_by || "Khoa Trang bị"), "Tạo tài liệu", "document", info.lastInsertRowid, payload.name);
+    res.json({ id: info.lastInsertRowid, file_path: payload.file_path, original_name: payload.original_name });
+  } catch (e) {
+    cleanupSingleUpload(req);
+    console.error("POST /api/documents error:", e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.put("/api/documents/:id", uploadDocument.single("file"), (req, res) => {
-  const p = req.body || {};
-  const id = Number(req.params.id);
-  const old = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
-  if (!old) {
-    if (req.file) safeUnlink(req.file.path);
-    return res.status(404).json({ error: "Không tìm thấy tài liệu." });
+  try {
+    const p = req.body || {};
+    const id = Number(req.params.id);
+    const old = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
+    if (!old) {
+      cleanupSingleUpload(req);
+      return res.status(404).json({ error: "Không tìm thấy tài liệu." });
+    }
+    const file = req.file || null;
+    const protectedReason=protectedTechnicalDocumentReason(old);
+    if(protectedReason && file){
+      cleanupSingleUpload(req);
+      return res.status(409).json({error:`${protectedReason}; không được thay file. Hãy thêm một tài liệu mới nếu có bản cập nhật.`});
+    }
+    if(protectedReason && p.type !== undefined && String(p.type || "").trim() !== String(old.type || "").trim()){
+      cleanupSingleUpload(req);
+      return res.status(409).json({error:`${protectedReason}; không được đổi loại tài liệu để tránh phá chuỗi hồ sơ.`});
+    }
+    const payload = {
+      id,
+      name: String(p.name ?? old.name ?? "").trim(),
+      type: String(p.type ?? old.type ?? "").trim(),
+      doc_date: String(p.doc_date ?? old.doc_date ?? localDateISO()).slice(0,10),
+      updated_by: String(p.updated_by ?? old.updated_by ?? "").trim(),
+      note: p.note ?? old.note ?? "",
+      original_name: file ? file.originalname : old.original_name,
+      stored_name: file ? file.filename : old.stored_name,
+      file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
+      file_mime: file ? file.mimetype : old.file_mime,
+      file_size: file ? file.size : (old.file_size || 0),
+      department_code_snapshot:String(old.department_code_snapshot || "").trim(),
+      location_snapshot:String(old.location_snapshot || "").trim()
+    };
+    if(!isValidIsoDate(payload.doc_date)){
+      cleanupSingleUpload(req);
+      return res.status(400).json({error:"Ngày tài liệu phải là ngày hợp lệ theo YYYY-MM-DD."});
+    }
+    const documentContext = historicalDeviceContext(old.device_id, payload.doc_date);
+    payload.department_code_snapshot = String(documentContext.department_code || old.department_code_snapshot || "").trim();
+    payload.location_snapshot = String(documentContext.location ?? old.location_snapshot ?? "").trim();
+    db.prepare(`
+      UPDATE documents SET
+        name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
+        original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size,
+        department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot
+      WHERE id=@id
+    `).run(payload);
+    // Chỉ xóa file vật lý cũ sau khi DB đã cập nhật thành công và
+    // không còn hồ sơ kỹ thuật nào tham chiếu tới file đó.
+    if (file && old.file_path && old.file_path !== payload.file_path) {
+      const technicalRef=technicalFileReference(old.file_path);
+      if (!technicalRef) safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
+    }
+    writeAudit(requestActor(req, payload.updated_by || "Khoa Trang bị"), "Cập nhật tài liệu", "document", id, payload.name);
+    res.json({ ok: true, file_path: payload.file_path });
+  } catch (e) {
+    cleanupSingleUpload(req);
+    console.error("PUT /api/documents/:id error:", e);
+    res.status(500).json({ error: e.message });
   }
-  const file = req.file || null;
-  if (file && old.file_path) safeUnlink(path.join(__dirname, old.file_path.replace(/^\//, "")));
-  db.prepare(`
-    UPDATE documents SET
-      name=@name, type=@type, doc_date=@doc_date, updated_by=@updated_by, note=@note,
-      original_name=@original_name, stored_name=@stored_name, file_path=@file_path, file_mime=@file_mime, file_size=@file_size
-    WHERE id=@id
-  `).run({
-    id,
-    name: p.name || "",
-    type: p.type || "",
-    doc_date: p.doc_date || "",
-    updated_by: p.updated_by || "",
-    note: p.note || "",
-    original_name: file ? file.originalname : old.original_name,
-    stored_name: file ? file.filename : old.stored_name,
-    file_path: file ? `/uploads/documents/${file.filename}` : old.file_path,
-    file_mime: file ? file.mimetype : old.file_mime,
-    file_size: file ? file.size : (old.file_size || 0)
-  });
-  res.json({ ok: true });
 });
 
 app.get("/api/documents/:id/download", (req, res) => {
@@ -1418,8 +3045,14 @@ app.get("/api/documents/:id/download", (req, res) => {
 app.delete("/api/documents/:id", (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare("SELECT * FROM documents WHERE id=?").get(id);
-  if (row && row.file_path) safeUnlink(path.join(__dirname, row.file_path.replace(/^\//, "")));
+  if (!row) return res.status(404).json({ error: "Không tìm thấy tài liệu." });
+  const protectedReason=protectedTechnicalDocumentReason(row);
+  if(protectedReason){
+    return res.status(409).json({error:`${protectedReason}; không được xóa tài liệu để bảo toàn hồ sơ kỹ thuật.`});
+  }
   db.prepare("DELETE FROM documents WHERE id=?").run(id);
+  if (row.file_path) safeUnlink(path.join(__dirname, row.file_path.replace(/^\//, "")));
+  writeAudit(requestActor(req), "Xóa tài liệu", "document", id, row.name || "");
   res.json({ ok: true });
 });
 
@@ -1443,6 +3076,135 @@ function latestDeviceInspection(deviceId) {
     LIMIT 1
   `).get(deviceId) || null;
 }
+function normalizeScheduleText(value) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+}
+const INSPECTION_REQUIREMENT_TYPES = Object.freeze([
+  "Kiểm định",
+  "Hiệu chuẩn",
+  "Kiểm xạ",
+  "Kiểm định an toàn bức xạ"
+]);
+function parseRequiredInspectionTypes(value) {
+  let items = value;
+  if (!Array.isArray(items)) {
+    const raw = String(value || "").trim();
+    if (!raw) items = [];
+    else {
+      try {
+        const parsed = JSON.parse(raw);
+        items = Array.isArray(parsed) ? parsed : [raw];
+      } catch {
+        items = raw.split(/[;,|]/g);
+      }
+    }
+  }
+  const allowed = new Set(INSPECTION_REQUIREMENT_TYPES);
+  const normalized = [];
+  for (const item of items) {
+    const type = normalizeInspectionScheduleType(item);
+    if (allowed.has(type) && !normalized.includes(type)) normalized.push(type);
+  }
+  return normalized;
+}
+function serializeRequiredInspectionTypes(value) {
+  return JSON.stringify(parseRequiredInspectionTypes(value));
+}
+function normalizeInspectionScheduleType(value) {
+  const raw = String(value || "").trim();
+  const key = normalizeScheduleText(raw);
+  if (!key) return "Kiểm định";
+  if (key === "atbx" || key.includes("an toan buc xa")) return "Kiểm định an toàn bức xạ";
+  if (key.includes("kiem xa")) return "Kiểm xạ";
+  if (key.includes("hieu chuan")) return "Hiệu chuẩn";
+  if (key.includes("kiem dinh")) return "Kiểm định";
+  return raw;
+}
+function normalizeMaintenanceScheduleType(value) {
+  const raw = String(value || "").trim();
+  const key = normalizeScheduleText(raw);
+  if (!key || key === "bao duong" || key === "bao duong dinh ky") return "Bảo dưỡng định kỳ";
+  return raw;
+}
+function latestScheduledRows(rows, dateField, typeNormalizer) {
+  const latest = new Map();
+  for (const row of (rows || [])) {
+    const deviceId = Number(row.device_id || 0);
+    if (!deviceId) continue;
+    const scheduleType = typeNormalizer(row.type);
+    const key = `${deviceId}|${scheduleType}`;
+    const rowKey = `${String(row[dateField] || "")}|${String(Number(row.id || 0)).padStart(12,"0")}`;
+    const current = latest.get(key);
+    const currentKey = current ? `${String(current[dateField] || "")}|${String(Number(current.id || 0)).padStart(12,"0")}` : "";
+    if (!current || rowKey > currentKey) latest.set(key, { ...row, schedule_type:scheduleType });
+  }
+  return Array.from(latest.values());
+}
+function activeInspectionSchedules() {
+  const rows = db.prepare(`
+    SELECT i.*, COALESCE(dv.is_archived,0) AS is_archived
+    FROM inspections i
+    JOIN devices dv ON dv.id=i.device_id
+    WHERE COALESCE(dv.is_archived,0)=0
+  `).all();
+  return latestScheduledRows(rows, "inspection_date", normalizeInspectionScheduleType);
+}
+function activeMaintenanceSchedules() {
+  const rows = db.prepare(`
+    SELECT m.*, COALESCE(dv.is_archived,0) AS is_archived
+    FROM maintenances m
+    JOIN devices dv ON dv.id=m.device_id
+    WHERE COALESCE(dv.is_archived,0)=0
+  `).all();
+  return latestScheduledRows(rows, "maintenance_date", normalizeMaintenanceScheduleType);
+}
+function failedInspectionSchedules() {
+  return activeInspectionSchedules().filter(row => normalizeScheduleText(row.result) === "khong dat");
+}
+function requiredInspectionScheduleGaps() {
+  const schedules = activeInspectionSchedules();
+  const byKey = new Map(
+    schedules.map(row => [
+      `${Number(row.device_id)}|${normalizeInspectionScheduleType(row.schedule_type || row.type)}`,
+      row
+    ])
+  );
+  const devices = db.prepare(`
+    SELECT dv.*, d.name AS department_name, g.name AS group_name
+    FROM devices dv
+    LEFT JOIN departments d ON d.code=dv.department_code
+    LEFT JOIN device_groups g ON g.code=dv.group_code
+    WHERE COALESCE(dv.is_archived,0)=0
+      AND COALESCE(TRIM(dv.inspection_required_types),'') NOT IN ('','[]')
+    ORDER BY dv.department_code,dv.name,dv.id
+  `).all();
+  const gaps = [];
+  for (const device of devices) {
+    for (const obligationType of parseRequiredInspectionTypes(device.inspection_required_types)) {
+      const inspection = byKey.get(`${Number(device.id)}|${obligationType}`) || null;
+      const hasNextDate = Boolean(String(inspection?.next_date || "").trim());
+      if (inspection && hasNextDate) continue;
+      gaps.push({
+        ...enrichDevice(device),
+        obligation_type: obligationType,
+        schedule_issue: inspection ? "Chưa đặt hạn tiếp theo" : "Chưa có hồ sơ",
+        inspection: inspection ? { ...inspection, schedule_type: obligationType } : {},
+        last_date: String(inspection?.inspection_date || "").slice(0,10)
+      });
+    }
+  }
+  return gaps;
+}
+function latestScheduleByDate(rows, dateField) {
+  let latest = null;
+  for (const row of (rows || [])) {
+    const rowKey = `${String(row?.[dateField] || "")}|${String(Number(row?.id || 0)).padStart(12,"0")}`;
+    const latestKey = latest ? `${String(latest?.[dateField] || "")}|${String(Number(latest?.id || 0)).padStart(12,"0")}` : "";
+    if (!latest || rowKey > latestKey) latest = row;
+  }
+  return latest;
+}
+
 function openDeviceRepair(deviceId) {
   return db.prepare(`
     SELECT id, processing_status, issue, received_at, repair_date
@@ -1474,32 +3236,50 @@ app.get("/api/maintenances", (req, res) => {
     SELECT
       m.*,
       dv.name AS device_name,
-      dv.department_code,
+      COALESCE(dv.is_archived,0) AS is_archived,
+      COALESCE(NULLIF(m.department_code_snapshot,''), dv.department_code) AS department_code,
       dv.group_code,
-      dv.location,
+      COALESCE(NULLIF(m.location_snapshot,''), dv.location) AS location,
       dv.model,
       dv.serial,
       d.name AS department_name,
       g.name AS group_name
     FROM maintenances m
     LEFT JOIN devices dv ON dv.id = m.device_id
-    LEFT JOIN departments d ON d.code = dv.department_code
+    LEFT JOIN departments d ON d.code = COALESCE(NULLIF(m.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY m.id DESC
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
   res.json(rows);
 });
 
+function validateMaintenancePayload(payload) {
+  if (!Number(payload?.device_id || 0)) return "Vui lòng chọn thiết bị.";
+  if (!String(payload?.maintenance_date || "").trim()) return "Vui lòng nhập thời gian bảo dưỡng.";
+  if (!String(payload?.type || "").trim()) return "Vui lòng chọn loại bảo dưỡng.";
+  if (!String(payload?.content || "").trim()) return "Vui lòng nhập nội dung bảo dưỡng.";
+  if (!String(payload?.performer || "").trim()) return "Vui lòng nhập người thực hiện.";
+  if (!["Đạt","Đạt có lưu ý","Không đạt","Cần theo dõi thêm"].includes(String(payload?.result || "").trim())) {
+    return "Kết quả bảo dưỡng không hợp lệ.";
+  }
+  if (payload?.next_date && !isValidIsoDate(payload.next_date)) {
+    return "Ngày bảo dưỡng tiếp theo phải là ngày hợp lệ theo YYYY-MM-DD.";
+  }
+  return "";
+}
+
 app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
   try {
     const p = req.body || {};
-    if (!p.device_id) return res.status(400).json({ error: "device_id is required" });
     const file = req.file || null;
-    const info = db.prepare(`
-      INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size)
-      VALUES (@device_id,@maintenance_date,@type,@content,@result,@performer,@user_confirm,@vendor,@next_date,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-    `).run({
-      device_id: Number(p.device_id),
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT id,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
+    const payload = {
+      device_id: deviceId,
       maintenance_date: normalizeDateTime(p.maintenance_date || ""),
       type: p.type || "",
       content: p.content || "",
@@ -1513,29 +3293,51 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
       stored_name: file ? file.filename : null,
       file_path: file ? `/uploads/documents/${file.filename}` : null,
       file_mime: file ? file.mimetype : null,
-      file_size: file ? file.size : 0
-    });
-    if (file) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size)
-      `).run({
-        device_id: Number(p.device_id),
-        name: `Tài liệu bảo dưỡng - ${p.maintenance_date || nowSql().slice(0,10)}`,
-        type: "Bảo dưỡng",
-        doc_date: p.maintenance_date || nowSql().slice(0,10),
-        updated_by: p.performer || "",
-        note: p.note || "Tệp đính kèm từ phiếu bảo dưỡng",
-        original_name: file.originalname,
-        stored_name: file.filename,
-        file_path: `/uploads/documents/${file.filename}`,
-        file_mime: file.mimetype,
-        file_size: file.size
-      });
+      file_size: file ? file.size : 0,
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
+    };
+    const maintenanceError=validateMaintenancePayload(payload);
+    if (maintenanceError) {
+      cleanupSingleUpload(req);
+      return res.status(400).json({ error: maintenanceError });
     }
-    writeHistory("maintenance", info.lastInsertRowid, p.performer, "Tạo mới", "", p.result || "", p.content || p.note || "");
-    res.json({ id: info.lastInsertRowid, file_path: file ? `/uploads/documents/${file.filename}` : null });
+    const maintenanceContext = historicalDeviceContext(deviceId, payload.maintenance_date);
+    payload.department_code_snapshot = String(maintenanceContext.department_code || "").trim();
+    payload.location_snapshot = String(maintenanceContext.location || "").trim();
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO maintenances (device_id,maintenance_date,type,content,result,performer,user_confirm,vendor,next_date,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+        VALUES (@device_id,@maintenance_date,@type,@content,@result,@performer,@user_confirm,@vendor,@next_date,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
+      `).run(payload);
+      if (file) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (@device_id,@name,@type,@doc_date,@updated_by,@note,@original_name,@stored_name,@file_path,@file_mime,@file_size,@department_code_snapshot,@location_snapshot)
+        `).run({
+          device_id: deviceId,
+          name: `Tài liệu bảo dưỡng - ${payload.maintenance_date.slice(0,10)}`,
+          type: "Bảo dưỡng",
+          doc_date: payload.maintenance_date.slice(0,10),
+          updated_by: payload.performer,
+          note: payload.note || "Tệp đính kèm từ phiếu bảo dưỡng",
+          original_name: file.originalname,
+          stored_name: file.filename,
+          file_path: payload.file_path,
+          file_mime: file.mimetype,
+          file_size: file.size,
+          department_code_snapshot: payload.department_code_snapshot || "",
+          location_snapshot: payload.location_snapshot || ""
+        });
+      }
+      writeHistory("maintenance", info.lastInsertRowid, payload.performer, "Tạo mới", "", payload.result || "", payload.content || payload.note || "");
+      writeAudit(requestActor(req, payload.performer || "Khoa Trang bị"), "Tạo bảo dưỡng", "maintenance", info.lastInsertRowid, payload.content || payload.note || "");
+      return info.lastInsertRowid;
+    });
+    const id = tx();
+    res.json({ id, file_path: payload.file_path });
   } catch (e) {
+    cleanupSingleUpload(req);
     console.error("POST /api/maintenances error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -1544,23 +3346,92 @@ app.post("/api/maintenances", uploadDocument.single("file"), (req, res) => {
 
 
 
+function getQrDevicePayloadByUid(qrUid) {
+  const row = db.prepare("SELECT id FROM devices WHERE qr_uid=?").get(String(qrUid || "").trim());
+  return row ? getQrDevicePayload(row.id) : null;
+}
+
 function getPublicDevicePayload(deviceId) {
   const d = getQrDevicePayload(deviceId);
   if (!d) return null;
   return {
-    id: d.id,
+    qr_uid: d.qr_uid || ensureDeviceQrUid(d.id),
     device_code: d.device_code,
     name: d.name,
     department_name: d.department_name || d.department_code || "",
     location: d.location || "",
     status: d.status || "",
     model: d.model || "",
-    serial: d.serial || ""
+    serial: d.serial || "",
+    is_archived: Number(d.is_archived || 0) === 1
   };
 }
 
+function getPublicDevicePayloadByUid(qrUid) {
+  const d = getQrDevicePayloadByUid(qrUid);
+  return d ? getPublicDevicePayload(d.id) : null;
+}
+
+app.get("/q/:qr_uid", (req, res) => {
+  const row = db.prepare("SELECT id FROM devices WHERE qr_uid=?").get(req.params.qr_uid);
+  if (!row) return res.status(404).send("Mã QR thiết bị không hợp lệ.");
+  res.sendFile(path.join(__dirname, "public", "inspect.html"));
+});
+
+app.get("/api/public/device-qr/:qr_uid", (req, res) => {
+  const data = getPublicDevicePayloadByUid(req.params.qr_uid);
+  if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  res.json(data);
+});
+
+// QR cũ theo id/mã có thể bị dò tuần tự nên tắt mặc định trên bản triển khai.
 app.get("/api/public/device/:id", (req, res) => {
+  if (!ALLOW_LEGACY_PUBLIC_QR) return res.status(410).json({ error: "QR cũ theo ID đã được tắt. Vui lòng in lại QR UID cố định." });
   const data = getPublicDevicePayload(req.params.id);
+  if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  res.json(data);
+});
+
+app.get("/api/public/device-code/:code", (req, res) => {
+  if (!ALLOW_LEGACY_PUBLIC_QR) return res.status(410).json({ error: "QR cũ theo mã thiết bị đã được tắt. Vui lòng dùng QR UID cố định." });
+  const row = db.prepare("SELECT id FROM devices WHERE device_code=?").get(String(req.params.code || "").trim());
+  if (!row) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+  const data = getPublicDevicePayload(row.id);
+  res.json(data);
+});
+
+app.get("/api/qr-image", (req, res) => {
+  try {
+    const data = String(req.query.data || "").trim();
+    if (!data || data.length > 2048) return res.status(400).send("Dữ liệu QR không hợp lệ.");
+    let parsed;
+    try { parsed = new URL(data); } catch { return res.status(400).send("URL QR không hợp lệ."); }
+    if (!["http:","https:"].includes(parsed.protocol)) return res.status(400).send("Giao thức QR không hợp lệ.");
+    let qrUid = "";
+    try {
+      const m = decodeURIComponent(parsed.pathname || "").match(/^\/q\/([^/]+)$/);
+      qrUid = m ? m[1] : "";
+    } catch {}
+    if (!qrUid) return res.status(400).send("Đường dẫn QR không hợp lệ.");
+    const device = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
+    if (!device) return res.status(404).send("QR UID không tồn tại hoặc thiết bị đã lưu trữ.");
+
+    const qr = qrcodeGenerator(0, "M");
+    qr.addData(data, "Byte");
+    qr.make();
+    const svg = qr.createSvgTag({ cellSize: 6, margin: 24, scalable: true });
+    res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(svg);
+  } catch (e) {
+    console.error("GET /api/qr-image error:", e);
+    res.status(500).send("Không tạo được mã QR.");
+  }
+});
+
+app.get("/api/qr/device-uid/:qr_uid", (req, res) => {
+  const data = getQrDevicePayloadByUid(req.params.qr_uid);
   if (!data) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
   res.json(data);
 });
@@ -1581,50 +3452,77 @@ app.get("/api/qr/device-code/:code", (req, res) => {
 app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    const deviceId = Number(p.device_id || 0);
+    const qrUid = String(p.qr_uid || "").trim();
+    if (!qrUid) return qrRequestError(req, res, 400, "Thiếu mã QR cố định của thiết bị.");
+    const qrRow = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
+    if (!qrRow) return qrRequestError(req, res, 404, "Mã QR không hợp lệ hoặc thiết bị đã lưu trữ.");
+
+    const deviceId = Number(qrRow.id);
     const condition = String(p.condition || "").trim();
     const inspector = String(p.inspector || "").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
-    validateIncidentFiles(req.files);
-    if (!deviceId) return res.status(400).json({ error: "Thiếu thiết bị." });
-    if (!inspector) return res.status(400).json({ error: "Vui lòng nhập tên người kiểm tra." });
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) return qrRequestError(req, res, 400, fileError);
+    if (!inspector) return qrRequestError(req, res, 400, "Vui lòng nhập tên người kiểm tra.");
+
     const normalizedCondition = condition === "Tốt" ? "Bình thường" : condition;
-    if (!["Bình thường", "Có vấn đề"].includes(normalizedCondition)) return res.status(400).json({ error: "Tình trạng kiểm tra không hợp lệ." });
+    if (!["Bình thường", "Có vấn đề"].includes(normalizedCondition)) {
+      return qrRequestError(req, res, 400, "Tình trạng kiểm tra không hợp lệ.");
+    }
     const description = String(p.description || "").trim();
     if (normalizedCondition === "Có vấn đề" && !description) {
-      return res.status(400).json({ error: "Vui lòng nhập mô tả vấn đề." });
+      return qrRequestError(req, res, 400, "Vui lòng nhập mô tả vấn đề.");
     }
-    const device = db.prepare("SELECT * FROM devices WHERE id=?").get(deviceId);
-    if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+
+    const device = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị đang quản lý.");
+
     const files = req.files || [];
+    const at = nowSql();
+    const day = at.slice(0,10);
     const noteParts = [];
     if (description) noteParts.push(`Mô tả: ${description}`);
     if (p.note) noteParts.push(`Ghi chú: ${p.note}`);
     const resultText = normalizedCondition === "Bình thường" ? "Bình thường" : "Có vấn đề";
-    const info = db.prepare(`
-      INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note)
-      VALUES (?,?,?,?,?,?)
-    `).run(deviceId, nowSql(), inspector, "Kiểm tra nhanh bằng mã QR", resultText, noteParts.join("\n"));
-    for (const file of files) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, `Ảnh/Video kiểm tra - ${nowSql().slice(0,10)}`, "Kiểm tra", nowSql().slice(0,10), inspector, p.note || description || "Tệp đính kèm từ kiểm tra", file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
-    }
-    writeHistory("check", info.lastInsertRowid, inspector, "Tạo từ QR", "", resultText, description || p.note || "Kiểm tra nhanh thiết bị");
-    let incidentId = null;
-    if ((p.create_incident === "1" || p.create_incident === "true" || normalizedCondition === "Có vấn đề") && normalizedCondition === "Có vấn đề") {
-      const severity = ["Thấp","Trung bình","Cao"].includes(String(p.severity || "")) ? String(p.severity) : "Trung bình";
-      const inc = db.prepare(`
-        INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note)
+    const shouldCreateIncident = (p.create_incident === "1" || p.create_incident === "true" || normalizedCondition === "Có vấn đề")
+      && normalizedCondition === "Có vấn đề";
+    const severity = ["Thấp","Trung bình","Cao"].includes(String(p.severity || "")) ? String(p.severity) : "Trung bình";
+
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
         VALUES (?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, nowSql(), description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "");
-      incidentId = inc.lastInsertRowid;
-      completeIncidentRow(incidentId, deviceId, inspector, nowSql());
-      saveIncidentFiles(incidentId, deviceId, files);
-    }
-    res.json({ ok: true, check_id: info.lastInsertRowid, incident_id: incidentId });
+      `).run(deviceId, at, inspector, "Kiểm tra nhanh bằng mã QR", resultText, noteParts.join("\n"), "QR", device.department_code || "", device.location || "");
+
+      for (const file of files) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, `Ảnh/Video kiểm tra - ${day}`, "Kiểm tra", day, inspector, p.note || description || "Tệp đính kèm từ kiểm tra", file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size, device.department_code || "", device.location || "");
+      }
+
+      writeHistory("check", info.lastInsertRowid, inspector, "Tạo từ QR", "", resultText, description || p.note || "Kiểm tra nhanh thiết bị");
+      writeAudit(inspector, "Kiểm tra thiết bị bằng QR", "daily_check", info.lastInsertRowid, `${resultText} | ${description || p.note || ""}`);
+
+      let incidentId = null;
+      if (shouldCreateIncident) {
+        const inc = db.prepare(`
+          INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+          VALUES (?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, at, description || `Kiểm tra: ${condition}`, severity, inspector, reporterPhone, "Mới ghi nhận", p.note || "Tạo từ kiểm tra thiết bị", "", "QR");
+        incidentId = Number(inc.lastInsertRowid);
+        completeIncidentRow(incidentId, deviceId, inspector, at);
+        db.prepare("UPDATE daily_checks SET incident_id=? WHERE id=?").run(incidentId, Number(info.lastInsertRowid));
+        saveIncidentFiles(incidentId, deviceId, files);
+        writeAudit(inspector, "Tạo sự cố từ kiểm tra QR", "incident", incidentId, description || `Kiểm tra: ${condition}`);
+      }
+      return { checkId:Number(info.lastInsertRowid), incidentId };
+    });
+
+    const out = tx();
+    res.json({ ok: true, check_id: out.checkId, incident_id: out.incidentId });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("POST /api/qr/checks error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -1633,35 +3531,54 @@ app.post("/api/qr/checks", uploadIncidentMedia.array("media", 6), (req, res) => 
 app.post("/api/qr/incidents", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    const deviceId = Number(p.device_id || 0);
+    const qrUid = String(p.qr_uid || "").trim();
+    if (!qrUid) return qrRequestError(req, res, 400, "Thiếu mã QR cố định của thiết bị.");
+    const qrRow = db.prepare("SELECT id FROM devices WHERE qr_uid=? AND COALESCE(is_archived,0)=0").get(qrUid);
+    if (!qrRow) return qrRequestError(req, res, 404, "Mã QR không hợp lệ hoặc thiết bị đã lưu trữ.");
+
+    const deviceId = Number(qrRow.id);
     const reporter = String(p.reporter || "").trim();
     const description = String(p.description || "").trim();
     const severity = String(p.severity || "Trung bình").trim();
     const reporterPhone = String(p.reporter_phone || "").trim();
-    validateIncidentFiles(req.files);
-    if (!deviceId) return res.status(400).json({ error: "Thiếu thiết bị." });
-    if (!reporter) return res.status(400).json({ error: "Vui lòng nhập người báo." });
-    if (!description) return res.status(400).json({ error: "Vui lòng nhập mô tả sự cố." });
-    if (!["Thấp","Trung bình","Cao"].includes(severity)) return res.status(400).json({ error: "Mức độ không hợp lệ." });
-    const device = db.prepare("SELECT * FROM devices WHERE id=?").get(deviceId);
-    if (!device) return res.status(404).json({ error: "Không tìm thấy thiết bị." });
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) return qrRequestError(req, res, 400, fileError);
+    if (!reporter) return qrRequestError(req, res, 400, "Vui lòng nhập người báo.");
+    if (!description) return qrRequestError(req, res, 400, "Vui lòng nhập mô tả sự cố.");
+    if (!["Thấp","Trung bình","Cao"].includes(severity)) return qrRequestError(req, res, 400, "Mức độ không hợp lệ.");
+
+    const device = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) return qrRequestError(req, res, 404, "Không tìm thấy thiết bị đang quản lý.");
+
     const files = req.files || [];
-    const noteParts = [];
-    if (p.note) noteParts.push(String(p.note));
-    const info = db.prepare(`
-      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note)
-      VALUES (?,?,?,?,?,?,?,?,?)
-    `).run(deviceId, nowSql(), description, severity, reporter, reporterPhone, "Mới ghi nhận", noteParts.join("\n"), "");
-    completeIncidentRow(info.lastInsertRowid, deviceId, reporter, nowSql());
-    saveIncidentFiles(info.lastInsertRowid, deviceId, files);
-    for (const file of files) {
-      db.prepare(`
-        INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(deviceId, `Ảnh/Video sự cố QR - ${nowSql().slice(0,10)}`, "Sự cố QR", nowSql().slice(0,10), reporter, p.note || description, file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size);
-    }
-    res.json({ ok: true, incident_id: info.lastInsertRowid });
+    const at = nowSql();
+    const day = at.slice(0,10);
+    const note = p.note ? String(p.note) : "";
+
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+      `).run(deviceId, at, description, severity, reporter, reporterPhone, "Mới ghi nhận", note, "", "QR");
+
+      const incidentId = Number(info.lastInsertRowid);
+      completeIncidentRow(incidentId, deviceId, reporter, at);
+      saveIncidentFiles(incidentId, deviceId, files);
+
+      for (const file of files) {
+        db.prepare(`
+          INSERT INTO documents (device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(deviceId, `Ảnh/Video sự cố QR - ${day}`, "Sự cố QR", day, reporter, note || description, file.originalname, file.filename, `/uploads/qr/${file.filename}`, file.mimetype, file.size, device.department_code || "", device.location || "");
+      }
+      writeAudit(reporter, "Báo sự cố QR", "incident", incidentId, description);
+      return incidentId;
+    });
+
+    const incidentId = tx();
+    res.json({ ok: true, incident_id: incidentId });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("POST /api/qr/incidents error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -1671,51 +3588,149 @@ app.get("/api/checks", (req, res) => {
   const { preset = "today", date, from_date, to_date } = req.query;
   const { start, end } = dateRangeFromPreset(preset, date, from_date, to_date);
   const rows = db.prepare(`
-    SELECT c.*, dv.name AS device_name, dv.department_code, dv.group_code
-    FROM daily_checks c JOIN devices dv ON dv.id = c.device_id
+    SELECT c.*,
+           dv.name AS current_device_name,
+           dv.department_code AS current_department_code,
+           dv.location AS current_location,
+           dv.group_code
+    FROM daily_checks c
+    JOIN devices dv ON dv.id = c.device_id
     WHERE substr(c.check_datetime,1,10) >= ? AND substr(c.check_datetime,1,10) <= ?
     ORDER BY c.check_datetime DESC, c.id DESC
-  `).all(start, end).map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
+  `).all(start, end).map(r => ({
+    ...r,
+    device_code:getDeviceCode(r.device_id),
+    device_name:r.current_device_name || "",
+    department_code:r.department_code_snapshot || r.current_department_code || "",
+    location:r.location_snapshot || r.current_location || ""
+  }));
   res.json(rows);
 });
 
 app.post("/api/checks", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`
-    INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note)
-    VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note)
-  `).run(p);
-  writeHistory("check", info.lastInsertRowid, p.inspector, "Tạo mới", "", p.result, p.content || p.note || "");
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p = req.body || {};
+    const deviceId = Number(p.device_id || 0);
+    const device = db.prepare("SELECT department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if (!device) return res.status(400).json({ error:"Thiết bị không tồn tại hoặc đã lưu trữ." });
+    const payload = {
+      device_id:deviceId,
+      check_datetime:normalizeDateTime(p.check_datetime || nowSql()),
+      inspector:String(p.inspector || "").trim(),
+      content:String(p.content || "").trim(),
+      result:String(p.result || "").trim(),
+      note:p.note || "",
+      source_channel:"Nhập trực tiếp",
+      department_code_snapshot:device.department_code || "",
+      location_snapshot:device.location || ""
+    };
+    if(!payload.check_datetime) return res.status(400).json({error:"Thời gian kiểm tra không hợp lệ."});
+    if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
+    if(!["Bình thường","Có vấn đề"].includes(payload.result)) return res.status(400).json({error:"Kết quả kiểm tra không hợp lệ."});
+    const checkContext = historicalDeviceContext(deviceId, payload.check_datetime);
+    payload.department_code_snapshot = String(checkContext.department_code || "").trim();
+    payload.location_snapshot = String(checkContext.location || "").trim();
+    const info = db.prepare(`
+      INSERT INTO daily_checks (device_id,check_datetime,inspector,content,result,note,source_channel,department_code_snapshot,location_snapshot)
+      VALUES (@device_id,@check_datetime,@inspector,@content,@result,@note,@source_channel,@department_code_snapshot,@location_snapshot)
+    `).run(payload);
+    writeHistory("check", info.lastInsertRowid, payload.inspector, "Tạo mới", "", payload.result, payload.content || payload.note || "");
+    writeAudit(requestActor(req,payload.inspector),"Tạo kiểm tra trực tiếp","daily_check",info.lastInsertRowid,`${payload.result} | ${payload.content || payload.note || ""}`);
+    res.json({ id: info.lastInsertRowid });
+  } catch(e) {
+    console.error("POST /api/checks error:",e);
+    res.status(400).json({error:e.message || "Không thể tạo bản ghi kiểm tra."});
+  }
 });
 
 app.put("/api/checks/:id", (req, res) => {
-  const p = req.body;
-  const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(req.params.id) || {};
-  db.prepare(`
-    UPDATE daily_checks
-    SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note
-    WHERE id=@id
-  `).run({ ...p, id: Number(req.params.id) });
-  writeHistory("check", Number(req.params.id), p.inspector, "Cập nhật", old.result || "", p.result || "", p.content || p.note || "");
-  res.json({ ok: true });
+  try {
+    const p = req.body || {};
+    const id=Number(req.params.id);
+    const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi kiểm tra."});
+    const isQr=String(old.source_channel || "")==="QR";
+    const payload={
+      id,
+      check_datetime:isQr ? old.check_datetime : normalizeDateTime(p.check_datetime || old.check_datetime || nowSql()),
+      inspector:String(p.inspector ?? old.inspector ?? "").trim(),
+      content:String(p.content ?? old.content ?? "").trim(),
+      result:isQr ? String(old.result || "").trim() : String(p.result ?? old.result ?? "").trim(),
+      note:p.note ?? old.note ?? ""
+    };
+    if(!payload.check_datetime) return res.status(400).json({error:"Thời gian kiểm tra không hợp lệ."});
+    if(!payload.inspector) return res.status(400).json({error:"Vui lòng nhập người kiểm tra."});
+    if(!["Bình thường","Có vấn đề"].includes(payload.result)) return res.status(400).json({error:"Kết quả kiểm tra không hợp lệ."});
+    const checkContext = isQr
+      ? {department_code:old.department_code_snapshot,location:old.location_snapshot}
+      : historicalDeviceContext(old.device_id, payload.check_datetime);
+    payload.department_code_snapshot = String(checkContext.department_code || old.department_code_snapshot || "").trim();
+    payload.location_snapshot = String(checkContext.location ?? old.location_snapshot ?? "").trim();
+    db.prepare(`
+      UPDATE daily_checks
+      SET check_datetime=@check_datetime, inspector=@inspector, content=@content, result=@result, note=@note,
+          department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot
+      WHERE id=@id
+    `).run(payload);
+    writeHistory("check", id, payload.inspector, "Cập nhật", old.result || "", payload.result || "", payload.content || payload.note || "");
+    writeAudit(requestActor(req,payload.inspector),isQr ? "Hiệu chỉnh nội dung kiểm tra QR" : "Cập nhật kiểm tra trực tiếp","daily_check",id,`${old.result || ""} → ${payload.result}`);
+    res.json({ ok: true, qr_timestamp_locked:isQr, qr_result_locked:isQr });
+  } catch(e) {
+    console.error("PUT /api/checks/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật bản ghi kiểm tra."});
+  }
 });
 
 app.delete("/api/checks/:id", (req, res) => {
-  const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(req.params.id);
-  if (old) writeHistory("check", Number(req.params.id), old.inspector, "Xóa", old.result || "", "", old.content || old.note || "");
-  db.prepare("DELETE FROM daily_checks WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  const id=Number(req.params.id);
+  const old = db.prepare("SELECT * FROM daily_checks WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy bản ghi kiểm tra."});
+  return res.status(409).json({
+    error:String(old.source_channel || "")==="QR"
+      ? "Bản ghi kiểm tra phát sinh từ QR là dữ liệu sử dụng thực tế và không được xóa. Có thể cập nhật nội dung nếu cần hiệu chỉnh."
+      : "Bản ghi kiểm tra là lịch sử kỹ thuật và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để hiệu chỉnh nội dung."
+  });
 });
+
+function cleanupUploadedFiles(files) {
+  for (const file of (Array.isArray(files) ? files : [])) {
+    safeUnlink(file.path || (file.filename ? path.join(qrUploadsDir, file.filename) : ""));
+  }
+}
+
+function qrRequestError(req, res, status, message) {
+  cleanupUploadedFiles(req.files);
+  return res.status(status).json({ error: message });
+}
 
 function validateIncidentFiles(files){
   const list = Array.isArray(files) ? files : [];
   const images = list.filter(f => String(f.mimetype||"").startsWith("image/"));
   const videos = list.filter(f => String(f.mimetype||"").startsWith("video/") || /\.(mp4|mov)$/i.test(f.originalname||""));
-  if (images.length > 5) throw new Error("Chỉ được tải tối đa 5 ảnh cho mỗi sự cố.");
-  if (videos.length > 1) throw new Error("Chỉ được tải tối đa 1 video cho mỗi sự cố.");
-  for (const f of images) if (f.size > 5 * 1024 * 1024) throw new Error("Mỗi ảnh tối đa 5MB.");
-  for (const f of videos) if (f.size > 30 * 1024 * 1024) throw new Error("Video tối đa 30MB.");
+  if (images.length > 5) return "Chỉ được tải tối đa 5 ảnh cho mỗi sự cố.";
+  if (videos.length > 1) return "Chỉ được tải tối đa 1 video cho mỗi sự cố.";
+  for (const f of images) if (f.size > 5 * 1024 * 1024) return "Mỗi ảnh tối đa 5MB.";
+  for (const f of videos) if (f.size > 30 * 1024 * 1024) return "Video tối đa 30MB.";
+  return "";
+}
+function isValidSqlDateTime(value) {
+  const m=String(value || "").match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if(!m) return false;
+  const parts=m.slice(1).map(Number);
+  const [y,mo,d,h,mi,s]=parts;
+  const dt=new Date(Date.UTC(y,mo-1,d,h,mi,s));
+  return dt.getUTCFullYear()===y && dt.getUTCMonth()===mo-1 && dt.getUTCDate()===d
+    && dt.getUTCHours()===h && dt.getUTCMinutes()===mi && dt.getUTCSeconds()===s;
+}
+function validateIncidentCore(payload, { checkTime=true } = {}) {
+  if (!["Thấp","Trung bình","Cao"].includes(String(payload?.severity || ""))) return "Mức độ sự cố không hợp lệ.";
+  if (checkTime) {
+    const value=String(payload?.incident_datetime || "");
+    if (!isValidSqlDateTime(value)) return "Thời điểm sự cố không hợp lệ.";
+    const maxAllowed=sqlDateTimeInAppZone(new Date(Date.now()+5*60*1000));
+    if (value > maxAllowed) return "Thời điểm sự cố không được ở tương lai.";
+  }
+  return "";
 }
 function saveIncidentFiles(incidentId, deviceId, files){
   const list = Array.isArray(files) ? files : [];
@@ -1740,10 +3755,29 @@ app.get("/api/incidents", (req, res) => {
   // khi người dùng nhập thời gian ngoài 7 ngày hoặc bộ lọc đang rộng hơn dữ liệu tải về.
   const { preset, date, from_date, to_date } = req.query;
   let sql = `
-    SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial,
-           d.name AS department_name, g.name AS group_name,
+    SELECT i.*,
+           dv.name AS current_device_name,
+           dv.department_code AS current_department_code,
+           dv.group_code,
+           dv.location AS current_location,
+           dv.model,dv.serial,
+           d.name AS current_department_name,
+           g.name AS group_name,
            lr.id AS linked_repair_id,
-           lr.processing_status AS linked_repair_status
+           lr.processing_status AS linked_repair_status,
+           lr.completed_at AS linked_repair_completed_at,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)>=julianday(i.incident_datetime)
+             THEN ROUND((julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS response_minutes,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)<julianday(i.incident_datetime)
+             THEN 1 ELSE 0 END AS invalid_response_timestamp,
+           CASE WHEN lr.completed_at IS NOT NULL AND lr.completed_at<>''
+                     AND julianday(lr.completed_at)>=julianday(i.incident_datetime)
+             THEN ROUND((julianday(lr.completed_at)-julianday(i.incident_datetime))*24*60,1) ELSE NULL END AS resolution_minutes,
+           CASE WHEN lr.completed_at IS NOT NULL AND lr.completed_at<>''
+                     AND julianday(lr.completed_at)<julianday(i.incident_datetime)
+             THEN 1 ELSE 0 END AS invalid_resolution_timestamp
     FROM incidents i
     JOIN devices dv ON dv.id = i.device_id
     LEFT JOIN departments d ON d.code = dv.department_code
@@ -1770,7 +3804,11 @@ app.get("/api/incidents", (req, res) => {
     return {
       ...r,
       status: normalizeIncidentStatusForUi(r.status, r.linked_repair_id),
-      device_code: getDeviceCode(r.device_id),
+      device_code: r.device_code_snapshot || getDeviceCode(r.device_id),
+      device_name: r.device_name_snapshot || r.current_device_name || "",
+      department_code: r.department_code_snapshot || r.current_department_code || "",
+      department_name: r.department_snapshot || r.current_department_name || r.department_code_snapshot || r.current_department_code || "",
+      location: r.location_snapshot || r.current_location || "",
       files,
       media_count: files.length,
       first_media_path: files[0]?.file_path || "",
@@ -1783,9 +3821,16 @@ app.get("/api/incidents", (req, res) => {
 app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    validateIncidentFiles(req.files);
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:fileError});
+    }
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
-    if (missing.length) return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    if (missing.length) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    }
     const payload = {
       device_id: Number(p.device_id),
       incident_datetime: normalizeDateTime(p.incident_datetime),
@@ -1793,18 +3838,28 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
       severity: p.severity || "Trung bình",
       reporter: String(p.reporter || "").trim(),
       reporter_phone: String(p.reporter_phone || "").trim(),
-      status: normalizeIncidentPayloadStatus(p.status || "Mới ghi nhận", "Mới ghi nhận", null),
+      status: "Mới ghi nhận",
       note: p.note || "",
-      local_resolution_note: p.local_resolution_note || ""
+      local_resolution_note: p.local_resolution_note || "",
+      source_channel: "Nhập trực tiếp"
     };
-    const deviceExists = db.prepare("SELECT id FROM devices WHERE id=?").get(payload.device_id);
-    if (!deviceExists) return res.status(400).json({ error: "Thiết bị không tồn tại." });
+    const incidentError=validateIncidentCore(payload);
+    if(incidentError){
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:incidentError});
+    }
+    const deviceExists = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
+    if (!deviceExists) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: "Thiết bị không tồn tại." });
+    }
     const info = db.prepare(`
-      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note)
-      VALUES (@device_id,@incident_datetime,@description,@severity,@reporter,@reporter_phone,@status,@note,@local_resolution_note)
+      INSERT INTO incidents (device_id,incident_datetime,description,severity,reporter,reporter_phone,status,note,local_resolution_note,source_channel)
+      VALUES (@device_id,@incident_datetime,@description,@severity,@reporter,@reporter_phone,@status,@note,@local_resolution_note,@source_channel)
     `).run(payload);
     completeIncidentRow(info.lastInsertRowid, payload.device_id, payload.reporter, payload.incident_datetime);
     saveIncidentFiles(info.lastInsertRowid, payload.device_id, req.files);
+    writeAudit(requestActor(req, payload.reporter || "Hệ thống"), "Tạo sự cố", "incident", info.lastInsertRowid, payload.description);
     const row = db.prepare(`
       SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, dv.location, dv.model, dv.serial,
              d.name AS department_name, g.name AS group_name,
@@ -1820,6 +3875,7 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
     `).get(info.lastInsertRowid);
     res.json({ ok: true, id: info.lastInsertRowid, row: { ...row, status: normalizeIncidentStatusForUi(row.status, row.linked_repair_id), device_code: getDeviceCode(row.device_id) } });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("POST /api/incidents error:", e);
     res.status(500).json({ error: e.message });
   }
@@ -1828,34 +3884,107 @@ app.post("/api/incidents", uploadIncidentMedia.array("media", 6), (req, res) => 
 app.put("/api/incidents/:id", uploadIncidentMedia.array("media", 6), (req, res) => {
   try {
     const p = req.body || {};
-    validateIncidentFiles(req.files);
+    const fileError=validateIncidentFiles(req.files);
+    if (fileError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:fileError});
+    }
     const old = db.prepare("SELECT * FROM incidents WHERE id=?").get(req.params.id);
-    if (!old) return res.status(404).json({ error: "Không tìm thấy sự cố." });
+    if (!old) {
+      cleanupUploadedFiles(req.files);
+      return res.status(404).json({ error: "Không tìm thấy sự cố." });
+    }
     const missing = requireFields(p, ["device_id", "incident_datetime", "description", "severity", "reporter", "status"]);
-    if (missing.length) return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    if (missing.length) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: `Thiếu thông tin bắt buộc: ${missing.join(", ")}` });
+    }
+    const linkedRepair = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id));
+    const requestedIncidentDatetime=normalizeDateTime(p.incident_datetime || old.incident_datetime || "");
+    const incidentTimeLocked =
+      String(old.source_channel || "") === "QR"
+      || Boolean(String(old.acknowledged_at || "").trim())
+      || Boolean(linkedRepair);
+    if (incidentTimeLocked && requestedIncidentDatetime !== String(old.incident_datetime || "")) {
+      cleanupUploadedFiles(req.files);
+      return res.status(409).json({
+        error:String(old.source_channel || "") === "QR"
+          ? "Thời điểm sự cố phát sinh từ QR là dữ liệu gốc và không được thay đổi."
+          : "Không thể đổi thời điểm phát sinh sau khi sự cố đã được tiếp nhận/chuyển sửa chữa."
+      });
+    }
     const payload = {
       id: Number(req.params.id),
       device_id: Number(p.device_id),
-      incident_datetime: normalizeDateTime(p.incident_datetime),
+      incident_datetime: incidentTimeLocked ? String(old.incident_datetime || "") : requestedIncidentDatetime,
       description: String(p.description || "").trim(),
       severity: p.severity || "Trung bình",
       reporter: String(p.reporter || "").trim(),
       reporter_phone: String(p.reporter_phone || old.reporter_phone || "").trim(),
-      status: normalizeIncidentPayloadStatus(p.status || old.status || "Mới ghi nhận", old.status || "Mới ghi nhận", db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(Number(req.params.id))?.id),
+      status: normalizeIncidentPayloadStatus(p.status || old.status || "Mới ghi nhận", old.status || "Mới ghi nhận", linkedRepair?.id),
       note: p.note || "",
       local_resolution_note: p.local_resolution_note || old.local_resolution_note || ""
     };
+    const incidentError=validateIncidentCore(payload,{checkTime:!incidentTimeLocked});
+    if(incidentError){
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({error:incidentError});
+    }
+    const deviceExists = db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
+    if (!deviceExists) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error:"Thiết bị không tồn tại hoặc đã lưu trữ." });
+    }
+    const deviceChanged = Number(old.device_id) !== Number(payload.device_id);
+    const incidentDateChanged = String(old.incident_datetime || "") !== String(payload.incident_datetime || "");
+    if (deviceChanged && incidentTimeLocked) {
+      cleanupUploadedFiles(req.files);
+      return res.status(409).json({
+        error:String(old.source_channel || "") === "QR"
+          ? "Thiết bị của sự cố phát sinh từ QR là dữ liệu gốc và không được thay đổi."
+          : "Không thể đổi thiết bị sau khi sự cố đã được tiếp nhận/chuyển sửa chữa."
+      });
+    }
     db.prepare(`
       UPDATE incidents
       SET device_id=@device_id, incident_datetime=@incident_datetime, description=@description, severity=@severity, reporter=@reporter, reporter_phone=@reporter_phone, status=@status, note=@note, local_resolution_note=@local_resolution_note
       WHERE id=@id
     `).run(payload);
-    touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
+    if (deviceChanged || incidentDateChanged) replaceIncidentSnapshot(Number(req.params.id), payload.device_id, payload.reporter);
+    else touchIncident(Number(req.params.id), payload.device_id, payload.reporter);
+    const receivingActor = String(req.authUser?.full_name || p.acknowledged_by || requestActor(req)).trim();
+    if (payload.status === "Đã tiếp nhận" && !old.acknowledged_at) {
+      db.prepare("UPDATE incidents SET acknowledged_at=?, acknowledged_by=? WHERE id=?").run(nowSql(), receivingActor, Number(req.params.id));
+    }
+    if (payload.status === "Đã xử lý tại chỗ") {
+      db.prepare("UPDATE incidents SET acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), completed_at=COALESCE(NULLIF(completed_at,''),?) WHERE id=?").run(nowSql(), receivingActor, nowSql(), Number(req.params.id));
+    }
     saveIncidentFiles(Number(req.params.id), payload.device_id, req.files);
+    writeAudit(requestActor(req, payload.reporter || "Hệ thống"), "Cập nhật sự cố", "incident", req.params.id, `${old.status || ""} → ${payload.status || ""} | ${payload.description}`);
     res.json({ ok: true });
   } catch (e) {
+    cleanupUploadedFiles(req.files);
     console.error("PUT /api/incidents/:id error:", e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/incidents/:id/acknowledge", (req, res) => {
+  try {
+    const incident = db.prepare("SELECT * FROM incidents WHERE id=?").get(Number(req.params.id));
+    if (!incident) return res.status(404).json({ error:"Không tìm thấy sự cố." });
+    if (incident.status === "Đã chuyển sửa chữa" || incident.status === "Đã xử lý tại chỗ") {
+      return res.status(400).json({ error:"Sự cố đã được xử lý/chuyển sửa chữa." });
+    }
+    const actor = requestActor(req);
+    const at = incident.acknowledged_at || nowSql();
+    db.prepare("UPDATE incidents SET status='Đã tiếp nhận', acknowledged_at=?, acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?), updated_at=?, updated_by=? WHERE id=?")
+      .run(at, actor, nowSql(), actor, incident.id);
+    writeAudit(actor, "Tiếp nhận sự cố", "incident", incident.id, incident.incident_code || incident.description || "");
+    res.json({ok:true, acknowledged_at:at});
+  } catch(e) {
+    console.error("POST /api/incidents/:id/acknowledge error:",e);
+    res.status(500).json({error:e.message});
   }
 });
 
@@ -1866,31 +3995,42 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
     if (incident.status === "Đã xử lý tại chỗ") return res.status(400).json({ error: "Sự cố đã xử lý tại chỗ, không chuyển sửa chữa." });
     const existed = db.prepare("SELECT id FROM repairs WHERE incident_id=? ORDER BY id DESC LIMIT 1").get(incident.id);
     if (existed) return res.json({ ok: true, repair_id: existed.id, existed: true });
-    const actor = req.body?.actor || incident.reporter || "";
+    const device = db.prepare("SELECT id,status,department_code,location FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(Number(incident.device_id));
+    if (!device) return res.status(400).json({ error: "Thiết bị không tồn tại hoặc đã lưu trữ." });
+    const otherOpen = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(Number(incident.device_id));
+    if (otherOpen) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${otherOpen.id} chưa hoàn thành. Hãy xử lý trên phiếu hiện có.` });
+    const actor = requestActor(req);
     const payload = {
       device_id: Number(incident.device_id),
       repair_date: normalizeDateTime(req.body?.repair_date || incident.incident_datetime || nowSql()),
       issue: incident.description || "",
       work: "Chờ kiểm tra và xử lý kỹ thuật",
-      person: actor || "Khoa Trang bị",
+      person: actor,
+      priority: ["Thấp","Trung bình","Cao","Khẩn cấp"].includes(String(incident.severity || "").trim()) ? String(incident.severity).trim() : "Bình thường",
+      reporter: String(incident.reporter || "").trim(),
+      note: String(incident.note || ""),
       method: "Nội bộ",
       cost: 0,
       result: "",
       status_after: "Chờ sửa chữa",
+      status_before: device.status || "Đang hoạt động",
       processing_status: "Đang xử lý",
       incident_id: Number(incident.id),
       received_at: normalizeDateTime(req.body?.repair_date || nowSql()),
       updated_at: nowSql(),
-      completed_at: ""
+      completed_at: "",
+      department_code_snapshot: String(device.department_code || "").trim(),
+      location_snapshot: String(device.location || "").trim()
     };
     const tx = db.transaction(() => {
       const info = db.prepare(`
-        INSERT INTO repairs (device_id, repair_date, issue, work, person, method, cost, result, status_after, processing_status, incident_id, received_at, updated_at, completed_at)
-        VALUES (@device_id, @repair_date, @issue, @work, @person, @method, @cost, @result, @status_after, @processing_status, @incident_id, @received_at, @updated_at, @completed_at)
+        INSERT INTO repairs (device_id, repair_date, issue, work, person, priority, reporter, note, method, cost, result, status_after, status_before, processing_status, incident_id, received_at, updated_at, completed_at, department_code_snapshot, location_snapshot)
+        VALUES (@device_id, @repair_date, @issue, @work, @person, @priority, @reporter, @note, @method, @cost, @result, @status_after, @status_before, @processing_status, @incident_id, @received_at, @updated_at, @completed_at, @department_code_snapshot, @location_snapshot)
       `).run(payload);
-      db.prepare("UPDATE incidents SET status=? WHERE id=?").run("Đã chuyển sửa chữa", incident.id);
+      db.prepare("UPDATE incidents SET status=?, acknowledged_at=COALESCE(NULLIF(acknowledged_at,''),?), acknowledged_by=COALESCE(NULLIF(acknowledged_by,''),?) WHERE id=?").run("Đã chuyển sửa chữa", nowSql(), String(actor || "Hệ thống"), incident.id);
       db.prepare("UPDATE devices SET status=? WHERE id=?").run("Chờ sửa chữa", incident.device_id);
       writeHistory("repair", info.lastInsertRowid, "Hệ thống", "Tạo từ sự cố", "", payload.processing_status, `Tạo phiếu sửa chữa từ sự cố ${incident.incident_code || ('#' + incident.id)}`, 0, "Tự động", payload.received_at);
+      writeAudit(actor, "Chuyển sự cố sang sửa chữa", "incident", incident.id, `Phiếu sửa chữa #${info.lastInsertRowid}`);
       return info.lastInsertRowid;
     });
     const repairId = tx();
@@ -1902,10 +4042,59 @@ app.post("/api/incidents/:id/transfer-repair", (req, res) => {
 });
 
 app.delete("/api/incidents/:id", (req, res) => {
-  const linked = db.prepare("SELECT COUNT(*) c FROM repairs WHERE incident_id=?").get(req.params.id).c;
-  if (linked > 0) return res.status(400).json({ error: "Sự cố đã chuyển sửa chữa, không thể xóa. Vui lòng xử lý trong phiếu sửa chữa." });
-  db.prepare("DELETE FROM incidents WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM incidents WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy sự cố."});
+    const linked=db.prepare("SELECT COUNT(*) c FROM repairs WHERE incident_id=?").get(id).c;
+    if(linked>0) return res.status(409).json({error:"Sự cố đã chuyển sửa chữa, không thể xóa. Vui lòng xử lý trong phiếu sửa chữa."});
+    if(String(old.acknowledged_at||"").trim() || String(old.status||"")==="Đã tiếp nhận") {
+      return res.status(409).json({error:"Sự cố đã được tiếp nhận nên không được xóa để bảo toàn lịch sử. Hãy cập nhật trạng thái/xử lý thay vì xóa."});
+    }
+
+    const files=db.prepare("SELECT file_path FROM incident_files WHERE incident_id=?").all(id)
+      .map(x=>String(x.file_path||"").trim()).filter(Boolean);
+    const linkedChecks=db.prepare("SELECT id FROM daily_checks WHERE incident_id=?").all(id);
+    const uniqueFiles=[...new Set(files)];
+
+    const tx=db.transaction(()=>{
+      // Tài liệu gương được tạo riêng bởi báo sự cố QR phải đi cùng sự cố.
+      // Tài liệu loại "Kiểm tra" được giữ vì bản ghi kiểm tra QR vẫn là lịch sử độc lập.
+      for(const filePath of uniqueFiles){
+        db.prepare("DELETE FROM documents WHERE file_path=? AND type='Sự cố QR'").run(filePath);
+      }
+      if(linkedChecks.length) db.prepare("UPDATE daily_checks SET incident_id=NULL WHERE incident_id=?").run(id);
+      db.prepare("DELETE FROM incidents WHERE id=?").run(id);
+      writeAudit(
+        requestActor(req, old.reporter || "Khoa Trang bị"),
+        "Xóa sự cố chưa tiếp nhận",
+        "incident",
+        id,
+        `${old.incident_code || ""} | ${old.description || ""} | gỡ liên kết kiểm tra: ${linkedChecks.length}`
+      );
+    });
+    tx();
+
+    let deletedFiles=0, retainedFiles=0;
+    for(const filePath of uniqueFiles){
+      const docRefs=db.prepare("SELECT COUNT(*) c FROM documents WHERE file_path=?").get(filePath).c;
+      if(Number(docRefs)>0){
+        retainedFiles++;
+        continue;
+      }
+      safeUnlink(path.join(__dirname,filePath.replace(/^\//,"")));
+      deletedFiles++;
+    }
+    res.json({
+      ok:true,
+      deleted_files:deletedFiles,
+      retained_files:retainedFiles,
+      unlinked_checks:linkedChecks.length
+    });
+  }catch(e){
+    console.error("DELETE /api/incidents/:id error:",e);
+    res.status(500).json({error:e.message});
+  }
 });
 
 
@@ -1928,6 +4117,7 @@ function getScopedDevices(scopeDepartment = "ALL", scopeGroup = "ALL") {
   let rows = db.prepare(`
     SELECT dv.id, dv.name, dv.department_code, dv.group_code
     FROM devices dv
+    WHERE COALESCE(dv.is_archived,0)=0
     ORDER BY dv.id
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.id) }));
   if (scopeDepartment && scopeDepartment !== "ALL") rows = rows.filter(x => x.department_code === scopeDepartment);
@@ -1967,7 +4157,7 @@ function addListValidation(ws, startCol, endCol, formulaName, startRow = 2, endR
 }
 async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "ALL") {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "ChatGPT";
+  workbook.creator = "Khoa Trang bị - Bệnh viện Quân y 4";
   workbook.company = "Bệnh viện Quân y 4";
   workbook.created = new Date();
 
@@ -1988,7 +4178,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
   devices.forEach((d, i) => listSheet.getCell(`C${i+2}`).value = d.device_code);
 
   listSheet.getCell("D1").value = "Tình trạng";
-  ["Đang hoạt động","Chờ sửa chữa","Ngừng hoạt động"].forEach((v, i) => listSheet.getCell(`D${i+2}`).value = v);
+  ["Đang hoạt động","Hoạt động hạn chế","Chờ sửa chữa","Ngừng hoạt động"].forEach((v, i) => listSheet.getCell(`D${i+2}`).value = v);
 
   listSheet.getCell("E1").value = "Hình thức";
   ["Nội bộ","Thuê ngoài","Thay thế linh kiện","Nâng cấp thiết bị"].forEach((v, i) => listSheet.getCell(`E${i+2}`).value = v);
@@ -1998,6 +4188,9 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
 
   listSheet.getCell("G1").value = "Đánh giá";
   ["Đạt","Đạt có lưu ý","Không đạt","Cần theo dõi thêm"].forEach((v, i) => listSheet.getCell(`G${i+2}`).value = v);
+
+  listSheet.getCell("H1").value = "Nghĩa vụ KĐ/HC/ATBX";
+  INSPECTION_REQUIREMENT_TYPES.forEach((v, i) => listSheet.getCell(`H${i+2}`).value = v);
 
   workbook.definedNames.add("DepartmentList", `DanhMuc!$A$2:$A$${Math.max(2, departments.length+1)}`);
   workbook.definedNames.add("GroupList", `DanhMuc!$B$2:$B$${Math.max(2, groups.length+1)}`);
@@ -2021,6 +4214,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
       { header: "Năm sử dụng", key: "year_in_use", width: 14 },
       { header: "Hạn bảo hành", key: "warranty_end", width: 16 },
       { header: "Tình trạng", key: "status", width: 20 },
+      { header: "Nghĩa vụ KĐ/HC/ATBX", key: "inspection_required_types", width: 34 },
       { header: "Nguyên giá", key: "cost", width: 14 },
       { header: "Nguồn kinh phí", key: "funding", width: 20 },
       { header: "Vị trí đặt máy", key: "location", width: 22 },
@@ -2039,6 +4233,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
       2026,
       "2027-12-31",
       "Đang hoạt động",
+      "Kiểm định; Kiểm định an toàn bức xạ",
       0,
       "",
       "Phòng CT",
@@ -2048,7 +4243,7 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
     addListValidation(ws, "B", "B", "GroupList");
     addListValidation(ws, "K", "K", "StatusList");
     ws.getCell("Q1").value = "Lưu ý";
-    ws.getCell("Q2").value = "Bấm vào từng ô dữ liệu từ dòng 2 trở xuống để hiện danh sách chọn sẵn.";
+    ws.getCell("Q2").value = "Nghĩa vụ KĐ/HC/ATBX: chỉ dùng các giá trị Kiểm định; Hiệu chuẩn; Kiểm xạ; Kiểm định an toàn bức xạ. Nếu một máy có nhiều nghĩa vụ, phân cách bằng dấu chấm phẩy (;). Không khai báo nếu không áp dụng.";
   }
 
   if (kind === "repairs") {
@@ -2131,56 +4326,209 @@ async function buildExcelTemplate(kind, scopeDepartment = "ALL", scopeGroup = "A
 
 app.get("/api/inspections", (req, res) => {
   const rows = db.prepare(`
-    SELECT i.*, dv.name AS device_name, dv.department_code, dv.group_code, d.name AS department_name, g.name AS group_name
+    SELECT i.*, dv.name AS device_name, COALESCE(dv.is_archived,0) AS is_archived,
+           COALESCE(NULLIF(i.department_code_snapshot,''), dv.department_code) AS department_code,
+           dv.group_code,
+           COALESCE(NULLIF(i.location_snapshot,''), dv.location) AS location,
+           dv.model, dv.serial, d.name AS department_name, g.name AS group_name
     FROM inspections i
     JOIN devices dv ON dv.id = i.device_id
-    LEFT JOIN departments d ON d.code = dv.department_code
+    LEFT JOIN departments d ON d.code = COALESCE(NULLIF(i.department_code_snapshot,''), dv.department_code)
     LEFT JOIN device_groups g ON g.code = dv.group_code
     ORDER BY COALESCE(i.next_date, i.inspection_date) ASC, i.id DESC
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
   res.json(rows);
 });
 
+function buildInspectionPayload(input = {}) {
+  return {
+    device_id:Number(input.device_id || 0),
+    inspection_date:normalizeDateTime(input.inspection_date || ""),
+    type:String(input.type || "").trim(),
+    organization:String(input.organization || "").trim(),
+    certificate_no:String(input.certificate_no || "").trim(),
+    result:String(input.result || "Đạt").trim() || "Đạt",
+    next_date:String(input.next_date || "").slice(0,10),
+    file_note:String(input.file_note || "").trim(),
+    note:String(input.note || "")
+  };
+}
+function validateInspectionPayload(payload, options = {}) {
+  if (!payload.device_id) return "Vui lòng chọn thiết bị.";
+  const allowArchived=options.allowArchived === true;
+  const device = allowArchived
+    ? db.prepare("SELECT id,is_archived FROM devices WHERE id=?").get(payload.device_id)
+    : db.prepare("SELECT id,is_archived FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(payload.device_id);
+  if (!device) return allowArchived ? "Thiết bị không tồn tại." : "Thiết bị không tồn tại hoặc đã lưu trữ.";
+  if (!payload.inspection_date) return "Vui lòng nhập thời gian thực hiện.";
+  if (!payload.type) return "Vui lòng chọn loại kiểm định/hiệu chuẩn.";
+  if (!payload.organization) return "Vui lòng nhập đơn vị thực hiện.";
+  if (!["Đạt","Đạt có lưu ý","Không đạt"].includes(payload.result)) return "Kết quả không hợp lệ.";
+  if (payload.next_date && !isValidIsoDate(payload.next_date)) return "Hạn tiếp theo phải là ngày hợp lệ theo YYYY-MM-DD.";
+  return "";
+}
+
 app.post("/api/inspections", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note)`).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const payload=buildInspectionPayload(req.body || {});
+    const error=validateInspectionPayload(payload);
+    if(error) return res.status(400).json({error});
+    const inspectionContext = historicalDeviceContext(payload.device_id, payload.inspection_date);
+    payload.department_code_snapshot = String(inspectionContext.department_code || "").trim();
+    payload.location_snapshot = String(inspectionContext.location || "").trim();
+    const info = db.prepare(`INSERT INTO inspections (device_id,inspection_date,type,organization,certificate_no,result,next_date,file_note,note,department_code_snapshot,location_snapshot) VALUES (@device_id,@inspection_date,@type,@organization,@certificate_no,@result,@next_date,@file_note,@note,@department_code_snapshot,@location_snapshot)`).run(payload);
+    writeAudit(requestActor(req), "Tạo kiểm định/hiệu chuẩn", "inspection", info.lastInsertRowid, `${payload.type} | ${payload.certificate_no}`);
+    res.json({ id: info.lastInsertRowid });
+  } catch(e) {
+    console.error("POST /api/inspections error:",e);
+    res.status(400).json({error:e.message || "Không thể lưu kiểm định/hiệu chuẩn."});
+  }
 });
 
 app.put("/api/inspections/:id", (req, res) => {
-  const p = req.body;
-  db.prepare(`UPDATE inspections SET device_id=@device_id, inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note WHERE id=@id`).run({ ...p, id: Number(req.params.id) });
-  res.json({ ok: true });
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM inspections WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
+    const payload=buildInspectionPayload(req.body || {});
+    if (Number(old.device_id) !== Number(payload.device_id)) {
+      return res.status(409).json({error:"Không thể đổi thiết bị của hồ sơ kiểm định/hiệu chuẩn đã lưu."});
+    }
+    const error=validateInspectionPayload(payload,{allowArchived:true});
+    if(error) return res.status(400).json({error});
+    const inspectionContext = historicalDeviceContext(old.device_id, payload.inspection_date);
+    payload.department_code_snapshot = String(inspectionContext.department_code || old.department_code_snapshot || "").trim();
+    payload.location_snapshot = String(inspectionContext.location ?? old.location_snapshot ?? "").trim();
+    db.prepare(`UPDATE inspections SET inspection_date=@inspection_date, type=@type, organization=@organization, certificate_no=@certificate_no, result=@result, next_date=@next_date, file_note=@file_note, note=@note, department_code_snapshot=@department_code_snapshot, location_snapshot=@location_snapshot WHERE id=@id`).run({...payload,id});
+    writeAudit(requestActor(req), "Cập nhật kiểm định/hiệu chuẩn", "inspection", id, `${payload.type} | ${payload.certificate_no}`);
+    res.json({ ok: true });
+  } catch(e) {
+    console.error("PUT /api/inspections/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật kiểm định/hiệu chuẩn."});
+  }
 });
 
 app.delete("/api/inspections/:id", (req, res) => {
-  db.prepare("DELETE FROM inspections WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT id FROM inspections WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ kiểm định/hiệu chuẩn."});
+  return res.status(409).json({
+    error:"Hồ sơ kiểm định/hiệu chuẩn là lịch sử kỹ thuật và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật."
+  });
 });
 
 app.get("/api/quality-ratings", (req, res) => {
   const rows = db.prepare(`
-    SELECT q.*, dv.name AS device_name, dv.department_code, dv.group_code, d.name AS department_name, g.name AS group_name
+    SELECT
+      q.*,
+      dv.name AS device_name,
+      dv.department_code,
+      dv.group_code,
+      d.name AS department_name,
+      g.name AS group_name,
+      CASE WHEN q.id = (
+        SELECT q2.id
+        FROM quality_ratings q2
+        WHERE q2.device_id=q.device_id
+        ORDER BY COALESCE(q2.rating_date,'') DESC, q2.id DESC
+        LIMIT 1
+      ) THEN 1 ELSE 0 END AS is_latest
     FROM quality_ratings q
     JOIN devices dv ON dv.id = q.device_id
     LEFT JOIN departments d ON d.code = dv.department_code
     LEFT JOIN device_groups g ON g.code = dv.group_code
-    ORDER BY q.total_score ASC, q.id DESC
+    ORDER BY COALESCE(q.rating_date,'') DESC, q.id DESC
   `).all().map(r => ({ ...r, device_code: getDeviceCode(r.device_id) }));
   res.json(rows);
 });
 
+function buildQualityRatingPayload(input = {}, options = {}) {
+  const deviceId=Number(input.device_id || 0);
+  const allowArchived=options.allowArchived === true;
+  const device=allowArchived
+    ? db.prepare("SELECT id,is_archived FROM devices WHERE id=?").get(deviceId)
+    : db.prepare("SELECT id,is_archived FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+  if(!device) return {error:allowArchived ? "Thiết bị không tồn tại." : "Thiết bị không tồn tại hoặc đã lưu trữ."};
+  const limits={
+    age_score:25,
+    performance_score:25,
+    repair_score:20,
+    inspection_score:15,
+    sparepart_score:15
+  };
+  const payload={
+    device_id:deviceId,
+    rating_date:String(input.rating_date || localDateISO()).slice(0,10),
+    evaluator:String(input.evaluator || "").trim(),
+    recommendation:String(input.recommendation || "").trim(),
+    note:String(input.note || "")
+  };
+  for(const [key,max] of Object.entries(limits)){
+    const value=Number(input[key] ?? 0);
+    if(!Number.isFinite(value) || value<0 || value>max){
+      return {error:`Điểm ${key} phải từ 0 đến ${max}.`};
+    }
+    payload[key]=Math.round(value);
+  }
+  if(!isValidIsoDate(payload.rating_date)) return {error:"Ngày đánh giá phải là ngày hợp lệ theo YYYY-MM-DD."};
+  if(!payload.evaluator) return {error:"Vui lòng nhập người đánh giá."};
+  payload.total_score=payload.age_score+payload.performance_score+payload.repair_score+payload.inspection_score+payload.sparepart_score;
+  payload.grade=payload.total_score>=90?"A":payload.total_score>=80?"B":payload.total_score>=65?"C":"D";
+  return {payload};
+}
+
 app.post("/api/quality-ratings", (req, res) => {
-  const p = req.body;
-  const total = Number(p.age_score||0)+Number(p.performance_score||0)+Number(p.repair_score||0)+Number(p.inspection_score||0)+Number(p.sparepart_score||0);
-  const grade = total >= 90 ? "A" : total >= 80 ? "B" : total >= 65 ? "C" : "D";
-  const info = db.prepare(`INSERT OR REPLACE INTO quality_ratings (id,device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note) VALUES ((SELECT id FROM quality_ratings WHERE device_id=@device_id),@device_id,@rating_date,@age_score,@performance_score,@repair_score,@inspection_score,@sparepart_score,@total_score,@grade,@recommendation,@evaluator,@note)`).run({ ...p, total_score: total, grade });
-  res.json({ id: info.lastInsertRowid, total_score: total, grade });
+  try {
+    const built=buildQualityRatingPayload(req.body || {});
+    if(built.error) return res.status(400).json({error:built.error});
+    const payload=built.payload;
+    const info=db.prepare(`
+      INSERT INTO quality_ratings
+      (device_id,rating_date,age_score,performance_score,repair_score,inspection_score,sparepart_score,total_score,grade,recommendation,evaluator,note)
+      VALUES (@device_id,@rating_date,@age_score,@performance_score,@repair_score,@inspection_score,@sparepart_score,@total_score,@grade,@recommendation,@evaluator,@note)
+    `).run(payload);
+    const id=Number(info.lastInsertRowid);
+    writeAudit(requestActor(req,payload.evaluator),"Tạo đánh giá chất lượng","quality_rating",id,`${payload.total_score}/${payload.grade}`);
+    res.json({id,total_score:payload.total_score,grade:payload.grade});
+  } catch(e) {
+    console.error("POST /api/quality-ratings error:",e);
+    res.status(400).json({error:e.message || "Không thể lưu đánh giá chất lượng."});
+  }
+});
+
+app.put("/api/quality-ratings/:id", (req, res) => {
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM quality_ratings WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy đánh giá chất lượng."});
+    const built=buildQualityRatingPayload(req.body || {},{allowArchived:true});
+    if(built.error) return res.status(400).json({error:built.error});
+    const payload=built.payload;
+    if(Number(payload.device_id)!==Number(old.device_id)){
+      return res.status(409).json({error:"Không được đổi thiết bị của một mốc đánh giá lịch sử. Hãy tạo đánh giá mới cho thiết bị khác."});
+    }
+    db.prepare(`
+      UPDATE quality_ratings SET
+        rating_date=@rating_date,age_score=@age_score,performance_score=@performance_score,
+        repair_score=@repair_score,inspection_score=@inspection_score,sparepart_score=@sparepart_score,
+        total_score=@total_score,grade=@grade,recommendation=@recommendation,evaluator=@evaluator,note=@note
+      WHERE id=@id
+    `).run({...payload,id});
+    writeAudit(requestActor(req,payload.evaluator),"Cập nhật đánh giá chất lượng","quality_rating",id,`${old.total_score || 0}/${old.grade || ""} → ${payload.total_score}/${payload.grade}`);
+    res.json({id,total_score:payload.total_score,grade:payload.grade});
+  } catch(e) {
+    console.error("PUT /api/quality-ratings/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật đánh giá chất lượng."});
+  }
 });
 
 app.delete("/api/quality-ratings/:id", (req, res) => {
-  db.prepare("DELETE FROM quality_ratings WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM quality_ratings WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy đánh giá chất lượng."});
+  return res.status(409).json({
+    error:"Đánh giá chất lượng là dữ liệu theo dõi lịch sử và không được xóa. Nếu cần thay đổi, hãy cập nhật lại đánh giá của thiết bị."
+  });
 });
 
 app.get("/api/usage-reports", (req, res) => {
@@ -2196,65 +4544,1622 @@ app.get("/api/usage-reports", (req, res) => {
 });
 
 app.post("/api/usage-reports", (req, res) => {
-  const p = req.body;
-  const info = db.prepare(`INSERT INTO usage_reports (device_id,year,month,indicator,value,unit,note) VALUES (@device_id,@year,@month,@indicator,@value,@unit,@note)`).run(p);
-  res.json({ id: info.lastInsertRowid });
+  try {
+    const p=req.body || {};
+    const deviceId=Number(p.device_id || 0);
+    const device=db.prepare("SELECT id FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(deviceId);
+    if(!device) return res.status(400).json({error:"Thiết bị không tồn tại hoặc đã lưu trữ."});
+    const year=Number(p.year || 0);
+    const month=(p.month===null || p.month==="" || p.month===undefined) ? null : Number(p.month);
+    const value=Number(p.value ?? 0);
+    const indicator=String(p.indicator || "").trim();
+    const unit=String(p.unit || "").trim();
+    if(!Number.isInteger(year) || year<2000 || year>2100) return res.status(400).json({error:"Năm báo cáo không hợp lệ."});
+    if(month!==null && (!Number.isInteger(month) || month<1 || month>12)) return res.status(400).json({error:"Tháng báo cáo phải từ 1 đến 12."});
+    if(!indicator) return res.status(400).json({error:"Vui lòng nhập chỉ tiêu sử dụng."});
+    if(!Number.isFinite(value) || value<0) return res.status(400).json({error:"Giá trị sử dụng phải là số không âm."});
+    const payload={device_id:deviceId,year,month,indicator,value,unit,note:String(p.note || "")};
+    const info=db.prepare(`
+      INSERT INTO usage_reports (device_id,year,month,indicator,value,unit,note)
+      VALUES (@device_id,@year,@month,@indicator,@value,@unit,@note)
+    `).run(payload);
+    writeAudit(requestActor(req),"Tạo báo cáo sử dụng","usage_report",info.lastInsertRowid,`${month || "Năm"}/${year} | ${indicator}: ${value} ${unit}`);
+    res.json({id:info.lastInsertRowid});
+  } catch(e) {
+    console.error("POST /api/usage-reports error:",e);
+    res.status(400).json({error:e.message || "Không thể lưu báo cáo sử dụng."});
+  }
+});
+
+app.put("/api/usage-reports/:id", (req, res) => {
+  try {
+    const id=Number(req.params.id);
+    const old=db.prepare("SELECT * FROM usage_reports WHERE id=?").get(id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy báo cáo sử dụng."});
+    const p=req.body || {};
+    if(p.device_id !== undefined && Number(p.device_id)!==Number(old.device_id)){
+      return res.status(409).json({error:"Không thể đổi thiết bị của báo cáo sử dụng đã lưu."});
+    }
+    const year=Number(p.year ?? old.year ?? 0);
+    const month=(p.month===null || p.month==="" || p.month===undefined) ? old.month : Number(p.month);
+    const value=Number(p.value ?? old.value ?? 0);
+    const indicator=String(p.indicator ?? old.indicator ?? "").trim();
+    const unit=String(p.unit ?? old.unit ?? "").trim();
+    const note=String(p.note ?? old.note ?? "");
+    if(!Number.isInteger(year) || year<2000 || year>2100) return res.status(400).json({error:"Năm báo cáo không hợp lệ."});
+    if(month!==null && month!==undefined && (!Number.isInteger(Number(month)) || Number(month)<1 || Number(month)>12)) return res.status(400).json({error:"Tháng báo cáo phải từ 1 đến 12."});
+    if(!indicator) return res.status(400).json({error:"Vui lòng nhập chỉ tiêu sử dụng."});
+    if(!Number.isFinite(value) || value<0) return res.status(400).json({error:"Giá trị sử dụng phải là số không âm."});
+    db.prepare(`
+      UPDATE usage_reports
+      SET year=?,month=?,indicator=?,value=?,unit=?,note=?
+      WHERE id=?
+    `).run(year,month===undefined?null:month,indicator,value,unit,note,id);
+    writeAudit(requestActor(req),"Cập nhật báo cáo sử dụng","usage_report",id,`${old.month || "Năm"}/${old.year} | ${old.indicator}: ${old.value} → ${month || "Năm"}/${year} | ${indicator}: ${value}`);
+    res.json({ok:true});
+  } catch(e) {
+    console.error("PUT /api/usage-reports/:id error:",e);
+    res.status(400).json({error:e.message || "Không thể cập nhật báo cáo sử dụng."});
+  }
 });
 
 app.delete("/api/usage-reports/:id", (req, res) => {
-  db.prepare("DELETE FROM usage_reports WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+  const id=Number(req.params.id);
+  const old=db.prepare("SELECT * FROM usage_reports WHERE id=?").get(id);
+  if(!old) return res.status(404).json({error:"Không tìm thấy báo cáo sử dụng."});
+  return res.status(409).json({
+    error:"Báo cáo sử dụng là dữ liệu lịch sử/KPI và không được xóa. Nếu nhập sai, hãy dùng chức năng Cập nhật để hiệu chỉnh."
+  });
+});
+
+app.get("/api/devices/:id/transfers", (req, res) => {
+  const rows = db.prepare(`
+    SELECT t.*, fd.name AS from_department_name, td.name AS to_department_name
+    FROM device_transfers t
+    LEFT JOIN departments fd ON fd.code=t.from_department_code
+    LEFT JOIN departments td ON td.code=t.to_department_code
+    WHERE t.device_id=?
+    ORDER BY t.transfer_datetime DESC, t.id DESC
+  `).all(Number(req.params.id));
+  res.json(rows);
+});
+
+function latestDeviceContextEvent(deviceId) {
+  const id=Number(deviceId);
+  if(!id) return null;
+  return db.prepare(`
+    SELECT event_time, source
+    FROM (
+      SELECT NULLIF(incident_datetime,'') AS event_time, 'Sự cố' AS source
+      FROM incidents WHERE device_id=?
+      UNION ALL
+      SELECT COALESCE(NULLIF(received_at,''), NULLIF(repair_date,'')) AS event_time, 'Sửa chữa' AS source
+      FROM repairs WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(maintenance_date,'') AS event_time, 'Bảo dưỡng' AS source
+      FROM maintenances WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(inspection_date,'') AS event_time, 'Kiểm định/Hiệu chuẩn' AS source
+      FROM inspections WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(log_datetime,'') AS event_time, 'Nhật ký vận hành' AS source
+      FROM operation_logs WHERE device_id=?
+      UNION ALL
+      SELECT NULLIF(check_datetime,'') AS event_time, 'Kiểm tra thiết bị' AS source
+      FROM daily_checks WHERE device_id=?
+    )
+    WHERE event_time IS NOT NULL AND trim(event_time)<>''
+    ORDER BY event_time DESC
+    LIMIT 1
+  `).get(id,id,id,id,id,id) || null;
+}
+
+app.post("/api/devices/:id/transfer", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const d = db.prepare("SELECT * FROM devices WHERE id=? AND COALESCE(is_archived,0)=0").get(id);
+    if (!d) return res.status(404).json({ error: "Không tìm thấy thiết bị đang quản lý." });
+    const toDepartment = String(req.body.to_department_code || "").trim();
+    if (!toDepartment) return res.status(400).json({ error: "Thiếu khoa/phòng nhận." });
+    if (!db.prepare("SELECT code FROM departments WHERE code=?").get(toDepartment)) {
+      return res.status(400).json({ error: "Khoa/phòng nhận không tồn tại trong danh mục." });
+    }
+    const toLocation = String(req.body.to_location || "").trim();
+    const reason = String(req.body.reason || "").trim();
+    if (!reason) return res.status(400).json({ error: "Vui lòng nhập lý do điều chuyển." });
+    if (toDepartment === String(d.department_code || "") && toLocation === String(d.location || "")) {
+      return res.status(400).json({ error: "Khoa/phòng và vị trí mới không thay đổi so với hiện tại." });
+    }
+    const openRepair = db.prepare("SELECT id FROM repairs WHERE device_id=? AND COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện') ORDER BY id DESC LIMIT 1").get(id);
+    if (openRepair) return res.status(400).json({ error: `Thiết bị đang có phiếu sửa chữa #${openRepair.id} chưa hoàn thành; chưa điều chuyển khoa quản lý.` });
+    const openIncident = db.prepare("SELECT id FROM incidents WHERE device_id=? AND status IN ('Mới ghi nhận','Đã tiếp nhận') ORDER BY id DESC LIMIT 1").get(id);
+    if (openIncident) return res.status(400).json({ error: `Thiết bị đang có sự cố #${openIncident.id} chưa hoàn tất; chưa điều chuyển khoa quản lý.` });
+    const openInventory = db.prepare(`
+      SELECT s.id
+      FROM inventory_items i
+      JOIN inventory_sessions s ON s.id=i.session_id
+      WHERE i.device_id=? AND s.status='Đang kiểm kê'
+      ORDER BY s.id DESC LIMIT 1
+    `).get(id);
+    if (openInventory) return res.status(409).json({ error: `Thiết bị đang nằm trong đợt kiểm kê #${openInventory.id}; hãy hoàn thành kiểm kê trước khi điều chuyển.` });
+
+    const rawTransferDate = String(req.body.transfer_datetime || "").trim();
+    const at = rawTransferDate ? normalizeDateTime(rawTransferDate) : nowSql();
+    if (!at) return res.status(400).json({ error:"Thời gian điều chuyển không hợp lệ." });
+    const maxTransferTime = sqlDateTimeInAppZone(new Date(Date.now()+5*60*1000));
+    if (at > maxTransferTime) return res.status(400).json({ error:"Thời gian điều chuyển không được ở tương lai." });
+
+    const latestTransfer = db.prepare(`
+      SELECT id,transfer_datetime,to_department_code,to_location
+      FROM device_transfers
+      WHERE device_id=?
+      ORDER BY transfer_datetime DESC,id DESC
+      LIMIT 1
+    `).get(id);
+    if (latestTransfer && at <= String(latestTransfer.transfer_datetime || "")) {
+      return res.status(409).json({
+        error:`Thời gian điều chuyển phải sau mốc điều chuyển gần nhất #${latestTransfer.id} (${latestTransfer.transfer_datetime}). Không chèn mốc ngược thời gian vì sẽ làm sai chuỗi lịch sử khoa/vị trí.`
+      });
+    }
+
+    const latestContextEvent = latestDeviceContextEvent(id);
+    if (latestContextEvent && at < String(latestContextEvent.event_time || "")) {
+      return res.status(409).json({
+        error:`Thời gian điều chuyển phải sau hồ sơ kỹ thuật gần nhất (${latestContextEvent.source}: ${latestContextEvent.event_time}). Hãy dùng thời điểm điều chuyển thực tế sau mốc này để bảo toàn snapshot lịch sử.`
+      });
+    }
+    const actor = requestActor(req, "");
+    const tx = db.transaction(() => {
+      const info = db.prepare(`
+        INSERT INTO device_transfers
+        (device_id,transfer_datetime,from_department_code,from_location,to_department_code,to_location,reason,actor,note)
+        VALUES (?,?,?,?,?,?,?,?,?)
+      `).run(id, at, d.department_code || "", d.location || "", toDepartment, toLocation, reason, actor, req.body.note || "");
+      db.prepare("UPDATE devices SET department_code=?, location=? WHERE id=?").run(toDepartment, toLocation, id);
+      writeAudit(actor, "Điều chuyển thiết bị", "device", id, `${d.department_code || ""}/${d.location || ""} → ${toDepartment}/${toLocation} | ${reason}`);
+      return info.lastInsertRowid;
+    });
+    res.json({ ok: true, id: tx(), qr_uid: ensureDeviceQrUid(id) });
+  } catch(e) {
+    console.error("POST /api/devices/:id/transfer error:",e);
+    res.status(500).json({error:e.message});
+  }
+});
+
+app.get("/api/devices/:id/technical-history", (req, res) => {
+  const id = Number(req.params.id);
+  const from = String(req.query.from_date || "");
+  const to = String(req.query.to_date || "");
+  const type = String(req.query.type || "ALL");
+  const inRange = (v) => {
+    const d = String(v || "").slice(0,10);
+    return (!from || d >= from) && (!to || d <= to);
+  };
+  let rows = [];
+  const historyContext = (departmentCode, location) => {
+    const code = String(departmentCode || "").trim();
+    const department = code ? db.prepare("SELECT name FROM departments WHERE code=?").get(code) : null;
+    return {
+      department_code: code,
+      department_name: department?.name || code,
+      location: String(location || "").trim()
+    };
+  };
+  db.prepare("SELECT * FROM incidents WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:"Sự cố", date:r.incident_datetime, status:normalizeIncidentStatusForUi(r.status, db.prepare("SELECT id FROM repairs WHERE incident_id=? LIMIT 1").get(r.id)?.id),
+    content:r.description || "", person:r.reporter || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
+  }));
+  db.prepare("SELECT * FROM repairs WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:"Sửa chữa", date:r.received_at || r.repair_date, status:normalizeRepairStatus(r.processing_status),
+    content:[r.issue,r.work,r.result].filter(Boolean).join(" | "), person:r.person || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
+  }));
+  db.prepare("SELECT * FROM maintenances WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:"Bảo dưỡng", date:r.maintenance_date, status:r.result || "", content:[r.type,r.content].filter(Boolean).join(" | "), person:r.performer || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
+  }));
+  db.prepare("SELECT * FROM inspections WHERE device_id=?").all(id).forEach(r => rows.push({
+    type:r.type || "Kiểm định", date:r.inspection_date, status:r.result || "", content:[r.organization,r.certificate_no].filter(Boolean).join(" | "), person:r.organization || "", record_id:r.id,
+    ...historyContext(r.department_code_snapshot, r.location_snapshot)
+  }));
+  rows = rows.filter(r => inRange(r.date) && (type === "ALL" || r.type === type)).sort((a,b)=>String(b.date||"").localeCompare(String(a.date||"")));
+  res.json(rows);
+});
+
+app.get("/api/inventory-sessions", (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.*, d.name AS department_name,
+      COUNT(i.id) AS total_items,
+      SUM(CASE WHEN i.result<>'Chưa kiểm kê' THEN 1 ELSE 0 END) AS checked_items,
+      SUM(CASE WHEN i.result='Không thấy' THEN 1 ELSE 0 END) AS missing_items,
+      SUM(CASE WHEN i.result IN ('Sai vị trí','Sai khoa') THEN 1 ELSE 0 END) AS mismatch_items
+    FROM inventory_sessions s
+    LEFT JOIN departments d ON d.code=s.department_code
+    LEFT JOIN inventory_items i ON i.session_id=s.id
+    GROUP BY s.id
+    ORDER BY s.inventory_date DESC, s.id DESC
+  `).all();
+  res.json(rows);
+});
+
+app.post("/api/inventory-sessions", (req, res) => {
+  const departmentCode = String(req.body.department_code || "").trim();
+  const inventoryDate = String(req.body.inventory_date || localDateISO()).slice(0,10);
+  const actor = requestActor(req, String(req.body.actor || "").trim() || "Khoa Trang bị");
+  if (!departmentCode) return res.status(400).json({ error:"Thiếu khoa/phòng kiểm kê." });
+  if (!isValidIsoDate(inventoryDate)) return res.status(400).json({ error:"Ngày kiểm kê phải theo YYYY-MM-DD và là ngày hợp lệ." });
+  const dept = db.prepare("SELECT code FROM departments WHERE code=?").get(departmentCode);
+  if (!dept) return res.status(400).json({ error:"Khoa/phòng không tồn tại." });
+  const openSession = db.prepare("SELECT id FROM inventory_sessions WHERE department_code=? AND status='Đang kiểm kê' ORDER BY id DESC LIMIT 1").get(departmentCode);
+  if (openSession) return res.status(409).json({ error:`Khoa/phòng đang có đợt kiểm kê #${openSession.id} chưa hoàn thành.` });
+
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO inventory_sessions (inventory_date,department_code,status,actor,note,created_at)
+      VALUES (?,?,?,?,?,?)
+    `).run(inventoryDate, departmentCode, "Đang kiểm kê", actor, req.body.note || "", nowSql());
+    const devices = db.prepare(`
+      SELECT id, department_code, location
+      FROM devices
+      WHERE department_code=? AND COALESCE(is_archived,0)=0
+      ORDER BY id
+    `).all(departmentCode);
+    const insert = db.prepare(`
+      INSERT INTO inventory_items
+      (session_id,device_id,expected_department_code,expected_location,result,actual_department_code,actual_location,note,updated_at,updated_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+    `);
+    for (const d of devices) {
+      insert.run(info.lastInsertRowid,d.id,d.department_code,d.location || "","Chưa kiểm kê",d.department_code,d.location || "","",nowSql(),actor);
+    }
+    writeAudit(actor,"Tạo đợt kiểm kê","inventory",info.lastInsertRowid,`${departmentCode} | ${inventoryDate} | ${devices.length} thiết bị`);
+    return { id:info.lastInsertRowid, count:devices.length };
+  });
+  res.json(tx());
+});
+
+app.get("/api/inventory-sessions/:id", (req, res) => {
+  const session = db.prepare(`
+    SELECT s.*, d.name AS department_name
+    FROM inventory_sessions s LEFT JOIN departments d ON d.code=s.department_code
+    WHERE s.id=?
+  `).get(Number(req.params.id));
+  if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
+  const items = db.prepare(`
+    SELECT i.*, dv.device_code, dv.name AS device_name, dv.model, dv.serial,
+           dv.department_code AS current_department_code, dv.location AS current_location,
+           d.name AS actual_department_name
+    FROM inventory_items i
+    JOIN devices dv ON dv.id=i.device_id
+    LEFT JOIN departments d ON d.code=i.actual_department_code
+    WHERE i.session_id=?
+    ORDER BY dv.name, dv.device_code
+  `).all(session.id).map(r => ({...r, device_code:getDeviceCode(r.device_id)}));
+  res.json({ session, items });
+});
+
+app.put("/api/inventory-items/:id", (req, res) => {
+  const old = db.prepare(`
+    SELECT i.*,s.status AS session_status
+    FROM inventory_items i JOIN inventory_sessions s ON s.id=i.session_id
+    WHERE i.id=?
+  `).get(Number(req.params.id));
+  if (!old) return res.status(404).json({ error:"Không tìm thấy dòng kiểm kê." });
+  if (old.session_status === "Đã hoàn thành") return res.status(400).json({ error:"Đợt kiểm kê đã hoàn thành; không được sửa kết quả." });
+
+  const allowed = ["Chưa kiểm kê","Có","Không thấy","Sai vị trí","Sai khoa"];
+  const requestedResult = String(req.body.result ?? old.result ?? "Chưa kiểm kê").trim();
+  if (!allowed.includes(requestedResult)) return res.status(400).json({ error:"Kết quả kiểm kê không hợp lệ." });
+  const result = requestedResult;
+  let actualDepartment = String(req.body.actual_department_code || old.actual_department_code || old.expected_department_code || "").trim();
+  let actualLocation = String(req.body.actual_location ?? old.actual_location ?? "").trim();
+
+  if (!db.prepare("SELECT code FROM departments WHERE code=?").get(actualDepartment)) {
+    return res.status(400).json({ error:"Khoa/phòng thực tế không tồn tại trong danh mục." });
+  }
+  if (result === "Có") {
+    actualDepartment = String(old.expected_department_code || "");
+    actualLocation = String(old.expected_location || "");
+  }
+  if (result === "Sai khoa" && actualDepartment === String(old.expected_department_code || "")) {
+    return res.status(400).json({ error:"Kết quả “Sai khoa” phải chọn khoa/phòng thực tế khác khoa dự kiến." });
+  }
+  if (result === "Sai vị trí" && (!actualLocation || actualLocation === String(old.expected_location || ""))) {
+    return res.status(400).json({ error:"Kết quả “Sai vị trí” phải nhập vị trí thực tế khác vị trí dự kiến." });
+  }
+  const actor = String(req.authUser?.full_name || req.body.updated_by || "").trim();
+  db.prepare(`
+    UPDATE inventory_items
+    SET result=?, actual_department_code=?, actual_location=?, note=?, updated_at=?, updated_by=?
+    WHERE id=?
+  `).run(result, actualDepartment, actualLocation, req.body.note || "", nowSql(), actor, old.id);
+  writeAudit(actor,"Cập nhật kiểm kê","inventory_item",old.id,`${old.result} → ${result}; thực tế ${actualDepartment}/${actualLocation}`);
+  res.json({ok:true});
+});
+
+app.post("/api/inventory-sessions/:id/complete", (req, res) => {
+  const id = Number(req.params.id);
+  const session = db.prepare("SELECT * FROM inventory_sessions WHERE id=?").get(id);
+  if (!session) return res.status(404).json({ error:"Không tìm thấy đợt kiểm kê." });
+  if (session.status === "Đã hoàn thành") return res.json({ok:true,pending:0,already_completed:true});
+  const pending = db.prepare("SELECT COUNT(*) c FROM inventory_items WHERE session_id=? AND result='Chưa kiểm kê'").get(id).c;
+  if (pending > 0) {
+    return res.status(409).json({ error:`Còn ${pending} thiết bị chưa kiểm kê. Phải có kết quả cho 100% thiết bị trước khi hoàn thành đợt kiểm kê.` });
+  }
+  db.prepare("UPDATE inventory_sessions SET status='Đã hoàn thành', completed_at=? WHERE id=?").run(nowSql(),id);
+  writeAudit(req.authUser?.full_name || req.body.actor || session.actor || "","Hoàn thành kiểm kê","inventory",id,`Còn chưa kiểm kê: ${pending}`);
+  res.json({ok:true,pending});
+});
+
+
+app.get("/api/dashboard/summary", (req, res) => {
+  const today = localDateISO();
+  let fromDate = String(req.query.from_date || localDatePlusDays(-29)).slice(0,10);
+  let toDate = String(req.query.to_date || today).slice(0,10);
+  if (!isValidIsoDate(fromDate) || !isValidIsoDate(toDate)) {
+    return res.status(400).json({ error:"Khoảng thời gian không hợp lệ." });
+  }
+  if (toDate > today) toDate = today;
+  if (fromDate > toDate) {
+    return res.status(400).json({ error:"Từ ngày phải nhỏ hơn hoặc bằng đến ngày." });
+  }
+
+  const incidentsInPeriod = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM incidents
+    WHERE substr(incident_datetime,1,10)>=? AND substr(incident_datetime,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const completedRepairs = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    JOIN devices d ON d.id=r.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND r.completed_at IS NOT NULL AND r.completed_at<>''
+      AND substr(r.completed_at,1,10)>=? AND substr(r.completed_at,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const completedLocalIncidents = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM incidents i
+    JOIN devices d ON d.id=i.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND i.completed_at IS NOT NULL AND i.completed_at<>''
+      AND substr(i.completed_at,1,10)>=? AND substr(i.completed_at,1,10)<=?
+      AND NOT EXISTS (SELECT 1 FROM repairs r WHERE r.incident_id=i.id)
+  `).get(fromDate,toDate).c || 0);
+
+  const completedMaintenances = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM maintenances m
+    JOIN devices d ON d.id=m.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(m.maintenance_date,1,10)>=? AND substr(m.maintenance_date,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const completedInspections = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM inspections i
+    JOIN devices d ON d.id=i.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(i.inspection_date,1,10)>=? AND substr(i.inspection_date,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const openRepairsAtEnd = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    JOIN devices d ON d.id=r.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(COALESCE(NULLIF(r.received_at,''),NULLIF(r.repair_date,''),'9999-12-31'),1,10)<=?
+      AND (r.completed_at IS NULL OR r.completed_at='' OR substr(r.completed_at,1,10)>?)
+  `).get(toDate,toDate).c || 0);
+
+  const openStandaloneIncidentsAtEnd = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM incidents i
+    JOIN devices d ON d.id=i.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(i.incident_datetime,1,10)<=?
+      AND (i.completed_at IS NULL OR i.completed_at='' OR substr(i.completed_at,1,10)>?)
+      AND NOT EXISTS (
+        SELECT 1 FROM repairs r
+        WHERE r.incident_id=i.id
+          AND substr(COALESCE(NULLIF(r.received_at,''),NULLIF(r.repair_date,''),'9999-12-31'),1,10)<=?
+      )
+  `).get(toDate,toDate,toDate).c || 0);
+
+  const canonicalScheduleType = (value, fallback) => {
+    const raw = String(value || fallback || "").trim();
+    const key = normalizeScheduleText(raw);
+    if (!key) return normalizeScheduleText(fallback || "khong phan loai");
+    if (key === "atbx" || key.includes("an toan buc xa")) return "kiem dinh an toan buc xa";
+    if (key.includes("kiem xa")) return "kiem xa";
+    if (key.includes("hieu chuan")) return "hieu chuan";
+    if (key.includes("kiem dinh")) return "kiem dinh";
+    if (key === "bao duong" || key === "bao duong dinh ky") return "bao duong dinh ky";
+    return key;
+  };
+  const latestScheduleRowsAt = (table, dateField, fallbackType) => {
+    const allowed = table === "maintenances"
+      ? { table:"maintenances", dateField:"maintenance_date" }
+      : { table:"inspections", dateField:"inspection_date" };
+    const rows = db.prepare(`
+      SELECT t.*, d.is_archived
+      FROM ${allowed.table} t
+      JOIN devices d ON d.id=t.device_id
+      WHERE COALESCE(d.is_archived,0)=0
+        AND substr(COALESCE(t.${allowed.dateField},''),1,10)<=?
+    `).all(toDate);
+    const map = new Map();
+    for (const row of rows) {
+      const type = canonicalScheduleType(row.type, fallbackType);
+      const key = `${Number(row.device_id)}|${type}`;
+      const rowKey = `${String(row[allowed.dateField] || "")}|${String(Number(row.id || 0)).padStart(12,"0")}`;
+      const current = map.get(key);
+      const currentKey = current
+        ? `${String(current[allowed.dateField] || "")}|${String(Number(current.id || 0)).padStart(12,"0")}`
+        : "";
+      if (!current || rowKey > currentKey) map.set(key,row);
+    }
+    return Array.from(map.values());
+  };
+
+  const overdueMaintenanceAtEnd = latestScheduleRowsAt("maintenances","maintenance_date","Bảo dưỡng định kỳ")
+    .filter(row => row.next_date && String(row.next_date).slice(0,10) < toDate).length;
+  const overdueInspectionAtEnd = latestScheduleRowsAt("inspections","inspection_date","Kiểm định")
+    .filter(row => row.next_date && String(row.next_date).slice(0,10) < toDate).length;
+
+  res.json({
+    period:{ from_date:fromDate, to_date:toDate },
+    device_total:Number(db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c || 0),
+    incidents_in_period:incidentsInPeriod,
+    completed_work_in_period:completedRepairs + completedLocalIncidents + completedMaintenances + completedInspections,
+    backlog_at_end:openRepairsAtEnd + openStandaloneIncidentsAtEnd,
+    overdue_maintenance_at_end:overdueMaintenanceAtEnd,
+    overdue_inspection_at_end:overdueInspectionAtEnd,
+    completed_breakdown:{
+      repairs:completedRepairs,
+      incidents_local:completedLocalIncidents,
+      maintenances:completedMaintenances,
+      inspections:completedInspections
+    }
+  });
+});
+
+app.get("/api/dashboard/operations", (req, res) => {
+  const today = localDateISO();
+  const plus30 = localDatePlusDays(30);
+  const total = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
+  const active = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Đang hoạt động'").get().c;
+  const limited = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Hoạt động hạn chế'").get().c;
+  const operational = active + limited;
+  const repairing = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Chờ sửa chữa'").get().c;
+  const stopped = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Ngừng hoạt động'").get().c;
+  const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')").get().c;
+  const unacknowledgedIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND (acknowledged_at IS NULL OR acknowledged_at='')").get().c;
+  const avgResponseMinutes = Number(db.prepare(`
+    SELECT AVG((julianday(acknowledged_at)-julianday(incident_datetime))*24*60) v
+    FROM incidents
+    WHERE acknowledged_at IS NOT NULL AND acknowledged_at<>'' AND incident_datetime IS NOT NULL
+      AND julianday(acknowledged_at)>=julianday(incident_datetime)
+  `).get().v || 0);
+  const avgResolutionMinutes = Number(db.prepare(`
+    SELECT AVG((julianday(r.completed_at)-julianday(i.incident_datetime))*24*60) v
+    FROM repairs r JOIN incidents i ON i.id=r.incident_id
+    WHERE r.completed_at IS NOT NULL AND r.completed_at<>'' AND i.incident_datetime IS NOT NULL
+      AND julianday(r.completed_at)>=julianday(i.incident_datetime)
+  `).get().v || 0);
+  const inspectionSchedules = activeInspectionSchedules();
+  const inspectionGaps = requiredInspectionScheduleGaps();
+  const failedInspection = inspectionSchedules.filter(x => normalizeScheduleText(x.result) === "khong dat").length;
+  const dueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
+  const overdueInspection = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
+  const missingInspectionSchedule = inspectionGaps.length;
+  const missingInspectionRecord = inspectionGaps.filter(x => x.schedule_issue === "Chưa có hồ sơ").length;
+  const missingInspectionNextDate = inspectionGaps.filter(x => x.schedule_issue === "Chưa đặt hạn tiếp theo").length;
+  const waitingParts = db.prepare("SELECT COUNT(*) c FROM repairs r JOIN devices d ON d.id=r.device_id WHERE COALESCE(d.is_archived,0)=0 AND r.processing_status='Chờ linh kiện'").get().c;
+  const qrChecksToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=?").get(today).c;
+  const qrIssuesToday = db.prepare("SELECT COUNT(*) c FROM daily_checks WHERE source_channel='QR' AND substr(check_datetime,1,10)=? AND result='Có vấn đề'").get(today).c;
+  const todayParts = today.split("-").map(Number);
+  const monthStartUtc = new Date(Date.UTC(todayParts[0], todayParts[1]-1-5, 1, 12, 0, 0));
+  const monthStart = `${monthStartUtc.getUTCFullYear()}-${String(monthStartUtc.getUTCMonth()+1).padStart(2,"0")}-01`;
+  const monthlyIncidents = db.prepare(`
+    SELECT substr(incident_datetime,1,7) month, COUNT(*) count
+    FROM incidents
+    WHERE substr(incident_datetime,1,10)>=?
+    GROUP BY substr(incident_datetime,1,7)
+    ORDER BY month
+  `).all(monthStart);
+  res.json({
+    today, timeZone:APP_TIME_ZONE, total, active, limited, operational, repairing, stopped,
+    openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, failedInspection,
+    missingInspectionSchedule, missingInspectionRecord, missingInspectionNextDate,
+    missingInspectionSchedules: inspectionGaps.slice(0,12),
+    waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents
+  });
+});
+
+app.get("/api/audit-logs", (req, res) => {
+  const limit = Math.min(500, Math.max(1, Number(req.query.limit || 200)));
+  res.json(db.prepare("SELECT * FROM audit_logs ORDER BY action_time DESC, id DESC LIMIT ?").all(limit));
+});
+
+const backupDir = path.join(__dirname, "backups");
+const backupMirrorDir = String(process.env.QY4_BACKUP_MIRROR_DIR || "").trim();
+function listDatabaseBackups() {
+  fs.mkdirSync(backupDir, { recursive: true });
+  return fs.readdirSync(backupDir).filter(x => /^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
+}
+function backupFilesDirFor(filename) {
+  return path.join(backupDir, String(filename || "").replace(/\.sqlite$/i, ".files"));
+}
+function snapshotDirectoryWithHardlinks(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive:true });
+  if (!fs.existsSync(sourceDir)) return;
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes:true })) {
+    const src=path.join(sourceDir,entry.name);
+    const dst=path.join(targetDir,entry.name);
+    if (entry.isDirectory()) {
+      snapshotDirectoryWithHardlinks(src,dst);
+    } else if (entry.isFile()) {
+      try { fs.linkSync(src,dst); }
+      catch { fs.copyFileSync(src,dst); }
+    }
+  }
+}
+function copyDirectoryRecursive(sourceDir,targetDir){
+  fs.mkdirSync(targetDir,{recursive:true});
+  if(!fs.existsSync(sourceDir)) return;
+  for(const entry of fs.readdirSync(sourceDir,{withFileTypes:true})){
+    const src=path.join(sourceDir,entry.name);
+    const dst=path.join(targetDir,entry.name);
+    if(entry.isDirectory()) copyDirectoryRecursive(src,dst);
+    else if(entry.isFile()) fs.copyFileSync(src,dst);
+  }
+}
+function mirrorFilesDirFor(filename){
+  return backupMirrorDir ? path.join(backupMirrorDir,String(filename||"").replace(/\.sqlite$/i,".files")) : "";
+}
+function directoryFileStats(rootDir){
+  const out={count:0,bytes:0};
+  if(!rootDir || !fs.existsSync(rootDir)) return out;
+  for(const entry of fs.readdirSync(rootDir,{withFileTypes:true})){
+    const full=path.join(rootDir,entry.name);
+    if(entry.isDirectory()){
+      const child=directoryFileStats(full);
+      out.count+=child.count;
+      out.bytes+=child.bytes;
+    }else if(entry.isFile()){
+      out.count+=1;
+      try{out.bytes+=Number(fs.statSync(full).size||0);}catch{}
+    }
+  }
+  return out;
+}
+function mirrorBackupBundle(filename){
+  if(!backupMirrorDir || !filename) return {configured:false,ok:false};
+  fs.mkdirSync(backupMirrorDir,{recursive:true});
+  const localDb=path.join(backupDir,filename);
+  const localFiles=backupFilesDirFor(filename);
+  const mirrorDb=path.join(backupMirrorDir,filename);
+  const mirrorFiles=mirrorFilesDirFor(filename);
+  fs.copyFileSync(localDb,mirrorDb);
+  fs.rmSync(mirrorFiles,{recursive:true,force:true});
+  copyDirectoryRecursive(localFiles,mirrorFiles);
+  return {configured:true,ok:fs.existsSync(mirrorDb)&&fs.existsSync(mirrorFiles),path:backupMirrorDir};
+}
+function backupMirrorStorageStatus(){
+  if(!backupMirrorDir) return {configured:false,separate_storage:false,same_filesystem:null};
+  try{
+    fs.mkdirSync(backupMirrorDir,{recursive:true});
+    fs.mkdirSync(backupDir,{recursive:true});
+    const localRoot=path.parse(path.resolve(backupDir)).root.toLowerCase();
+    const mirrorRoot=path.parse(path.resolve(backupMirrorDir)).root.toLowerCase();
+    const localStat=fs.statSync(backupDir);
+    const mirrorStat=fs.statSync(backupMirrorDir);
+    const differentRoot=localRoot!==mirrorRoot;
+    const differentDevice=Number(localStat.dev)!==Number(mirrorStat.dev);
+    return {
+      configured:true,
+      separate_storage:Boolean(differentRoot || differentDevice),
+      same_filesystem:!(differentRoot || differentDevice),
+      local_root:localRoot,
+      mirror_root:mirrorRoot
+    };
+  }catch(e){
+    return {configured:true,separate_storage:false,same_filesystem:null,error:e.message};
+  }
+}
+function inspectMirrorBackup(filename){
+  if(!backupMirrorDir) return {configured:false,exists:false,files_exists:false,integrity:"missing",sessions:0,...backupMirrorStorageStatus()};
+  const mirrorDb=path.join(backupMirrorDir,filename||"");
+  const localFiles=backupFilesDirFor(filename);
+  const mirrorFiles=mirrorFilesDirFor(filename);
+  const localFileStats=directoryFileStats(localFiles);
+  const mirrorFileStats=directoryFileStats(mirrorFiles);
+  const out={
+    configured:true,
+    exists:fs.existsSync(mirrorDb),
+    files_exists:fs.existsSync(mirrorFiles),
+    files_match:fs.existsSync(mirrorFiles)
+      && localFileStats.count===mirrorFileStats.count
+      && localFileStats.bytes===mirrorFileStats.bytes,
+    local_files_count:localFileStats.count,
+    mirror_files_count:mirrorFileStats.count,
+    local_files_bytes:localFileStats.bytes,
+    mirror_files_bytes:mirrorFileStats.bytes,
+    integrity:"missing",
+    sessions:0,
+    path:backupMirrorDir,
+    ...backupMirrorStorageStatus()
+  };
+  if(!out.exists) return out;
+  let checkDb=null;
+  try{
+    checkDb=new Database(mirrorDb,{readonly:true,fileMustExist:true});
+    const row=checkDb.prepare("PRAGMA quick_check").get();
+    out.integrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "ok" : "error";
+    const hasSessions=checkDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get();
+    out.sessions=hasSessions ? Number(checkDb.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c || 0) : 0;
+  }catch{
+    out.integrity="error";
+  }finally{
+    if(checkDb) checkDb.close();
+  }
+  return out;
+}
+function pruneMirrorBackups(){
+  if(!backupMirrorDir || !fs.existsSync(backupMirrorDir)) return;
+  const keep=Math.max(3,Number(process.env.QY4_BACKUP_KEEP || 30));
+  const files=fs.readdirSync(backupMirrorDir).filter(x=>/^qy4_ttbyt_.*\.sqlite$/i.test(x)).sort().reverse();
+  for(const name of files.slice(keep)){
+    try{fs.unlinkSync(path.join(backupMirrorDir,name));}catch{}
+    try{fs.rmSync(mirrorFilesDirFor(name),{recursive:true,force:true});}catch{}
+  }
+}
+function removeBackupBundle(filename) {
+  try { fs.unlinkSync(path.join(backupDir, filename)); } catch {}
+  try { fs.rmSync(backupFilesDirFor(filename), { recursive:true, force:true }); } catch {}
+}
+function finalizeSqliteBackup(target) {
+  let checkDb=null;
+  try {
+    checkDb=new Database(target,{fileMustExist:true});
+    const hasSessions=checkDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get();
+    if(hasSessions) checkDb.prepare("DELETE FROM auth_sessions").run();
+    const row=checkDb.prepare("PRAGMA quick_check").get();
+    const value=row ? String(Object.values(row)[0] || "") : "";
+    if (value.toLowerCase() !== "ok") throw new Error(`SQLite quick_check: ${value || "không có kết quả"}`);
+  } finally {
+    if (checkDb) checkDb.close();
+  }
+}
+function inspectBackupBundle(filename) {
+  if (!filename) return { exists:false, files_exists:false, integrity:"missing", sessions:0, age_hours:null };
+  const target=path.join(backupDir,filename);
+  const filesTarget=backupFilesDirFor(filename);
+  const out={
+    exists:fs.existsSync(target),
+    files_exists:fs.existsSync(filesTarget),
+    integrity:"error",
+    sessions:0,
+    age_hours:null
+  };
+  if (!out.exists) return out;
+  try {
+    const stat=fs.statSync(target);
+    out.age_hours=Math.max(0,(Date.now()-stat.mtimeMs)/3600000);
+  } catch {}
+  let checkDb=null;
+  try {
+    checkDb=new Database(target,{readonly:true,fileMustExist:true});
+    const row=checkDb.prepare("PRAGMA quick_check").get();
+    out.integrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "ok" : "error";
+    const hasSessions=checkDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='auth_sessions'").get();
+    out.sessions=hasSessions ? Number(checkDb.prepare("SELECT COUNT(*) c FROM auth_sessions").get().c || 0) : 0;
+  } catch {
+    out.integrity="error";
+  } finally {
+    if(checkDb) checkDb.close();
+  }
+  return out;
+}
+
+function pruneDatabaseBackups() {
+  const keep = Math.max(3, Number(process.env.QY4_BACKUP_KEEP || 30));
+  const files = listDatabaseBackups();
+  files.slice(keep).forEach(removeBackupBundle);
+}
+async function createDatabaseBackup(actor = "Hệ thống", reason = "Sao lưu dữ liệu") {
+  fs.mkdirSync(backupDir, { recursive: true });
+  const stamp = nowSql().replace(/[-: ]/g,"").slice(0,14);
+  const millis = String(Date.now() % 1000).padStart(3,"0");
+  const filename = `qy4_ttbyt_${stamp}_${millis}.sqlite`;
+  const target = path.join(backupDir, filename);
+  const filesTarget = backupFilesDirFor(filename);
+  try {
+    await db.backup(target);
+    finalizeSqliteBackup(target);
+    fs.rmSync(filesTarget,{recursive:true,force:true});
+    snapshotDirectoryWithHardlinks(path.join(__dirname,"uploads"), filesTarget);
+    pruneDatabaseBackups();
+    let mirrorNote="";
+    if(backupMirrorDir){
+      try{
+        const mirrored=mirrorBackupBundle(filename);
+        pruneMirrorBackups();
+        mirrorNote=mirrored.ok ? ` + mirror ${backupMirrorDir}` : " + mirror chưa hoàn chỉnh";
+      }catch(mirrorError){
+        mirrorNote=` + mirror lỗi: ${mirrorError.message}`;
+        console.warn("Backup mirror error:",mirrorError.message);
+      }
+    }
+    writeAudit(actor, reason, "system", filename, `${target} + ${filesTarget}${mirrorNote}`);
+    return filename;
+  } catch (e) {
+    removeBackupBundle(filename);
+    throw e;
+  }
+}
+async function ensureDailyBackup() {
+  try {
+    const day = nowSql().slice(0,10).replace(/-/g,"");
+    const completeToday = listDatabaseBackups().find(x => x.includes(day) && fs.existsSync(backupFilesDirFor(x)));
+    if (completeToday) return;
+    await createDatabaseBackup("Hệ thống", "Sao lưu tự động hằng ngày");
+  } catch (e) {
+    console.error("Auto backup error:", e.message);
+  }
+}
+
+function transferConsistencySummary() {
+  const rows = db.prepare(`
+    SELECT t.id,t.device_id,t.transfer_datetime,
+           t.from_department_code,t.from_location,t.to_department_code,t.to_location,
+           dv.department_code AS current_department_code,dv.location AS current_location
+    FROM device_transfers t
+    JOIN devices dv ON dv.id=t.device_id
+    ORDER BY t.device_id ASC, t.transfer_datetime ASC, t.id ASC
+  `).all();
+  const norm = value => String(value ?? "").trim();
+  let chainMismatches=0;
+  const chainDevices=new Set();
+  const latestByDevice=new Map();
+  let previous=null;
+  for (const row of rows) {
+    if (previous && Number(previous.device_id)===Number(row.device_id)) {
+      const previousDepartment=norm(previous.to_department_code);
+      const nextFromDepartment=norm(row.from_department_code);
+      const previousLocation=norm(previous.to_location);
+      const nextFromLocation=norm(row.from_location);
+      const departmentMismatch=Boolean(previousDepartment && nextFromDepartment && previousDepartment!==nextFromDepartment);
+      const locationMismatch=Boolean(previousLocation && nextFromLocation && previousLocation!==nextFromLocation);
+      if (departmentMismatch || locationMismatch) {
+        chainMismatches += 1;
+        chainDevices.add(Number(row.device_id));
+      }
+    }
+    previous=row;
+    latestByDevice.set(Number(row.device_id),row);
+  }
+  let currentContextMismatches=0;
+  const currentDevices=new Set();
+  for (const [deviceId,row] of latestByDevice.entries()) {
+    const departmentMismatch=norm(row.to_department_code)!==norm(row.current_department_code);
+    const locationMismatch=norm(row.to_location)!==norm(row.current_location);
+    if (departmentMismatch || locationMismatch) {
+      currentContextMismatches += 1;
+      currentDevices.add(deviceId);
+    }
+  }
+  return {
+    transfer_rows:rows.length,
+    chain_mismatches:chainMismatches,
+    chain_devices:chainDevices.size,
+    current_context_mismatches:currentContextMismatches,
+    current_context_devices:currentDevices.size
+  };
+}
+
+app.get("/api/system/readiness", (req, res) => {
+  const backups = listDatabaseBackups();
+  const latestBackup = backups[0] || "";
+  const latestBackupStatus = inspectBackupBundle(latestBackup);
+  const latestMirrorStatus = inspectMirrorBackup(latestBackup);
+  const origins = getLanQrOrigins(req);
+  const detectedOrigin = origins.find(x => !/localhost|127\.0\.0\.1/i.test(x)) || origins[0] || "";
+  const recommendedOrigin = PUBLIC_QR_ORIGIN || detectedOrigin;
+  const requestIsHttps = Boolean(req.secure || String(req.headers["x-forwarded-proto"] || "").toLowerCase()==="https");
+  const totalDevices = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c;
+  const missingSerial = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))=''").get().c;
+  const missingModel = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(model,''))=''").get().c;
+  const missingLocation = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(location,''))=''").get().c;
+  const missingYear = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND COALESCE(year_in_use,0)<=0").get().c;
+  const missingDeviceName = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(name,''))=''").get().c;
+  const missingDeviceDepartment = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(department_code,''))=''").get().c;
+  const missingDeviceGroup = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(group_code,''))=''").get().c;
+  const unknownDeviceDepartmentRefs = db.prepare(`
+    SELECT COUNT(*) c
+    FROM devices dv
+    LEFT JOIN departments d ON d.code=dv.department_code
+    WHERE COALESCE(dv.is_archived,0)=0
+      AND trim(COALESCE(dv.department_code,''))<>''
+      AND d.code IS NULL
+  `).get().c;
+  const unknownDeviceGroupRefs = db.prepare(`
+    SELECT COUNT(*) c
+    FROM devices dv
+    LEFT JOIN device_groups g ON g.code=dv.group_code
+    WHERE COALESCE(dv.is_archived,0)=0
+      AND trim(COALESCE(dv.group_code,''))<>''
+      AND g.code IS NULL
+  `).get().c;
+  const missingQr = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(qr_uid,''))=''").get().c;
+  const duplicateQrUidGroups = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT trim(qr_uid) qr_key
+      FROM devices
+      WHERE trim(COALESCE(qr_uid,''))<>''
+      GROUP BY trim(qr_uid)
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
+  const duplicateSerialGroups = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT lower(trim(serial)) k
+      FROM devices
+      WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))<>''
+      GROUP BY lower(trim(serial))
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
+  const transferConsistency = transferConsistencySummary();
+  const activeAdmins = db.prepare("SELECT COUNT(*) c FROM users WHERE role='Quản trị viên' AND status='Hoạt động' AND trim(COALESCE(password_hash,''))<>''").get().c;
+  const activeUsers = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động'").get().c;
+  const activeUsersMissingPassword = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND trim(COALESCE(password_hash,''))=''").get().c;
+  const departmentUsersMissingDepartment = db.prepare("SELECT COUNT(*) c FROM users WHERE status='Hoạt động' AND role='Người dùng khoa' AND trim(COALESCE(department_code,''))=''").get().c;
+  const departmentUsersUnknownDepartment = db.prepare(`
+    SELECT COUNT(*) c
+    FROM users u
+    LEFT JOIN departments d ON d.code=u.department_code
+    WHERE u.status='Hoạt động'
+      AND u.role='Người dùng khoa'
+      AND trim(COALESCE(u.department_code,''))<>''
+      AND d.code IS NULL
+  `).get().c;
+  const duplicateUsernameGroups = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT lower(trim(username)) username_key
+      FROM users
+      WHERE trim(COALESCE(username,''))<>''
+      GROUP BY lower(trim(username))
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
+  const unacknowledged = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND trim(COALESCE(acknowledged_at,''))=''").get().c;
+  const acknowledgedOpenIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Đã tiếp nhận'").get().c;
+  const openRepairs = db.prepare("SELECT COUNT(*) c FROM repairs WHERE COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')").get().c;
+  const duplicateOpenRepairDevices = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT device_id
+      FROM repairs
+      WHERE COALESCE(processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+      GROUP BY device_id
+      HAVING COUNT(*) > 1
+    )
+  `).get().c;
+  const openRepairStatusMismatches = db.prepare(`
+    SELECT COUNT(DISTINCT r.device_id) c
+    FROM repairs r
+    JOIN devices dv ON dv.id=r.device_id
+    WHERE COALESCE(r.processing_status,'') IN ('Đang xử lý','Đang sửa chữa','Chờ linh kiện')
+      AND (COALESCE(dv.is_archived,0)=1 OR COALESCE(dv.status,'')<>'Chờ sửa chữa')
+  `).get().c;
+  const orphanRepairIncidentRefs = db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    LEFT JOIN incidents i ON i.id=r.incident_id
+    WHERE r.incident_id IS NOT NULL AND i.id IS NULL
+  `).get().c;
+  const incidentRepairDeviceMismatches = db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    JOIN incidents i ON i.id=r.incident_id
+    WHERE r.incident_id IS NOT NULL
+      AND r.device_id<>i.device_id
+  `).get().c;
+  const incidentsWithMultipleRepairs = db.prepare(`
+    SELECT COUNT(*) c FROM (
+      SELECT incident_id
+      FROM repairs
+      WHERE incident_id IS NOT NULL
+      GROUP BY incident_id
+      HAVING COUNT(*)>1
+    )
+  `).get().c;
+  const linkedIncidentStatusMismatches = db.prepare(`
+    SELECT COUNT(DISTINCT i.id) c
+    FROM incidents i
+    JOIN repairs r ON r.incident_id=i.id
+    WHERE COALESCE(i.status,'')<>'Đã chuyển sửa chữa'
+  `).get().c;
+  const terminalLinkedRepairsMissingCompletion = db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs
+    WHERE incident_id IS NOT NULL
+      AND COALESCE(processing_status,'') IN ('Đã hoàn thành','Không sửa được')
+      AND TRIM(COALESCE(completed_at,''))=''
+  `).get().c;
+  const openInventorySessions = db.prepare("SELECT COUNT(*) c FROM inventory_sessions WHERE status='Đang kiểm kê'").get().c;
+  const inspectionScheduleGaps = requiredInspectionScheduleGaps();
+  const failedInspectionRows = failedInspectionSchedules();
+  const missingInspectionRecords = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa có hồ sơ").length;
+  const missingInspectionNextDates = inspectionScheduleGaps.filter(x => x.schedule_issue === "Chưa đặt hạn tiếp theo").length;
+  let qrUploadWritable = true, documentUploadWritable = true, backupWritable = true;
+  try { fs.accessSync(qrUploadsDir, fs.constants.W_OK); } catch { qrUploadWritable = false; }
+  try { fs.accessSync(uploadsDir, fs.constants.W_OK); } catch { documentUploadWritable = false; }
+  try { fs.mkdirSync(backupDir,{recursive:true}); fs.accessSync(backupDir, fs.constants.W_OK); } catch { backupWritable = false; }
+  const uploadWritable = qrUploadWritable && documentUploadWritable && backupWritable;
+  let dbSize = 0;
+  try { dbSize = fs.statSync(dbPath).size; } catch {}
+  let liveDbIntegrity = "Lỗi";
+  try {
+    const row=db.prepare("PRAGMA quick_check").get();
+    liveDbIntegrity=String(row ? Object.values(row)[0] || "" : "").toLowerCase()==="ok" ? "Đạt" : "Lỗi";
+  } catch { liveDbIntegrity="Lỗi"; }
+  let foreignKeyViolations = [];
+  try { foreignKeyViolations = db.pragma("foreign_key_check"); } catch { foreignKeyViolations = [{error:"foreign_key_check failed"}]; }
+
+  const incompleteCore = db.prepare(`
+    SELECT COUNT(*) c FROM devices
+    WHERE COALESCE(is_archived,0)=0 AND (
+      trim(COALESCE(serial,''))='' OR trim(COALESCE(model,''))='' OR trim(COALESCE(manufacturer,''))=''
+      OR trim(COALESCE(location,''))='' OR COALESCE(year_in_use,0)<=0
+    )
+  `).get().c;
+  const completeCore = Math.max(0, Number(totalDevices)-Number(incompleteCore));
+  const completePercent = totalDevices ? Number((completeCore*100/totalDevices).toFixed(1)) : 100;
+
+  const checks = [
+    {
+      key:"database_integrity",
+      level:liveDbIntegrity === "Đạt" ? "Đạt" : "Cần xử lý",
+      title:"Toàn vẹn database SQLite",
+      detail:liveDbIntegrity === "Đạt" ? "PRAGMA quick_check = ok." : "SQLite quick_check không đạt; không nên tiếp tục nhập dữ liệu trước khi kiểm tra/khôi phục backup."
+    },
+    {
+      key:"foreign_keys",
+      level:foreignKeyViolations.length===0 ? "Đạt" : "Cần xử lý",
+      title:"Toàn vẹn quan hệ dữ liệu",
+      detail:foreignKeyViolations.length===0
+        ? "SQLite foreign_keys đang bật và không phát hiện bản ghi mồ côi."
+        : `Phát hiện ${foreignKeyViolations.length} vi phạm khóa ngoại; cần xử lý trước khi chạy thật.`
+    },
+    {
+      key:"demo",
+      level:process.env.QY4_DEMO_SEED === "1" ? "Cần xử lý" : "Đạt",
+      title:"Chế độ dữ liệu mẫu",
+      detail:process.env.QY4_DEMO_SEED === "1" ? "QY4_DEMO_SEED=1. Phải tắt trước khi dùng dữ liệu thật." : "Dữ liệu mẫu đang tắt."
+    },
+    {
+      key:"auth",
+      level:AUTH_REQUIRED && activeAdmins>0 ? "Đạt" : "Cần xử lý",
+      title:"Đăng nhập và quản trị",
+      detail:AUTH_REQUIRED ? (activeAdmins>0 ? `Đã bật xác thực; có ${activeAdmins} Quản trị viên hoạt động.` : "Đã bật xác thực nhưng chưa có Quản trị viên có mật khẩu.") : "QY4_AUTH_REQUIRED đang tắt."
+    },
+    {
+      key:"user_accounts",
+      level:duplicateUsernameGroups>0 || departmentUsersMissingDepartment>0 || departmentUsersUnknownDepartment>0 || (AUTH_REQUIRED && activeUsersMissingPassword>0) ? "Cần xử lý" : "Đạt",
+      title:"Tính toàn vẹn tài khoản",
+      detail:`Trùng username không phân biệt hoa/thường: ${duplicateUsernameGroups}; tài khoản khoa chưa gán khoa: ${departmentUsersMissingDepartment}; tài khoản khoa tham chiếu mã khoa không tồn tại: ${departmentUsersUnknownDepartment}; tài khoản hoạt động chưa có mật khẩu: ${activeUsersMissingPassword}.`
+    },
+    {
+      key:"transport_security",
+      level:AUTH_REQUIRED && !requestIsHttps ? "Lưu ý" : "Đạt",
+      title:"Mã hóa đường truyền đăng nhập",
+      detail:AUTH_REQUIRED
+        ? (requestIsHttps
+            ? "Phiên truy cập hiện được nhận diện qua HTTPS."
+            : "Đăng nhập đang chạy qua HTTP. Có thể dùng để thử nghiệm trong LAN tin cậy, nhưng khi triển khai nhiều khoa nên đặt HTTPS/reverse proxy để bảo vệ mật khẩu và phiên đăng nhập.")
+        : "Xác thực đang tắt; kiểm tra HTTPS khi chuyển sang chế độ triển khai chính thức."
+    },
+    {
+      key:"backup",
+      level:!latestBackupStatus.exists || !latestBackupStatus.files_exists || latestBackupStatus.integrity!=="ok" || latestBackupStatus.sessions>0
+        ? "Cần xử lý"
+        : (Number(latestBackupStatus.age_hours||0)>24 ? "Lưu ý" : "Đạt"),
+      title:"Sao lưu dữ liệu + file đính kèm",
+      detail:!latestBackup
+        ? "Chưa có bản sao lưu dữ liệu."
+        : (!latestBackupStatus.files_exists
+            ? `Bản backup mới nhất ${latestBackup} chưa có snapshot uploads; hãy tạo backup mới.`
+            : (latestBackupStatus.integrity!=="ok"
+                ? `Bản backup mới nhất ${latestBackup} không vượt qua SQLite quick_check.`
+                : (latestBackupStatus.sessions>0
+                    ? `Bản backup mới nhất còn ${latestBackupStatus.sessions} session đăng nhập; hãy tạo lại backup bằng phiên bản hiện tại.`
+                    : `Có ${backups.length} gói backup; mới nhất: ${latestBackup}, quick_check=ok, tuổi ${Number(latestBackupStatus.age_hours||0).toFixed(1)} giờ, kèm snapshot uploads.`)))
+    },
+    {
+      key:"backup_off_device",
+      level:!backupMirrorDir
+        ? "Lưu ý"
+        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists) || latestMirrorStatus.files_match!==true || latestMirrorStatus.integrity!=="ok" || latestMirrorStatus.sessions>0
+            ? "Cần xử lý"
+            : (latestMirrorStatus.separate_storage ? "Đạt" : "Lưu ý")),
+      title:"Bản sao lưu thứ cấp ngoài máy chủ",
+      detail:!backupMirrorDir
+        ? "Chưa cấu hình QY4_BACKUP_MIRROR_DIR. Backup hiện vẫn nằm trên cùng máy chủ; nên sao chép định kỳ sang USB/ổ khác/thư mục mạng được phép."
+        : (!(latestMirrorStatus.exists && latestMirrorStatus.files_exists)
+            ? `Đã cấu hình ${backupMirrorDir} nhưng gói backup mới nhất chưa có đủ database + file đính kèm tại vị trí thứ cấp.`
+            : (latestMirrorStatus.files_match!==true
+                ? `Snapshot file đính kèm ở mirror không khớp local: local ${latestMirrorStatus.local_files_count} file/${latestMirrorStatus.local_files_bytes} byte; mirror ${latestMirrorStatus.mirror_files_count} file/${latestMirrorStatus.mirror_files_bytes} byte.`
+                : (latestMirrorStatus.integrity!=="ok"
+                ? `Bản SQLite mirror mới nhất tại ${backupMirrorDir} không vượt qua quick_check; chưa được coi là bản sao an toàn.`
+                : (latestMirrorStatus.sessions>0
+                    ? `Bản mirror mới nhất còn ${latestMirrorStatus.sessions} session đăng nhập; hãy tạo lại backup bằng phiên bản hiện tại.`
+                    : (latestMirrorStatus.separate_storage
+                        ? `Gói backup mới nhất đã được sao sang storage khác và quick_check=ok: ${backupMirrorDir}.`
+                        : `Gói backup mirror quick_check=ok tại ${backupMirrorDir} nhưng vị trí này vẫn cùng filesystem/ổ với backup cục bộ; chưa bảo vệ được tình huống hỏng ổ.`)))))
+    },
+    {
+      key:"qr_origin",
+      level:!PUBLIC_QR_ORIGIN_VALID
+        ? "Cần xử lý"
+        : (PUBLIC_QR_ORIGIN
+            ? (/localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN) ? "Cần xử lý" : "Đạt")
+            : (recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin) ? "Lưu ý" : "Cần xử lý")),
+      title:"Địa chỉ chuẩn dùng để in QR",
+      detail:!PUBLIC_QR_ORIGIN_VALID
+        ? `QY4_PUBLIC_ORIGIN không hợp lệ: “${PUBLIC_QR_ORIGIN_RAW}”. Chỉ dùng origin dạng http(s)://host[:port], không kèm đường dẫn/query.`
+        : (PUBLIC_QR_ORIGIN
+            ? (/localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN)
+                ? `QY4_PUBLIC_ORIGIN đang là ${PUBLIC_QR_ORIGIN}; địa chỉ loopback không dùng được cho điện thoại khác.`
+                : `Đã khóa địa chỉ QR chuẩn bằng QY4_PUBLIC_ORIGIN: ${PUBLIC_QR_ORIGIN}. Các trình duyệt sẽ ưu tiên địa chỉ này khi in tem.`)
+            : (recommendedOrigin
+                ? (/localhost|127\.0\.0\.1/i.test(recommendedOrigin)
+                    ? `Chỉ phát hiện ${recommendedOrigin}. Cần cấu hình QY4_PUBLIC_ORIGIN hoặc chốt IP/hostname LAN trước khi in QR.`
+                    : `Chưa khóa địa chỉ QR ở cấp server. Đang phát hiện ${recommendedOrigin}; có thể test, nhưng trước khi in hàng loạt nên đặt QY4_PUBLIC_ORIGIN để mọi máy dùng cùng một địa chỉ.`)
+                : "Chưa xác định được địa chỉ LAN cho QR."))
+    },
+    {
+      key:"timezone",
+      level:APP_TIME_ZONE === "Asia/Bangkok" ? "Đạt" : "Lưu ý",
+      title:"Múi giờ ứng dụng",
+      detail:`${APP_TIME_ZONE} · ngày hệ thống: ${localDateISO()} · thời gian: ${nowSql().slice(11,19)}.`
+    },
+    {
+      key:"legacy_qr",
+      level:ALLOW_LEGACY_PUBLIC_QR ? "Lưu ý" : "Đạt",
+      title:"QR cũ theo ID/mã thiết bị",
+      detail:ALLOW_LEGACY_PUBLIC_QR
+        ? "Đang bật tương thích QR cũ. Sau khi in lại tem QR UID cố định, nên tắt QY4_ALLOW_LEGACY_QR."
+        : "Đã tắt endpoint QR cũ có thể dò tuần tự; chỉ QR UID cố định được dùng công khai."
+    },
+    {
+      key:"uploads",
+      level:uploadWritable ? "Đạt" : "Cần xử lý",
+      title:"Quyền ghi dữ liệu và file",
+      detail:uploadWritable
+        ? "Thư mục ảnh/video QR, tài liệu đính kèm và backup đều có quyền ghi."
+        : `Thiếu quyền ghi: QR=${qrUploadWritable?"OK":"LỖI"}, tài liệu=${documentUploadWritable?"OK":"LỖI"}, backup=${backupWritable?"OK":"LỖI"}.`
+    },
+    {
+      key:"data_quality",
+      level:completePercent >= 95 ? "Đạt" : "Lưu ý",
+      title:"Độ đầy đủ dữ liệu thiết bị cốt lõi",
+      detail:`${completePercent}% (${completeCore}/${totalDevices}). Thiếu Serial: ${missingSerial}; Model: ${missingModel}; vị trí: ${missingLocation}; năm sử dụng: ${missingYear}.`
+    },
+    {
+      key:"device_catalog_integrity",
+      level:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup + unknownDeviceDepartmentRefs + unknownDeviceGroupRefs)===0 ? "Đạt" : "Cần xử lý",
+      title:"Định danh lõi danh mục thiết bị",
+      detail:(missingDeviceName + missingDeviceDepartment + missingDeviceGroup + unknownDeviceDepartmentRefs + unknownDeviceGroupRefs)===0
+        ? "Toàn bộ thiết bị đang quản lý đều có tên, khoa/phòng, nhóm và tham chiếu đúng danh mục."
+        : `Thiếu tên: ${missingDeviceName}; thiếu khoa/phòng: ${missingDeviceDepartment}; thiếu nhóm: ${missingDeviceGroup}; mã khoa không tồn tại: ${unknownDeviceDepartmentRefs}; mã nhóm không tồn tại: ${unknownDeviceGroupRefs}. Đây là dữ liệu bắt buộc cho phân quyền và mã hóa thiết bị.`
+    },
+    {
+      key:"qr_uid",
+      level:(missingQr===0 && duplicateQrUidGroups===0) ? "Đạt" : "Cần xử lý",
+      title:"QR UID cố định",
+      detail:(missingQr===0 && duplicateQrUidGroups===0)
+        ? `Toàn bộ ${totalDevices} thiết bị đang quản lý đã có QR UID duy nhất.`
+        : `Thiếu QR UID: ${missingQr}; nhóm QR UID trùng: ${duplicateQrUidGroups}. QR UID trùng phải được xác minh, không tự đổi vì có thể tem đã được in.`
+    },
+    {
+      key:"duplicate_serial",
+      level:duplicateSerialGroups===0 ? "Đạt" : "Lưu ý",
+      title:"Serial trùng",
+      detail:duplicateSerialGroups===0 ? "Không phát hiện nhóm Serial trùng." : `Có ${duplicateSerialGroups} nhóm Serial trùng cần xác minh.`
+    },
+    {
+      key:"transfer_history",
+      level:transferConsistency.chain_mismatches>0
+        ? "Cần xử lý"
+        : (transferConsistency.current_context_mismatches>0 ? "Lưu ý" : "Đạt"),
+      title:"Nhất quán lịch sử điều chuyển",
+      detail:transferConsistency.chain_mismatches>0
+        ? `Phát hiện ${transferConsistency.chain_mismatches} điểm đứt chuỗi trên ${transferConsistency.chain_devices} thiết bị: nơi kết thúc lần trước không khớp nơi bắt đầu lần sau. Không tự sửa lịch sử; cần đối chiếu biên bản trước khi chạy thật.`
+        : (transferConsistency.current_context_mismatches>0
+            ? `Chuỗi điều chuyển liên tục nhưng có ${transferConsistency.current_context_mismatches} thiết bị có khoa/vị trí hiện tại khác điểm đến của lần điều chuyển cuối. Có thể do dữ liệu legacy từng sửa trực tiếp; cần rà thủ công.`
+            : `Toàn bộ ${transferConsistency.transfer_rows} bản ghi điều chuyển có chuỗi liên tục và điểm đến cuối khớp trạng thái hiện tại.`)
+    },
+    {
+      key:"incidents",
+      level:unacknowledged===0 ? "Đạt" : "Lưu ý",
+      title:"Sự cố chưa tiếp nhận",
+      detail:unacknowledged===0 ? "Không có sự cố mới đang thiếu mốc tiếp nhận." : `Có ${unacknowledged} sự cố mới chưa có mốc tiếp nhận.`
+    },
+    {
+      key:"open_work",
+      level:(acknowledgedOpenIncidents + openRepairs + openInventorySessions)===0 ? "Đạt" : "Lưu ý",
+      title:"Công việc kỹ thuật đang mở",
+      detail:(acknowledgedOpenIncidents + openRepairs + openInventorySessions)===0
+        ? "Không có phiếu kỹ thuật/kiểm kê đang dang dở."
+        : `Đã tiếp nhận chưa khép sự cố: ${acknowledgedOpenIncidents}; sửa chữa đang mở: ${openRepairs}; đợt kiểm kê đang mở: ${openInventorySessions}. Đây là công việc vận hành bình thường nhưng nên rà trước khi demo/chốt số liệu.`
+    },
+    {
+      key:"repair_consistency",
+      level:(duplicateOpenRepairDevices + openRepairStatusMismatches)===0 ? "Đạt" : "Cần xử lý",
+      title:"Nhất quán phiếu sửa chữa và trạng thái thiết bị",
+      detail:(duplicateOpenRepairDevices + openRepairStatusMismatches)===0
+        ? "Không phát hiện thiết bị có nhiều phiếu sửa chữa đang mở hoặc trạng thái máy lệch với phiếu đang xử lý."
+        : `Thiết bị có nhiều phiếu sửa chữa đang mở: ${duplicateOpenRepairDevices}; thiết bị có phiếu đang mở nhưng trạng thái không phải “Chờ sửa chữa”/đã lưu trữ: ${openRepairStatusMismatches}. Cần xử lý trước khi chạy thật để tránh cập nhật sai trạng thái thiết bị.`
+    },
+    {
+      key:"incident_repair_linkage",
+      level:(orphanRepairIncidentRefs + incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0 ? "Đạt" : "Cần xử lý",
+      title:"Nhất quán liên kết sự cố – sửa chữa",
+      detail:(orphanRepairIncidentRefs + incidentRepairDeviceMismatches + incidentsWithMultipleRepairs + linkedIncidentStatusMismatches + terminalLinkedRepairsMissingCompletion)===0
+        ? "Mỗi sự cố liên kết tối đa một phiếu sửa chữa, cùng thiết bị, đúng trạng thái và đủ mốc kết thúc."
+        : `Phiếu sửa chữa trỏ tới sự cố không tồn tại: ${orphanRepairIncidentRefs}; sai thiết bị giữa sự cố/phiếu sửa chữa: ${incidentRepairDeviceMismatches}; sự cố có nhiều phiếu sửa chữa liên kết: ${incidentsWithMultipleRepairs}; sự cố có phiếu sửa chữa nhưng trạng thái chưa phải “Đã chuyển sửa chữa”: ${linkedIncidentStatusMismatches}; phiếu liên kết đã kết thúc nhưng thiếu completed_at: ${terminalLinkedRepairsMissingCompletion}.`
+    },
+    {
+      key:"inspection_schedule",
+      level:inspectionScheduleGaps.length===0 ? "Đạt" : "Cần xử lý",
+      title:"Lịch KĐ/HC/ATBX bắt buộc",
+      detail:inspectionScheduleGaps.length===0
+        ? "Các nghĩa vụ KĐ/HC/ATBX đã khai báo đều có hồ sơ và hạn tiếp theo."
+        : `Còn ${inspectionScheduleGaps.length} nghĩa vụ chưa hoàn chỉnh: ${missingInspectionRecords} chưa có hồ sơ; ${missingInspectionNextDates} chưa đặt hạn tiếp theo.`
+    },
+    {
+      key:"inspection_result",
+      level:failedInspectionRows.length===0 ? "Đạt" : "Cần xử lý",
+      title:"Kết quả KĐ/HC/ATBX không đạt",
+      detail:failedInspectionRows.length===0
+        ? "Không có loại KĐ/HC/ATBX nào có hồ sơ mới nhất kết luận Không đạt."
+        : `Có ${failedInspectionRows.length} nghĩa vụ có kết quả mới nhất Không đạt; cần xử lý chuyên môn và cập nhật hồ sơ sau khi thực hiện lại.`
+    }
+  ];
+  const blocking = checks.filter(x=>x.level==="Cần xử lý").length;
+  const warnings = checks.filter(x=>x.level==="Lưu ý").length;
+  res.json({
+    generated_at:nowSql(),
+    overall:blocking===0 ? (warnings===0 ? "Sẵn sàng" : "Sẵn sàng có lưu ý") : "Chưa sẵn sàng",
+    blocking,
+    warnings,
+    checks,
+    system:{
+      time_zone:APP_TIME_ZONE,
+      https:Boolean(requestIsHttps),
+      database_size_bytes:dbSize,
+      database_integrity:liveDbIntegrity,
+      foreign_keys_enabled:Number(db.pragma("foreign_keys",{simple:true}) || 0)===1,
+      foreign_key_violations:foreignKeyViolations.length,
+      active_users:activeUsers,
+      total_devices:totalDevices,
+      duplicate_qr_uid_groups:duplicateQrUidGroups,
+      missing_device_name:missingDeviceName,
+      missing_device_department:missingDeviceDepartment,
+      missing_device_group:missingDeviceGroup,
+      unknown_device_department_refs:unknownDeviceDepartmentRefs,
+      unknown_device_group_refs:unknownDeviceGroupRefs,
+      department_users_unknown_department:departmentUsersUnknownDepartment,
+      recommended_qr_origin:recommendedOrigin,
+      configured_qr_origin:PUBLIC_QR_ORIGIN,
+      configured_qr_origin_raw:PUBLIC_QR_ORIGIN_RAW,
+      configured_qr_origin_valid:PUBLIC_QR_ORIGIN_VALID,
+      qr_origin_locked:Boolean(PUBLIC_QR_ORIGIN),
+      qr_origin_print_safe:Boolean(
+        PUBLIC_QR_ORIGIN_RAW
+          ? (PUBLIC_QR_ORIGIN_VALID && PUBLIC_QR_ORIGIN && !/localhost|127\.0\.0\.1/i.test(PUBLIC_QR_ORIGIN))
+          : (recommendedOrigin && !/localhost|127\.0\.0\.1/i.test(recommendedOrigin))
+      ),
+      backups:backups.length,
+      latest_backup:latestBackup,
+      latest_backup_integrity:latestBackupStatus.integrity,
+      latest_backup_age_hours:latestBackupStatus.age_hours,
+      backup_mirror_configured:Boolean(backupMirrorDir),
+      backup_mirror_dir:backupMirrorDir,
+      latest_backup_mirrored:Boolean(latestMirrorStatus.exists && latestMirrorStatus.files_exists),
+      latest_backup_mirror_integrity:latestMirrorStatus.integrity,
+      latest_backup_mirror_sessions:latestMirrorStatus.sessions,
+      latest_backup_mirror_files_match:latestMirrorStatus.files_match,
+      latest_backup_mirror_files_count:latestMirrorStatus.mirror_files_count,
+      latest_backup_local_files_count:latestMirrorStatus.local_files_count,
+      backup_mirror_separate_storage:Boolean(latestMirrorStatus.separate_storage),
+      backup_mirror_same_filesystem:latestMirrorStatus.same_filesystem,
+      missing_inspection_schedules:inspectionScheduleGaps.length,
+      missing_inspection_records:missingInspectionRecords,
+      missing_inspection_next_dates:missingInspectionNextDates,
+      failed_inspection_schedules:failedInspectionRows.length,
+      open_acknowledged_incidents:acknowledgedOpenIncidents,
+      open_repairs:openRepairs,
+      duplicate_open_repair_devices:duplicateOpenRepairDevices,
+      open_repair_status_mismatches:openRepairStatusMismatches,
+      orphan_repair_incident_refs:orphanRepairIncidentRefs,
+      incident_repair_device_mismatches:incidentRepairDeviceMismatches,
+      incidents_with_multiple_repairs:incidentsWithMultipleRepairs,
+      linked_incident_status_mismatches:linkedIncidentStatusMismatches,
+      terminal_linked_repairs_missing_completion:terminalLinkedRepairsMissingCompletion,
+      transfer_history_rows:transferConsistency.transfer_rows,
+      transfer_chain_mismatches:transferConsistency.chain_mismatches,
+      transfer_chain_devices:transferConsistency.chain_devices,
+      transfer_current_context_mismatches:transferConsistency.current_context_mismatches,
+      transfer_current_context_devices:transferConsistency.current_context_devices,
+      open_inventory_sessions:openInventorySessions
+    }
+  });
+});
+
+app.get("/api/system/backups", (req, res) => {
+  res.json(listDatabaseBackups());
+});
+
+app.post("/api/system/backup", async (req, res) => {
+  try {
+    const filename = await createDatabaseBackup(requestActor(req, "Quản trị viên"), "Sao lưu dữ liệu");
+    res.json({ ok:true, filename });
+  } catch (e) {
+    res.status(500).json({ error:e.message });
+  }
 });
 
 app.get("/api/leadership-dashboard", (req, res) => {
-  const devices = db.prepare("SELECT * FROM devices").all();
+  const devices = db.prepare("SELECT * FROM devices WHERE COALESCE(is_archived,0)=0").all();
   const total = devices.length;
   const totalCost = devices.reduce((s,d)=>s+Number(d.cost||0),0);
   const active = devices.filter(d=>d.status === "Đang hoạt động").length;
+  const limited = devices.filter(d=>d.status === "Hoạt động hạn chế").length;
+  const operational = active + limited;
   const repair = devices.filter(d=>d.status === "Chờ sửa chữa").length;
-  const old10 = devices.filter(d=>Number(d.year_in_use||0) && (new Date().getFullYear() - Number(d.year_in_use)) > 10).length;
-  const today = new Date().toISOString().slice(0,10);
-  const plus30 = new Date(Date.now()+30*24*3600*1000).toISOString().slice(0,10);
-  const dueInspections = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date >= ? AND next_date <= ?").get(today, plus30).c;
-  const overdueInspections = db.prepare("SELECT COUNT(*) c FROM inspections WHERE next_date < ?").get(today).c;
-  const dueMaint = db.prepare("SELECT COUNT(*) c FROM maintenances WHERE next_date >= ? AND next_date <= ?").get(today, plus30).c;
-  const overdueMaint = db.prepare("SELECT COUNT(*) c FROM maintenances WHERE next_date < ?").get(today).c;
-  const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices GROUP BY quality_level ORDER BY quality_level").all();
-  const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code GROUP BY d.code,d.name ORDER BY count DESC`).all();
-  res.json({ total, totalCost, active, repair, old10, dueInspections, overdueInspections, dueMaint, overdueMaint, quality, byDept });
+  const stopped = devices.filter(d=>d.status === "Ngừng hoạt động").length;
+  const currentYear = Number(localDateISO().slice(0,4));
+  const old10 = devices.filter(d=>Number(d.year_in_use||0) && (currentYear - Number(d.year_in_use)) > 10).length;
+  const today = localDateISO();
+  const plus30 = localDatePlusDays(30);
+  const inspectionSchedules = activeInspectionSchedules();
+  const inspectionGaps = requiredInspectionScheduleGaps();
+  const failedInspections = inspectionSchedules.filter(x => normalizeScheduleText(x.result) === "khong dat").length;
+  const maintenanceSchedules = activeMaintenanceSchedules();
+  const dueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
+  const overdueInspections = inspectionSchedules.filter(x => x.next_date && x.next_date < today).length;
+  const dueMaint = maintenanceSchedules.filter(x => x.next_date && x.next_date >= today && x.next_date <= plus30).length;
+  const overdueMaint = maintenanceSchedules.filter(x => x.next_date && x.next_date < today).length;
+  const quality = db.prepare("SELECT quality_level AS grade, COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY quality_level ORDER BY quality_level").all();
+  const byDept = db.prepare(`SELECT d.code, d.name, COUNT(dv.id) count, SUM(COALESCE(dv.cost,0)) cost FROM departments d LEFT JOIN devices dv ON dv.department_code=d.code AND COALESCE(dv.is_archived,0)=0 GROUP BY d.code,d.name ORDER BY count DESC`).all();
+  res.json({ total, totalCost, active, limited, operational, repair, stopped, old10, dueInspections, overdueInspections, failedInspections, missingInspectionSchedule:inspectionGaps.length, dueMaint, overdueMaint, quality, byDept });
 });
 
 app.get("/api/reports/summary", (req, res) => {
   const now = new Date();
-  const today = now.toISOString().slice(0,10);
+  const today = localDateISO(now);
   const days = Number(req.query.days || 60);
-  const future = new Date(now.getTime() + days * 86400000).toISOString().slice(0,10);
+  const future = localDatePlusDays(days, now);
   const devices = db.prepare(`
     SELECT dv.*, d.name AS department_name, g.name AS group_name
     FROM devices dv
     LEFT JOIN departments d ON d.code=dv.department_code
     LEFT JOIN device_groups g ON g.code=dv.group_code
+    WHERE COALESCE(dv.is_archived,0)=0
     ORDER BY dv.id
   `).all().map(enrichDevice);
-  const maint = db.prepare("SELECT device_id, MAX(substr(maintenance_date,1,10)) last_date, MAX(next_date) next_date FROM maintenances GROUP BY device_id").all();
-  const insp = db.prepare("SELECT device_id, MAX(substr(inspection_date,1,10)) last_date, MAX(next_date) next_date FROM inspections GROUP BY device_id").all();
+  const maint = activeMaintenanceSchedules().map(x => ({
+    ...x,
+    type:x.schedule_type || x.type,
+    last_date:String(x.maintenance_date || "").slice(0,10)
+  }));
+  const insp = activeInspectionSchedules().map(x => ({
+    ...x,
+    type:x.schedule_type || x.type,
+    last_date:String(x.inspection_date || "").slice(0,10)
+  }));
   const repairs = db.prepare("SELECT device_id, COUNT(*) repair_count, SUM(cost) total_cost FROM repairs GROUP BY device_id").all();
-  const maintMap = new Map(maint.map(x => [Number(x.device_id), x]));
-  const inspMap = new Map(insp.map(x => [Number(x.device_id), x]));
+  const maintMap = new Map();
+  const inspMap = new Map();
+  for (const row of maint) {
+    const id=Number(row.device_id);
+    if(!maintMap.has(id)) maintMap.set(id,[]);
+    maintMap.get(id).push(row);
+  }
+  for (const row of insp) {
+    const id=Number(row.device_id);
+    if(!inspMap.has(id)) inspMap.set(id,[]);
+    inspMap.get(id).push(row);
+  }
   const repairMap = new Map(repairs.map(x => [Number(x.device_id), x]));
-  const enriched = devices.map(d => ({...d, maintenance: maintMap.get(d.id) || {}, inspection: inspMap.get(d.id) || {}, repair: repairMap.get(d.id) || {repair_count:0,total_cost:0}}));
+  const enriched = devices.map(d => {
+    const maintenanceSchedules=maintMap.get(d.id) || [];
+    const inspectionSchedules=inspMap.get(d.id) || [];
+    return {
+      ...d,
+      maintenance_schedules:maintenanceSchedules,
+      inspection_schedules:inspectionSchedules,
+      maintenance:latestScheduleByDate(maintenanceSchedules,"maintenance_date") || {},
+      inspection:latestScheduleByDate(inspectionSchedules,"inspection_date") || {},
+      repair:repairMap.get(d.id) || {repair_count:0,total_cost:0}
+    };
+  });
   const warrantySoon = enriched.filter(d => d.warranty_end && d.warranty_end >= today && d.warranty_end <= future);
-  const maintenanceOverdue = enriched.filter(d => d.maintenance.next_date && d.maintenance.next_date < today);
-  const inspectionOverdue = enriched.filter(d => d.inspection.next_date && d.inspection.next_date < today);
+  const maintenanceOverdue = enriched.flatMap(d =>
+    (d.maintenance_schedules || [])
+      .filter(m => m.next_date && m.next_date < today)
+      .map(m => ({...d, maintenance:m, obligation_type:m.schedule_type || m.type || "Bảo dưỡng"}))
+  );
+  const inspectionOverdue = enriched.flatMap(d =>
+    (d.inspection_schedules || [])
+      .filter(i => i.next_date && i.next_date < today)
+      .map(i => ({...d, inspection:i, obligation_type:i.schedule_type || i.type || "Kiểm định/Hiệu chuẩn"}))
+  );
+  const inspectionMissingSchedule = requiredInspectionScheduleGaps();
+  const inspectionFailed = enriched.flatMap(d =>
+    (d.inspection_schedules || [])
+      .filter(i => normalizeScheduleText(i.result) === "khong dat")
+      .map(i => ({...d, inspection:i, obligation_type:i.schedule_type || i.type || "Kiểm định/Hiệu chuẩn"}))
+  );
   const frequentRepairs = enriched.filter(d => Number(d.repair.repair_count || 0) >= 2).sort((a,b)=>Number(b.repair.repair_count)-Number(a.repair.repair_count));
   const replaceList = enriched.filter(d => ["Chờ sửa chữa","Ngừng hoạt động","Hoạt động hạn chế"].includes(d.status) || Number(d.quality_level || 3) >= 4 || Number(d.repair.repair_count || 0) >= 3);
   const costByDepartment = db.prepare(`
-    SELECT dv.department_code, d.name AS department_name, COUNT(r.id) repair_count, SUM(COALESCE(r.cost,0)) total_cost
-    FROM repairs r JOIN devices dv ON dv.id=r.device_id LEFT JOIN departments d ON d.code=dv.department_code
-    GROUP BY dv.department_code ORDER BY total_cost DESC
+    SELECT COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code) AS department_code,
+           d.name AS department_name, COUNT(r.id) repair_count, SUM(COALESCE(r.cost,0)) total_cost
+    FROM repairs r
+    JOIN devices dv ON dv.id=r.device_id
+    LEFT JOIN departments d ON d.code=COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code)
+    GROUP BY COALESCE(NULLIF(r.department_code_snapshot,''),dv.department_code)
+    ORDER BY total_cost DESC
   `).all();
-  const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices GROUP BY status ORDER BY count DESC").all();
-  res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, frequentRepairs, replaceList, costByDepartment, statusRatio });
+  const statusRatio = db.prepare("SELECT COALESCE(status,'Chưa rõ') status, COUNT(*) count FROM devices WHERE COALESCE(is_archived,0)=0 GROUP BY status ORDER BY count DESC").all();
+  res.json({ warrantySoon, maintenanceOverdue, inspectionOverdue, inspectionFailed, inspectionMissingSchedule, frequentRepairs, replaceList, costByDepartment, statusRatio });
+});
+
+app.get("/api/reports/data-quality", (req, res) => {
+  const rows = db.prepare(`
+    SELECT id,device_code,name,department_code,manufacturer,model,serial,insurance_code,
+           country,year_manufactured,year_in_use,location,qr_uid,is_archived
+    FROM devices
+    WHERE COALESCE(is_archived,0)=0
+    ORDER BY department_code,name,id
+  `).all().map(r=>({...r,device_code:getDeviceCode(r.id),qr_uid:ensureDeviceQrUid(r.id)}));
+
+  const missing = key => rows.filter(r=>String(r[key]??"").trim()==="");
+  const suspiciousSerial = rows.filter(r=>!String(r.serial||"").trim() && String(r.insurance_code||"").trim());
+  const duplicateSerialGroups = db.prepare(`
+    SELECT lower(trim(serial)) AS serial_key, MIN(serial) AS serial, COUNT(*) AS count
+    FROM devices
+    WHERE COALESCE(is_archived,0)=0 AND trim(COALESCE(serial,''))<>''
+    GROUP BY lower(trim(serial))
+    HAVING COUNT(*)>1
+    ORDER BY count DESC,serial
+  `).all();
+  const incompleteRows = rows.filter(r =>
+    !String(r.model||"").trim() || !String(r.serial||"").trim() || !String(r.manufacturer||"").trim()
+    || !String(r.location||"").trim() || !Number(r.year_in_use||0)
+  );
+
+  const total=rows.length;
+  const completeCore=total-incompleteRows.length;
+  res.json({
+    summary:{
+      total_devices:total,
+      core_complete_devices:completeCore,
+      core_complete_percent:total?Number((completeCore*100/total).toFixed(1)):0,
+      missing_serial:missing("serial").length,
+      missing_model:missing("model").length,
+      missing_manufacturer:missing("manufacturer").length,
+      missing_location:missing("location").length,
+      missing_year_in_use:rows.filter(r=>!Number(r.year_in_use||0)).length,
+      missing_qr_uid:missing("qr_uid").length,
+      serial_blank_with_insurance_code:suspiciousSerial.length,
+      duplicate_serial_groups:duplicateSerialGroups.length
+    },
+    suspicious_serial_rows:suspiciousSerial,
+    duplicate_serial_groups:duplicateSerialGroups,
+    incomplete_devices:incompleteRows
+  });
+});
+
+app.get("/api/reports/kpi", (req, res) => {
+  const today = localDateISO();
+  const currentYear = today.slice(0,4);
+  const fromDate = String(req.query.from_date || `${currentYear}-01-01`).slice(0,10);
+  const toDate = String(req.query.to_date || today).slice(0,10);
+  const departmentCode = String(req.query.department_code || "ALL").trim();
+  const responseTargetMinutes = Math.max(1, Math.min(1440, Number(req.query.response_target_minutes || 30)));
+
+  let sql = `
+    SELECT i.id,i.incident_code,i.device_id,i.incident_datetime,i.description,i.status,i.reporter,
+           i.source_channel,i.acknowledged_at,i.acknowledged_by,i.completed_at,
+           COALESCE(NULLIF(i.department_snapshot,''), d.name, dv.department_code) AS department_name,
+           COALESCE(NULLIF(i.device_code_snapshot,''), dv.device_code) AS device_code,
+           COALESCE(NULLIF(i.device_name_snapshot,''), dv.name) AS device_name,
+           COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code) AS department_code,
+           r.id AS repair_id,r.processing_status AS repair_status,r.completed_at AS repair_completed_at,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)>=julianday(i.incident_datetime)
+             THEN (julianday(i.acknowledged_at)-julianday(i.incident_datetime))*24*60 ELSE NULL END AS response_minutes,
+           CASE WHEN i.acknowledged_at IS NOT NULL AND i.acknowledged_at<>''
+                     AND julianday(i.acknowledged_at)<julianday(i.incident_datetime)
+             THEN 1 ELSE 0 END AS invalid_response_timestamp,
+           CASE
+             WHEN COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')) IS NOT NULL
+                  AND julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))>=julianday(i.incident_datetime)
+             THEN (julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))-julianday(i.incident_datetime))*24*60
+             ELSE NULL
+           END AS resolution_minutes,
+           CASE
+             WHEN COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')) IS NOT NULL
+                  AND julianday(COALESCE(NULLIF(r.completed_at,''),NULLIF(i.completed_at,'')))<julianday(i.incident_datetime)
+             THEN 1 ELSE 0
+           END AS invalid_resolution_timestamp
+    FROM incidents i
+    JOIN devices dv ON dv.id=i.device_id
+    LEFT JOIN departments d ON d.code=COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code)
+    LEFT JOIN repairs r ON r.id=(SELECT rr.id FROM repairs rr WHERE rr.incident_id=i.id ORDER BY rr.id DESC LIMIT 1)
+    WHERE substr(i.incident_datetime,1,10)>=? AND substr(i.incident_datetime,1,10)<=?
+  `;
+  const params = [fromDate,toDate];
+  if (departmentCode && departmentCode !== "ALL") {
+    sql += " AND COALESCE(NULLIF(i.department_code_snapshot,''),dv.department_code)=?";
+    params.push(departmentCode);
+  }
+  sql += " ORDER BY i.incident_datetime DESC,i.id DESC";
+  const records = db.prepare(sql).all(...params).map(r => ({
+    ...r,
+    source_channel: r.source_channel || "Không xác định",
+    response_minutes: r.response_minutes == null ? null : Number(Number(r.response_minutes).toFixed(1)),
+    resolution_minutes: r.resolution_minutes == null ? null : Number(Number(r.resolution_minutes).toFixed(1)),
+    invalid_response_timestamp:Number(r.invalid_response_timestamp || 0),
+    invalid_resolution_timestamp:Number(r.invalid_resolution_timestamp || 0)
+  }));
+
+  let checkSql = `
+    SELECT c.id,c.device_id,c.check_datetime,c.inspector,c.result,c.source_channel,c.incident_id,
+           c.department_code_snapshot,c.location_snapshot,dv.device_code,dv.name AS device_name
+    FROM daily_checks c
+    JOIN devices dv ON dv.id=c.device_id
+    WHERE substr(c.check_datetime,1,10)>=? AND substr(c.check_datetime,1,10)<=?
+      AND c.source_channel='QR'
+  `;
+  const checkParams=[fromDate,toDate];
+  if (departmentCode && departmentCode !== "ALL") {
+    checkSql += " AND c.department_code_snapshot=?";
+    checkParams.push(departmentCode);
+  }
+  checkSql += " ORDER BY c.check_datetime DESC,c.id DESC";
+  const qrChecks=db.prepare(checkSql).all(...checkParams);
+  const qrCheckIssueCount=qrChecks.filter(r=>String(r.result||"")==="Có vấn đề").length;
+  const qrCheckNormalCount=qrChecks.filter(r=>String(r.result||"")==="Bình thường").length;
+  const qrCheckUniqueDevices=new Set(qrChecks.map(r=>Number(r.device_id))).size;
+
+  const median = values => {
+    const arr = values.filter(v => Number.isFinite(v)).sort((a,b)=>a-b);
+    if (!arr.length) return null;
+    const m = Math.floor(arr.length/2);
+    return arr.length % 2 ? arr[m] : (arr[m-1]+arr[m])/2;
+  };
+  const avg = values => values.length ? values.reduce((s,v)=>s+v,0)/values.length : null;
+  const responseValues = records.map(r=>r.response_minutes).filter(v=>Number.isFinite(v));
+  const resolutionValues = records.map(r=>r.resolution_minutes).filter(v=>Number.isFinite(v));
+  const invalidResponseTimestamps = records.filter(r=>Number(r.invalid_response_timestamp||0)===1).length;
+  const invalidResolutionTimestamps = records.filter(r=>Number(r.invalid_resolution_timestamp||0)===1).length;
+  const qrIncidents = records.filter(r=>r.source_channel==="QR").length;
+  const directIncidents = records.filter(r=>r.source_channel==="Nhập trực tiếp").length;
+  const unknownIncidents = records.filter(r=>!["QR","Nhập trực tiếp"].includes(r.source_channel)).length;
+  const withinTarget = responseValues.filter(v=>v<=responseTargetMinutes).length;
+  const resolved = records.filter(r=>Number.isFinite(r.resolution_minutes)).length;
+  const open = records.filter(r=>!String(r.repair_completed_at || r.completed_at || "").trim()).length;
+
+  const sourceMap = new Map();
+  for (const r of records) {
+    if (!sourceMap.has(r.source_channel)) sourceMap.set(r.source_channel, []);
+    sourceMap.get(r.source_channel).push(r);
+  }
+  const bySource = Array.from(sourceMap.entries()).map(([source,rows])=>{
+    const response=rows.map(r=>r.response_minutes).filter(v=>Number.isFinite(v));
+    const resolution=rows.map(r=>r.resolution_minutes).filter(v=>Number.isFinite(v));
+    const within=response.filter(v=>v<=responseTargetMinutes).length;
+    return {
+      source,
+      count:rows.length,
+      invalid_response_timestamps:rows.filter(r=>Number(r.invalid_response_timestamp||0)===1).length,
+      invalid_resolution_timestamps:rows.filter(r=>Number(r.invalid_resolution_timestamp||0)===1).length,
+      responded_incidents:response.length,
+      response_data_completeness_percent:rows.length ? Number((response.length*100/rows.length).toFixed(1)) : 0,
+      avg_response_minutes:avg(response)==null ? null : Number(avg(response).toFixed(1)),
+      median_response_minutes:median(response)==null ? null : Number(median(response).toFixed(1)),
+      response_within_target:within,
+      response_within_target_percent:response.length ? Number((within*100/response.length).toFixed(1)) : 0,
+      resolved_incidents:resolution.length,
+      avg_resolution_minutes:avg(resolution)==null ? null : Number(avg(resolution).toFixed(1)),
+      median_resolution_minutes:median(resolution)==null ? null : Number(median(resolution).toFixed(1))
+    };
+  }).sort((a,b)=>b.count-a.count);
+
+  const monthMap = new Map();
+  const dayMap = new Map();
+  for (const r of records) {
+    const month=String(r.incident_datetime||"").slice(0,7);
+    const day=String(r.incident_datetime||"").slice(0,10);
+    if(month) {
+      const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
+      cur.count++;
+      if(r.source_channel==="QR") cur.qr_count++;
+      monthMap.set(month,cur);
+    }
+    if(day) {
+      const cur=dayMap.get(day)||{date:day,incidents:0,qr_incidents:0,qr_checks:0,qr_check_issues:0,device_ids:new Set()};
+      cur.incidents++;
+      if(r.source_channel==="QR") cur.qr_incidents++;
+      dayMap.set(day,cur);
+    }
+  }
+
+  for (const r of qrChecks) {
+    const month=String(r.check_datetime||"").slice(0,7);
+    const day=String(r.check_datetime||"").slice(0,10);
+    if(month) {
+      const cur=monthMap.get(month)||{month,count:0,qr_count:0,qr_checks:0};
+      cur.qr_checks=(cur.qr_checks||0)+1;
+      monthMap.set(month,cur);
+    }
+    if(day) {
+      const cur=dayMap.get(day)||{date:day,incidents:0,qr_incidents:0,qr_checks:0,qr_check_issues:0,device_ids:new Set()};
+      cur.qr_checks++;
+      if(String(r.result||"")==="Có vấn đề") cur.qr_check_issues++;
+      cur.device_ids.add(Number(r.device_id));
+      dayMap.set(day,cur);
+    }
+  }
+  const byDay=Array.from(dayMap.values()).map(x=>({
+    date:x.date,
+    incidents:x.incidents,
+    qr_incidents:x.qr_incidents,
+    qr_checks:x.qr_checks,
+    qr_check_issues:x.qr_check_issues,
+    qr_unique_devices:x.device_ids.size
+  })).sort((a,b)=>a.date.localeCompare(b.date));
+
+  res.json({
+    period:{from_date:fromDate,to_date:toDate,department_code:departmentCode,response_target_minutes:responseTargetMinutes},
+    summary:{
+      total_incidents:records.length,
+      qr_incidents:qrIncidents,
+      direct_incidents:directIncidents,
+      unknown_source_incidents:unknownIncidents,
+      qr_share_percent:records.length ? Number((qrIncidents*100/records.length).toFixed(1)) : 0,
+      qr_checks:qrChecks.length,
+      qr_check_unique_devices:qrCheckUniqueDevices,
+      qr_check_issue_count:qrCheckIssueCount,
+      qr_check_normal_count:qrCheckNormalCount,
+      responded_incidents:responseValues.length,
+      invalid_response_timestamps:invalidResponseTimestamps,
+      invalid_resolution_timestamps:invalidResolutionTimestamps,
+      response_data_completeness_percent:records.length ? Number((responseValues.length*100/records.length).toFixed(1)) : 0,
+      avg_response_minutes:avg(responseValues)==null ? null : Number(avg(responseValues).toFixed(1)),
+      median_response_minutes:median(responseValues)==null ? null : Number(median(responseValues).toFixed(1)),
+      response_within_target:withinTarget,
+      response_within_target_percent:responseValues.length ? Number((withinTarget*100/responseValues.length).toFixed(1)) : 0,
+      resolved_incidents:resolved,
+      avg_resolution_minutes:avg(resolutionValues)==null ? null : Number(avg(resolutionValues).toFixed(1)),
+      median_resolution_minutes:median(resolutionValues)==null ? null : Number(median(resolutionValues).toFixed(1)),
+      open_incidents:open
+    },
+    by_source:bySource,
+    by_month:Array.from(monthMap.values()).sort((a,b)=>a.month.localeCompare(b.month)),
+    by_day:byDay,
+    check_records:qrChecks,
+    records
+  });
 });
 
 app.get("/api/force-report", (req, res) => {
@@ -2300,38 +6205,148 @@ app.get("/api/excel-template/:kind", async (req, res) => {
 });
 
 app.post("/api/reset-seed", (req, res) => {
-  db.exec(`
-    DELETE FROM accessories;
-    DELETE FROM repairs;
-    DELETE FROM maintenances;
-    DELETE FROM operation_logs;
-    DELETE FROM documents;
-    DELETE FROM daily_checks;
-    DELETE FROM incidents;
-    DELETE FROM inspections;
-    DELETE FROM quality_ratings;
-    DELETE FROM usage_reports;
-    DELETE FROM devices;
-    DELETE FROM users;
-    DELETE FROM departments;
-    DELETE FROM device_groups;
-  `);
-  seedData();
-  initExtendedModules();
-  res.json({ ok: true });
+  if (process.env.QY4_DEMO_SEED !== "1") {
+    return res.status(403).json({ error: "Reset dữ liệu chỉ được phép khi chạy chế độ demo (QY4_DEMO_SEED=1)." });
+  }
+  if (AUTH_REQUIRED && !String(process.env.QY4_ADMIN_PASSWORD || "").trim()) {
+    return res.status(400).json({ error: "Khi bật xác thực, cần QY4_ADMIN_PASSWORD trước khi reset demo để tránh mất quyền đăng nhập." });
+  }
+  try {
+    const actor=requestActor(req,"Quản trị viên");
+    const tx=db.transaction(()=>{
+      db.exec(`
+        DELETE FROM auth_sessions;
+        DELETE FROM inventory_items;
+        DELETE FROM inventory_sessions;
+        DELETE FROM device_transfers;
+        DELETE FROM incident_files;
+        DELETE FROM activity_history;
+        DELETE FROM repairs;
+        DELETE FROM maintenances;
+        DELETE FROM operation_logs;
+        DELETE FROM documents;
+        DELETE FROM daily_checks;
+        DELETE FROM incidents;
+        DELETE FROM inspections;
+        DELETE FROM quality_ratings;
+        DELETE FROM usage_reports;
+        DELETE FROM accessories;
+        DELETE FROM devices;
+        DELETE FROM users;
+        DELETE FROM departments;
+        DELETE FROM device_groups;
+        DELETE FROM audit_logs;
+      `);
+      seedData();
+      initExtendedModules();
+    });
+    tx();
+
+    ensureCoreManagementSchema();
+    ensureDeviceCodeColumnsAndData();
+    normalizeIncidentStatusesInDb();
+
+    fs.rmSync(uploadsDir,{recursive:true,force:true});
+    fs.rmSync(qrUploadsDir,{recursive:true,force:true});
+    fs.mkdirSync(uploadsDir,{recursive:true});
+    fs.mkdirSync(qrUploadsDir,{recursive:true});
+
+    if (AUTH_REQUIRED) ensureAuthSchema();
+    writeAudit(actor,"Reset dữ liệu mẫu","system","demo-seed","Đã xóa dữ liệu demo cũ và tạo lại dữ liệu mẫu.");
+    res.json({ ok: true });
+  } catch(e) {
+    console.error("POST /api/reset-seed error:",e);
+    res.status(500).json({error:e.message || "Không thể reset dữ liệu mẫu."});
+  }
 });
 
-refreshDemoTodayData();
+if (process.env.QY4_DEMO_SEED === "1") refreshDemoTodayData();
 
-app.get("/", (req, res) => {
-  res.redirect("/dashboard.html");
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  cleanupSingleUpload(req);
+  cleanupUploadedFiles(req.files);
+
+  if (err instanceof multer.MulterError) {
+    const map = {
+      LIMIT_FILE_SIZE:"File vượt quá dung lượng cho phép.",
+      LIMIT_FILE_COUNT:"Vượt quá số lượng file cho phép.",
+      LIMIT_FIELD_COUNT:"Vượt quá số trường dữ liệu cho phép.",
+      LIMIT_PART_COUNT:"Dữ liệu gửi lên có quá nhiều thành phần.",
+      LIMIT_FIELD_VALUE:"Một trường dữ liệu vượt quá kích thước cho phép.",
+      LIMIT_UNEXPECTED_FILE:"Trường file không hợp lệ hoặc vượt quá số file cho phép."
+    };
+    const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+    return res.status(status).json({ error:map[err.code] || "File tải lên không hợp lệ." });
+  }
+
+  const uploadValidationMessages = [
+    "Định dạng file không được hỗ trợ.",
+    "Chỉ hỗ trợ JPG, PNG, WEBP, MP4 hoặc MOV.",
+    "Chỉ hỗ trợ ảnh JPG/PNG/WEBP và video MP4/MOV."
+  ];
+  if (uploadValidationMessages.includes(String(err.message || ""))) {
+    return res.status(400).json({ error:err.message });
+  }
+
+  console.error("Unhandled request error:", err);
+  res.status(500).json({ error:"Lỗi máy chủ khi xử lý yêu cầu." });
 });
 
-app.listen(PORT, () => {
-  console.log(`QY4 TTBYT app running at http://localhost:${PORT}`);
+let backupInterval = null;
+let shuttingDown = false;
+const server = app.listen(PORT, () => {
+  console.log(`QY4-TTBYT 5.0.0 running at http://localhost:${PORT}`);
+  console.log(`Database: ${dbPath}`);
+  console.log(`Múi giờ ứng dụng: ${APP_TIME_ZONE}`);
+  console.log(`Xác thực người dùng: ${AUTH_REQUIRED ? "BẬT" : "TẮT"}`);
+  console.log(`Dữ liệu mẫu: ${process.env.QY4_DEMO_SEED === "1" ? "BẬT" : "TẮT"}`);
+  console.log(`Giữ tối đa backup: ${Math.max(3, Number(process.env.QY4_BACKUP_KEEP || 30))} gói`);
+  if (!AUTH_REQUIRED) console.warn("CẢNH BÁO: QY4_AUTH_REQUIRED đang tắt. Chỉ phù hợp chạy thử nội bộ.");
+  if (process.env.QY4_DEMO_SEED === "1") console.warn("CẢNH BÁO: QY4_DEMO_SEED=1. Không dùng cấu hình này với dữ liệu thật.");
   try {
     const lan = Object.values(os.networkInterfaces()).flat().filter(Boolean).find(net => net.family === "IPv4" && !net.internal);
     if (lan) console.log(`QR/mobile LAN URL: http://${lan.address}:${PORT}`);
   } catch (e) {}
+  console.log("Kiểm tra trước chạy thật: Cài đặt → Hệ thống → Sẵn sàng triển khai.");
+  ensureDailyBackup();
+  backupInterval = setInterval(ensureDailyBackup, 6 * 60 * 60 * 1000);
+  backupInterval.unref();
 });
+
+function closeDatabaseSafely() {
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  } catch (e) {
+    console.warn("Không checkpoint được WAL khi dừng:", e.message);
+  }
+  try {
+    db.close();
+  } catch (e) {
+    if (!/closed/i.test(String(e.message || ""))) console.warn("Không đóng được SQLite:", e.message);
+  }
+}
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\nNhận ${signal}. Đang dừng QY4-TTBYT an toàn...`);
+  if (backupInterval) clearInterval(backupInterval);
+
+  const forceTimer = setTimeout(() => {
+    console.error("Dừng an toàn quá thời gian; đóng SQLite và kết thúc tiến trình.");
+    closeDatabaseSafely();
+    process.exit(1);
+  }, 10000);
+  forceTimer.unref();
+
+  server.close(() => {
+    clearTimeout(forceTimer);
+    closeDatabaseSafely();
+    console.log("Đã checkpoint WAL và đóng SQLite. Có thể tắt máy an toàn.");
+    process.exit(0);
+  });
+  if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
+}
+process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
 

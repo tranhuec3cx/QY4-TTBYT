@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tổng quan - Quản lý TTBYT BVQY4</title>
+  <title>Tổng quan - Phần mềm quản lý thiết bị y tế BVQY4</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -15,30 +15,116 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box">Người dùng: Quản trị viên</div>
+        <div class="user-box" style="display:none"></div>
       </div>
 
-      <section class="dashboard-stats dashboard-stats-4">
-        <div class="card stat-card simple-card"><h3>Tổng thiết bị</h3><div id="dbTotal" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Đang hoạt động</h3><div id="dbActive" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Chờ sửa chữa</h3><div id="dbWaitingRepair" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Ngừng hoạt động</h3><div id="dbStopped" class="value">0</div></div>
-      </section>
-
-      <section class="card dashboard-qr-card">
-        <h3 class="section-title">Kiểm tra hôm nay</h3>
-        <div class="mini-kpi-grid mini-kpi-grid-3">
-          <div><span>Đã kiểm tra</span><b id="dbQrTotal">0</b></div>
-          <div><span>Bình thường</span><b id="dbQrNormal">0</b></div>
-          <div><span>Có vấn đề</span><b id="dbQrIssue">0</b></div>
+      <section class="card dashboard-period-card" aria-label="Khoảng thời gian tổng quan">
+        <div class="dashboard-period-row">
+          <div class="dashboard-period-controls">
+            <label class="field">
+              <span class="field-label">Khoảng thời gian</span>
+              <select id="periodPreset">
+                <option value="last7">7 ngày gần nhất</option>
+                <option value="last30" selected>30 ngày gần nhất</option>
+                <option value="last90">90 ngày gần nhất</option>
+                <option value="thisMonth">Tháng này</option>
+                <option value="thisYear">Năm nay</option>
+                <option value="custom">Tùy chọn</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Từ ngày</span>
+              <input id="periodFrom" type="date" />
+            </label>
+            <label class="field">
+              <span class="field-label">Đến ngày</span>
+              <input id="periodTo" type="date" />
+            </label>
+          </div>
+          <div class="dashboard-period-note" id="periodContext">Đang tải dữ liệu...</div>
         </div>
       </section>
 
+      <section class="overview-kpis dashboard-kpis-v2" aria-label="Chỉ số chính">
+        <article class="overview-kpi">
+          <span class="overview-kpi-label">Sự cố phát sinh</span>
+          <strong id="dbIncidentPeriod">0</strong>
+          <small>Trong khoảng thời gian chọn</small>
+        </article>
+        <article class="overview-kpi overview-kpi-success">
+          <span class="overview-kpi-label">Đã hoàn thành</span>
+          <strong id="dbCompletedPeriod">0</strong>
+          <small>Công việc kỹ thuật trong kỳ</small>
+        </article>
+        <article class="overview-kpi overview-kpi-warning">
+          <span class="overview-kpi-label">Còn tồn</span>
+          <strong id="dbBacklog">0</strong>
+          <small>Tính đến ngày cuối kỳ</small>
+        </article>
+        <article class="overview-kpi overview-kpi-warning">
+          <span class="overview-kpi-label">BD quá hạn</span>
+          <strong id="dbOverdueMaintenance">0</strong>
+          <small>Tính đến ngày cuối kỳ</small>
+        </article>
+        <article class="overview-kpi overview-kpi-danger">
+          <span class="overview-kpi-label">KĐ/HC quá hạn</span>
+          <strong id="dbOverdueInspection">0</strong>
+          <small>KĐ / HC / ATBX đến cuối kỳ</small>
+        </article>
+      </section>
+
+      <section class="dashboard-quick-actions" aria-label="Thao tác nhanh">
+        <a class="btn" href="/index.html">Thiết bị / QR</a>
+        <a class="btn" href="/tickets.html">Tiếp nhận sự cố</a>
+        <a class="btn btn-primary" href="/lcm.html">Điều hành kỹ thuật</a>
+      </section>
+
       <section class="card dashboard-upcoming-card">
-        <h3 class="section-title">Cảnh báo đến hạn</h3>
-        <div class="dashboard-upcoming-grid">
-          <div class="due-list-block"><h4>Bảo dưỡng sắp đến hạn</h4><ul id="dueMaints" class="task-list"></ul></div>
-          <div class="due-list-block"><h4>Kiểm định sắp đến hạn</h4><ul id="dueInspections" class="task-list"></ul></div>
+        <div class="section-head">
+          <div>
+            <h3 class="section-title">Sắp đến hạn trong 30 ngày tới</h3>
+            <p class="section-caption">Bảo dưỡng và KĐ/HC/ATBX được tính từ ngày hiện tại, không phụ thuộc bộ lọc phía trên.</p>
+          </div>
+          <div class="small" id="upcomingCountLabel"></div>
+        </div>
+        <div class="table-wrap">
+          <table class="dashboard-upcoming-table">
+            <thead>
+              <tr>
+                <th>Còn</th>
+                <th>Thiết bị</th>
+                <th>Công việc</th>
+                <th>Hạn thực hiện</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="upcomingRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card dashboard-priority-card">
+        <div class="section-head">
+          <div>
+            <h3 class="section-title">Công việc kỹ thuật ưu tiên</h3>
+            <p class="section-caption" id="currentWorkContext">Tập trung các hồ sơ đang cần hành động; mỗi thiết bị chỉ hiện một việc ưu tiên nhất.</p>
+          </div>
+          <a class="btn" href="/lcm.html">Xem toàn bộ</a>
+        </div>
+        <div class="table-wrap">
+          <table class="dashboard-priority-table">
+            <thead>
+              <tr>
+                <th>Ưu tiên</th>
+                <th>Thiết bị</th>
+                <th>Công việc</th>
+                <th>Trạng thái</th>
+                <th>Thời gian</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="priorityRows"></tbody>
+          </table>
         </div>
       </section>
     </main>

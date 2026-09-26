@@ -4,21 +4,35 @@ let DEVICES = [];
 function norm(value){ return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
 function esc(value){ return String(value ?? "").replace(/[&<>"]/g, s => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
 function getDevice(id){ return DEVICES.find(d => Number(d.id) === Number(id)) || null; }
-function deviceLabel(d){ return d ? `${d.device_code || d.serial || "TB-"+d.id} - ${d.name || ""}` : ""; }
-function severityClass(v){ if(v==="Thấp") return "green"; if(v==="Trung bình") return "yellow"; if(v==="Cao") return "orange"; return "red"; }
-function statusClass(v){ if(v==="Đã chuyển sửa chữa") return "green"; if(v==="Đã xử lý tại chỗ") return "blue"; if(v==="Mới ghi nhận") return "yellow"; return "gray"; }
+function deviceLabel(d){ return devicePickerLabel(d); }
+function statusClass(v){ if(v==="Đã chuyển sửa chữa") return "green"; if(v==="Đã xử lý tại chỗ") return "blue"; if(v==="Đã tiếp nhận") return "orange"; if(v==="Mới ghi nhận") return "yellow"; return "gray"; }
 
 function normalizeIncidentStatus(status, linkedRepairId){
   const raw = String(status || "").trim();
   if(raw === "Đã chuyển sửa chữa" || raw === "Chuyển sửa chữa" || raw === "Chờ linh kiện") return "Đã chuyển sửa chữa";
   if(raw === "Đã xử lý tại chỗ" || raw === "Đã xử lý" || raw === "Đóng" || raw === "Không cần sửa chữa") return "Đã xử lý tại chỗ";
-  if(raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Đang xử lý" || raw === "Theo dõi") return "Mới ghi nhận";
+  if(raw === "Đã tiếp nhận" || raw === "Tiếp nhận") return "Đã tiếp nhận";
+  if(raw === "Mới ghi nhận" || raw === "Đã ghi nhận" || raw === "Theo dõi") return "Mới ghi nhận";
   const repairStatuses = ["Đang xử lý","Chờ linh kiện","Đã hoàn thành","Không sửa được","Mới tiếp nhận","Đang sửa chữa","Đang kiểm tra","Đã sửa xong","Bàn giao sử dụng","Hủy"];
   if(repairStatuses.includes(raw)) return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
 }
 function normalizeIncidentRow(r){ return { ...r, status: normalizeIncidentStatus(r.status, r.linked_repair_id) }; }
-function fillDeviceMeta(){ const d=getDevice(q("deviceId").value); q("incidentDept").value=d?(d.department_name||d.department_code||""):""; q("incidentLocation").value=d?(d.location||""):""; }
+function incidentStage(r){
+  if(String(r?.status || "") === "Mới ghi nhận") return "NEW";
+  if(String(r?.status || "") === "Đã xử lý tại chỗ") return "DONE";
+  if(String(r?.status || "") === "Đã chuyển sửa chữa" && ["Đã hoàn thành","Không sửa được"].includes(String(r?.linked_repair_status || ""))) return "DONE";
+  return "ACTIVE";
+}
+function incidentStageLabel(r){
+  const stage=incidentStage(r);
+  return stage==="NEW" ? "Mới" : stage==="DONE" ? "Hoàn thành" : "Đang xử lý";
+}
+function incidentStageClass(r){
+  const stage=incidentStage(r);
+  return stage==="NEW" ? "yellow" : stage==="DONE" ? "green" : "orange";
+}
+function fillDeviceMeta(){ const d=getDevice(q("deviceId").value); q("incidentDept").value=d?(d.department_code||d.department_name||""):""; q("incidentLocation").value=d?(d.location||""):""; }
 function localDateTimeInputValue(){
   const d = new Date();
   const pad = n => String(n).padStart(2,"0");
@@ -27,13 +41,17 @@ function localDateTimeInputValue(){
 function resetIncidentForm(){
   q("incidentForm").reset();
   q("incidentId").value="";
+  q("deviceSearch").readOnly=false;
+  q("deviceSearch").title="";
+  q("incidentTime").readOnly=false;
+  q("incidentTime").title="";
   q("incidentFormTitle").textContent="Ghi nhận sự cố";
   q("saveIncidentBtn").textContent="Lưu sự cố";
   q("incidentTime").value = localDateTimeInputValue();
   q("status").value = "Mới ghi nhận";
   if(q("localResolutionNote")) q("localResolutionNote").value = "";
   toggleLocalResolutionField();
-  if(!q("reporter").value) q("reporter").value = "Quản trị viên";
+  q("reporter").value = (window.QY4_AUTH_USER?.role === "Người dùng khoa" ? (window.QY4_AUTH_USER?.full_name || "") : "");
   fillDeviceMeta();
 }
 
@@ -42,6 +60,11 @@ function incidentActions(r){
   const deviceId = Number(r.device_id);
   const actions = [`<button class="btn btn-secondary" onclick="openDeviceProfile(${deviceId})">Xem HS</button>`];
   if (r.status === "Mới ghi nhận") {
+    actions.push(`<button class="btn" onclick="editIncident(${id})">Sửa</button>`);
+    actions.push(`<button class="btn btn-danger" onclick="deleteIncident(${id})">Xóa ghi nhầm</button>`);
+    actions.push(`<button class="btn btn-primary" onclick="acknowledgeIncident(${id})">Tiếp nhận</button>`);
+  } else if (r.status === "Đã tiếp nhận") {
+    actions.push(`<button class="btn" onclick="editIncident(${id})">Cập nhật</button>`);
     actions.push(`<button class="btn btn-primary" onclick="transferToRepair(${id})">Chuyển sửa chữa</button>`);
     actions.push(`<button class="btn" onclick="markOnsite(${id})">Xử lý tại chỗ</button>`);
   } else if (r.status === "Đã chuyển sửa chữa") {
@@ -52,11 +75,10 @@ function incidentActions(r){
 }
 
 function renderIncidentStats(rows){
-  const stat = st => rows.filter(r => r.status === st).length;
-  if(q("stTotalIncidents")) q("stTotalIncidents").textContent = rows.length;
-  if(q("stNewIncidents")) q("stNewIncidents").textContent = stat("Mới ghi nhận");
-  if(q("stTransferIncidents")) q("stTransferIncidents").textContent = stat("Đã chuyển sửa chữa");
-  if(q("stOnsiteIncidents")) q("stOnsiteIncidents").textContent = stat("Đã xử lý tại chỗ");
+  const countStage = stage => rows.filter(r => incidentStage(r) === stage).length;
+  if(q("stNewIncidents")) q("stNewIncidents").textContent = countStage("NEW");
+  if(q("stActiveIncidents")) q("stActiveIncidents").textContent = countStage("ACTIVE");
+  if(q("stDoneIncidents")) q("stDoneIncidents").textContent = countStage("DONE");
 }
 function toggleLocalResolutionField(){
   const show = q("status") && q("status").value === "Đã xử lý tại chỗ";
@@ -107,45 +129,93 @@ function buildIncidentFormData(payload){
 }
 async function apiForm(url, options={}){
   const res = await fetch(url, options);
-  if(!res.ok) throw new Error(await res.text());
+  if(res.status===401){
+    location.href=`/login.html?next=${encodeURIComponent(location.pathname+location.search)}`;
+    throw new Error("Cần đăng nhập.");
+  }
+  if(!res.ok){
+    const raw=await res.text();
+    try{const obj=JSON.parse(raw); throw new Error(obj.error||raw);}catch(e){if(e instanceof SyntaxError) throw new Error(raw); throw e;}
+  }
   const text = await res.text();
   try { return text ? JSON.parse(text) : {}; } catch { return text; }
+}
+function currentTechnicalActor(){
+  return window.QY4_AUTH_USER?.full_name || "";
+}
+function sourceTagClass(source){
+  if(source==="QR") return "green";
+  if(source==="Nhập trực tiếp") return "blue";
+  return "gray";
 }
 
 function renderRows(rows){
   q("countLabel").textContent = `${rows.length} sự cố`;
   renderIncidentStats(rows);
-  if(!rows.length){ q("rows").innerHTML = `<tr><td colspan="11" class="center-empty">Chưa có sự cố phù hợp.</td></tr>`; return; }
-  q("rows").innerHTML = rows.map((r,i)=>`
+  if(!rows.length){ q("rows").innerHTML = `<tr><td colspan="7" class="center-empty">Chưa có sự cố phù hợp.</td></tr>`; return; }
+  q("rows").innerHTML = rows.map((r,i)=>{
+    const attachments = Array.isArray(r.files) && r.files.length ? `<div class="row-secondary">${mediaCell(r)} ${r.files.length} tệp đính kèm</div>` : "";
+    return `
     <tr>
       <td>${i+1}</td>
-      <td>${formatDateTimeVN(r.incident_datetime)}</td>
-      <td class="device-code">${esc(r.device_code || "")}</td>
-      <td><b>${esc(r.device_name || "")}</b></td>
-      <td>${esc(r.location || "")}</td>
-      <td class="wrap-text">${esc(r.description || "")}</td>
-      <td><span class="tag ${severityClass(r.severity)}">${esc(r.severity || "")}</span></td>
-      <td>${esc(r.reporter || "")}</td>
-      <td><span class="tag ${statusClass(r.status)}">${esc(r.status || "")}</span></td>
-      <td>${mediaCell(r)}</td>
+      <td>${formatDateTimeVNLines(r.incident_datetime)}</td>
+      <td>${technicalDeviceCell(r)}</td>
+      <td>${technicalLocationCell(r)}</td>
+      <td class="wrap-text">${esc(r.description || "")}${attachments}</td>
+      <td><span class="tag ${incidentStageClass(r)}">${incidentStageLabel(r)}</span><span class="row-secondary">${esc(r.status || "")}</span></td>
       <td><div class="table-actions compact-actions">${incidentActions(r)}</div></td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 }
 function applyFilter(){
-  const text=norm(q("searchInput").value); const from=q("fromDate").value; const to=q("toDate").value; const dev=q("deviceFilter").value; const sev=q("severityFilter").value; const st=q("statusFilter").value;
-  const rows=INCIDENT_ROWS.filter(r => inDateRange(String(r.incident_datetime||"").slice(0,10), from, to) && (dev==="ALL"||String(r.device_id)===dev) && (sev==="ALL"||r.severity===sev) && (st==="ALL"||r.status===st) && (!text || norm([r.device_code,r.device_name,r.description,r.reporter,r.status,r.note].join(" ")).includes(text))).sort((a,b)=>String(b.incident_datetime||"").localeCompare(String(a.incident_datetime||"")) || Number(b.id)-Number(a.id));
+  const text=norm(q("searchInput").value); const from=q("fromDate").value; const to=q("toDate").value; const dev=q("deviceFilter").value; const stage=q("statusFilter").value; const source=q("sourceFilter").value;
+  const rows=INCIDENT_ROWS.filter(r => inDateRange(String(r.incident_datetime||"").slice(0,10), from, to) && (dev==="ALL"||String(r.device_id)===dev) && (stage==="ALL"||incidentStage(r)===stage) && (source==="ALL"||String(r.source_channel||"Không xác định")===source) && (!text || norm([r.device_code,r.device_name,r.description,r.reporter,r.status,r.source_channel,r.acknowledged_by,r.note].join(" ")).includes(text))).sort((a,b)=>String(b.incident_datetime||"").localeCompare(String(a.incident_datetime||"")) || Number(b.id)-Number(a.id));
   FILTERED_INCIDENTS=rows; renderRows(rows);
 }
-function clearFilters(){ q("searchInput").value=""; q("deviceFilter").value="ALL"; q("severityFilter").value="ALL"; q("statusFilter").value="ALL"; setDefaultDateRange(); applyFilter(); }
+function clearFilters(){ q("searchInput").value=""; q("deviceFilter").value="ALL"; q("statusFilter").value="ALL"; q("sourceFilter").value="ALL"; setDefaultDateRange(); applyFilter(); }
 function openDeviceProfile(id){ if(id) window.location.href = `/device-detail.html?id=${id}&from=tickets`; }
-function editIncident(id){ const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id)); if(!r) return; q("incidentId").value=r.id; q("deviceId").value=r.device_id; fillDeviceMeta(); q("incidentTime").value=String(r.incident_datetime||"").replace(" ","T").slice(0,16); q("description").value=r.description||""; q("severity").value=r.severity||"Thấp"; q("reporter").value=r.reporter||""; q("status").value=r.status||"Mới ghi nhận"; q("localResolutionNote").value=r.local_resolution_note||""; if(q("reporterPhone")) q("reporterPhone").value=r.reporter_phone||""; q("note").value=r.note||""; q("incidentFormTitle").textContent="Cập nhật sự cố"; q("saveIncidentBtn").textContent="Cập nhật sự cố"; q("incidentForm").scrollIntoView({behavior:"smooth"}); }
-async function deleteIncident(id){ if(!confirm("Xóa sự cố này?")) return; await api(`/api/incidents/${id}`, {method:"DELETE"}); await loadData(); }
+function editIncident(id){
+  const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
+  if(!r) return;
+  q("incidentId").value=r.id;
+  setDevicePickerSelection("deviceSearch","deviceId",DEVICES,r.device_id,()=>fillDeviceMeta());
+  const lockIdentity = String(r.source_channel || "") === "QR" || Boolean(String(r.acknowledged_at || "").trim()) || Boolean(r.linked_repair_id);
+  q("deviceSearch").readOnly=lockIdentity;
+  q("deviceSearch").title=lockIdentity ? "Thiết bị được khóa sau khi sự cố phát sinh từ QR hoặc đã được tiếp nhận." : "";
+  q("incidentTime").readOnly=lockIdentity;
+  q("incidentTime").title=lockIdentity ? "Thời điểm phát sinh được khóa để bảo toàn lịch sử sự cố." : "";
+  q("incidentTime").value=String(r.incident_datetime||"").replace(" ","T").slice(0,16);
+  q("description").value=r.description||"";
+  q("reporter").value=r.reporter||"";
+  q("status").value=r.status||"Mới ghi nhận";
+  q("localResolutionNote").value=r.local_resolution_note||"";
+  if(q("reporterPhone")) q("reporterPhone").value=r.reporter_phone||"";
+  q("note").value=r.note||"";
+  q("incidentFormTitle").textContent="Cập nhật sự cố";
+  q("saveIncidentBtn").textContent="Cập nhật sự cố";
+  q("incidentForm").scrollIntoView({behavior:"smooth"});
+}
+async function deleteIncident(id){
+  if(!confirm("Chỉ xóa bản ghi sự cố tạo nhầm khi CHƯA tiếp nhận và CHƯA chuyển sửa chữa. Hồ sơ đã có xử lý sẽ được giữ lại. Tiếp tục xóa bản ghi nhầm này?")) return;
+  try{
+    await api(`/api/incidents/${id}`, {method:"DELETE"});
+    await loadData();
+  }catch(e){ alert(e.message || "Không thể xóa sự cố này."); }
+}
+async function acknowledgeIncident(id){
+  const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
+  if(!r) return;
+  try{
+    await api(`/api/incidents/${id}/acknowledge`,{method:"POST",body:JSON.stringify({actor:currentTechnicalActor()})});
+    await fetchIncidentRows(); applyFilter();
+  }catch(e){alert(e.message||"Không tiếp nhận được sự cố.");}
+}
 async function transferToRepair(id){
   const r=INCIDENT_ROWS.find(x=>Number(x.id)===Number(id));
   if(!r) return;
   if(!confirm(`Tạo phiếu sửa chữa từ sự cố #${id}? Sau khi tạo, sự cố sẽ chuyển trạng thái “Đã chuyển sửa chữa”.`)) return;
   try {
-    const res = await api(`/api/incidents/${id}/transfer-repair`, {method:"POST", body:JSON.stringify({actor:r.reporter||"Quản trị viên"})});
+    const res = await api(`/api/incidents/${id}/transfer-repair`, {method:"POST", body:JSON.stringify({actor:currentTechnicalActor()})});
     if (res && res.repair_id) {
       window.location.href = `/maintenance.html?repair_id=${encodeURIComponent(res.repair_id)}&from=tickets`;
       return;
@@ -185,16 +255,17 @@ async function saveIncident(e){
     device_id:Number(q("deviceId").value),
     incident_datetime:fromDateTimeLocalValue(q("incidentTime").value),
     description:q("description").value.trim(),
-    severity:q("severity").value,
-    reporter:(q("reporter").value.trim() || "Quản trị viên"),
+    severity:"Trung bình",
+    reporter:q("reporter").value.trim(),
     reporter_phone:(q("reporterPhone")?.value.trim() || ""),
-    status:(q("status").value === "Đã xử lý tại chỗ" ? "Đã xử lý tại chỗ" : "Mới ghi nhận"),
+    status:(q("status").value === "Đã xử lý tại chỗ" ? "Đã xử lý tại chỗ" : (q("status").value === "Đã tiếp nhận" ? "Đã tiếp nhận" : "Mới ghi nhận")),
     note:q("note").value.trim(),
     local_resolution_note:q("localResolutionNote").value.trim()
   };
   if(!payload.device_id) return alert("Vui lòng chọn thiết bị.");
   if(!payload.incident_datetime) return alert("Vui lòng nhập thời gian ghi nhận.");
   if(!payload.description) return alert("Vui lòng nhập mô tả sự cố.");
+  if(!payload.reporter) return alert("Vui lòng nhập đúng người báo sự cố.");
   if(payload.status === "Đã xử lý tại chỗ" && !payload.local_resolution_note) return alert("Vui lòng nhập nội dung xử lý tại chỗ.");
   if(!validateMediaInput()) return;
   const id=q("incidentId").value;
@@ -226,13 +297,38 @@ async function loadData(){
   DEVICES=await api("/api/devices");
   await fetchIncidentRows();
   q("deviceFilter").innerHTML=`<option value="ALL">Tất cả thiết bị</option>`+DEVICES.map(d=>`<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join("");
-  q("deviceId").innerHTML=`<option value="">-- Chọn thiết bị --</option>`+DEVICES.map(d=>`<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join("");
+  bindDevicePicker("deviceSearch","deviceId","incidentDeviceOptions",DEVICES,()=>fillDeviceMeta());
   const params = new URLSearchParams(window.location.search);
   const presetDeviceId = params.get("device_id");
-  if (presetDeviceId && DEVICES.some(d => String(d.id) === String(presetDeviceId))) q("deviceId").value = presetDeviceId;
+  if (presetDeviceId && DEVICES.some(d => String(d.id) === String(presetDeviceId))) setDevicePickerSelection("deviceSearch","deviceId",DEVICES,presetDeviceId,()=>fillDeviceMeta());
   fillDeviceMeta();
   applyFilter();
 }
-function exportIncidentsExcel(){ const rows=FILTERED_INCIDENTS.map((r,i)=>({"STT":i+1,"Thời gian":r.incident_datetime,"Mã thiết bị":r.device_code,"Tên thiết bị":r.device_name,"Vị trí":r.location,"Mô tả sự cố":r.description,"Mức độ":r.severity,"Người ghi nhận":r.reporter,"Trạng thái sự cố":r.status,"Số điện thoại":r.reporter_phone||"","Nội dung xử lý tại chỗ":r.local_resolution_note || "","Ghi chú":r.note})); const ws=XLSX.utils.json_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"SuCo"); XLSX.writeFile(wb,`su_co_${new Date().toISOString().slice(0,10)}.xlsx`); }
-document.addEventListener("DOMContentLoaded", async()=>{ setLayout("tickets","Sự cố","Tiếp nhận, theo dõi và xử lý ticket sự cố thiết bị"); setDefaultDateRange(); await loadData(); resetIncidentForm(); q("deviceId").addEventListener("change", fillDeviceMeta); q("status").addEventListener("change", toggleLocalResolutionField); toggleLocalResolutionField(); q("incidentForm").addEventListener("submit", saveIncident); q("resetIncidentBtn").onclick=resetIncidentForm; q("newIncidentBtn").onclick=()=>q("incidentForm").scrollIntoView({behavior:"smooth"}); q("filterBtn").onclick=async()=>{ await fetchIncidentRows(); applyFilter(); }; q("clearFilterBtn").onclick=clearFilters; ["searchInput","deviceFilter","severityFilter","statusFilter"].forEach(id=>{ const el=q(id); el.addEventListener("input", applyFilter); el.addEventListener("change", applyFilter); });
+async function openIncidentFromUrl(){
+  const editId = Number(new URLSearchParams(window.location.search).get("edit_id") || 0);
+  if(!editId) return false;
+  let row = INCIDENT_ROWS.find(x => Number(x.id) === editId);
+  if(!row){
+    const allRows = (await api("/api/incidents")).map(normalizeIncidentRow);
+    row = allRows.find(x => Number(x.id) === editId);
+  }
+  if(!row){
+    alert("Không tìm thấy sự cố cần mở.");
+    return false;
+  }
+  const d = String(row.incident_datetime || "").slice(0,10);
+  if(d){
+    q("fromDate").value = d;
+    q("toDate").value = d;
+    await fetchIncidentRows();
+    applyFilter();
+  } else if(!INCIDENT_ROWS.some(x => Number(x.id) === editId)) {
+    INCIDENT_ROWS = [row, ...INCIDENT_ROWS];
+    applyFilter();
+  }
+  editIncident(editId);
+  return true;
+}
+async function exportIncidentsExcel(){ const rows=FILTERED_INCIDENTS.map((r,i)=>({"STT":i+1,"Thời gian báo":r.incident_datetime,"Thời điểm tiếp nhận":r.acknowledged_at||"","Thời gian phản hồi (phút)":r.response_minutes??"","Thời điểm hoàn thành sửa chữa":r.linked_repair_completed_at||"","Tổng thời gian xử lý (phút)":r.resolution_minutes??"","Mã thiết bị":r.device_code,"Tên thiết bị":r.device_name,"Khoa":r.department_name||r.department_code||"","Vị trí":r.location,"Mô tả sự cố":r.description,"Nguồn báo":r.source_channel||"Không xác định","Người báo":r.reporter,"Người tiếp nhận":r.acknowledged_by||"","Trạng thái sự cố":r.status,"Số điện thoại":r.reporter_phone||"","Nội dung xử lý tại chỗ":r.local_resolution_note || "","Ghi chú":r.note})); await exportXlsx(`su_co_${todayISO()}.xlsx`,[{name:"SuCo",rows}]); }
+document.addEventListener("DOMContentLoaded", async()=>{ setLayout("tickets","Sự cố","Tiếp nhận, theo dõi và xử lý ticket sự cố thiết bị"); setDefaultDateRange(); await loadData(); const openedFromHistory=await openIncidentFromUrl(); if(!openedFromHistory) resetIncidentForm(); q("status").addEventListener("change", toggleLocalResolutionField); toggleLocalResolutionField(); q("incidentForm").addEventListener("submit", saveIncident); q("resetIncidentBtn").onclick=resetIncidentForm; q("newIncidentBtn").onclick=()=>{ resetIncidentForm(); q("incidentForm").scrollIntoView({behavior:"smooth"}); }; q("filterBtn").onclick=async()=>{ await fetchIncidentRows(); applyFilter(); }; q("clearFilterBtn").onclick=clearFilters; ["searchInput","deviceFilter","statusFilter","sourceFilter"].forEach(id=>{ const el=q(id); el.addEventListener("input", applyFilter); el.addEventListener("change", applyFilter); });
   ["fromDate","toDate"].forEach(id=>{ const el=q(id); el.addEventListener("change", async()=>{ await fetchIncidentRows(); applyFilter(); }); }); q("exportIncidentExcelBtn").onclick=exportIncidentsExcel; });

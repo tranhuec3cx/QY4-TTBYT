@@ -15,7 +15,7 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="user-box">Người dùng: Quản trị viên</div>
+        <div class="user-box" style="display:none"></div>
       </div>
       
 <section class="card">
@@ -26,7 +26,7 @@
 </section>
 <section class="card">
   <div class="table-card-header"><h3 id="countLabel">0 người dùng</h3><div class="small">Tài khoản quản trị, kỹ sư TTBYT và người dùng khoa</div></div>
-  <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Họ tên</th><th>Tài khoản</th><th>Vai trò</th><th>Khoa/Phòng</th><th>Số điện thoại</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Họ tên</th><th>Tài khoản</th><th>Vai trò</th><th>Khoa/Phòng</th><th>Số điện thoại</th><th>Mật khẩu</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table></div>
 </section>
 <section class="card">
   <div class="table-card-header"><h3>Thêm / cập nhật người dùng</h3><div class="small">Khai báo vai trò, khoa/phòng và trạng thái sử dụng</div></div>
@@ -34,12 +34,14 @@
     <input type="hidden" id="userId" />
     <div class="form-grid">
       <input id="fullName" placeholder="Họ và tên" required />
-      <input id="username" placeholder="Tài khoản đăng nhập" required />
+      <input id="username" placeholder="Tài khoản đăng nhập" minlength="3" maxlength="50" pattern="[A-Za-z0-9._-]{3,50}" autocomplete="username" title="3–50 ký tự: chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang" required />
       <select id="role"><option>Quản trị viên</option><option>Kỹ sư TTBYT</option><option>Người dùng khoa</option></select>
-      <select id="departmentCode"></select>
+      <select id="departmentCode" aria-label="Khoa/phòng"></select>
       <input id="phone" placeholder="Số điện thoại" />
+      <input id="password" type="password" minlength="8" autocomplete="new-password" placeholder="Mật khẩu mới (≥ 8 ký tự; để trống nếu không đổi)" />
       <select id="status"><option>Hoạt động</option><option>Ngừng hoạt động</option></select>
     </div>
+    <div id="userFormHint" class="muted-note" style="margin-top:10px">Tài khoản: 3–50 ký tự, chỉ dùng chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang. Người dùng khoa bắt buộc phải gán khoa/phòng.</div>
     <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu người dùng</button><button class="btn" type="button" onclick="resetForm()">Đặt lại form</button></div>
   </form>
 </section>

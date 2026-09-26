@@ -1384,3 +1384,390 @@ dialog#repairDetailDialog{
 .repair-history-toggle input{width:16px;height:16px;accent-color:#0b64b4}
 .timeline-head .tag{min-height:28px;padding:6px 10px;font-size:12px;font-weight:900;text-transform:uppercase}
 .timeline-actor{font-weight:700}
+
+/* Legacy hard-coded identity is hidden by default; JS only reveals the authenticated identity. */
+.user-box{display:none}
+
+/* Phân quyền hiển thị: tài khoản khoa chỉ xem, không thao tác hồ sơ kỹ thuật. */
+.role-department [data-technical-write]{display:none!important}
+
+
+/* ===== v39 - Tinh gon giao dien: uu tien thong tin can hanh dong ===== */
+.visually-hidden-dashboard,
+.hidden-ui-metrics{display:none!important}
+
+.overview-kpis{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:14px;
+  margin:0 0 16px;
+}
+.overview-kpi{
+  background:#fff;
+  border:1px solid #d8e5ef;
+  border-radius:14px;
+  padding:16px 18px;
+  box-shadow:0 3px 12px rgba(15,42,68,.05);
+  min-height:104px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+.overview-kpi-label{font-size:14px;font-weight:700;color:#5c7083}
+.overview-kpi strong{font-size:30px;line-height:1.1;margin:6px 0;color:#0b3765}
+.overview-kpi small{font-size:12px;color:#7a8d9e}
+.overview-kpi-warning{border-left:4px solid #d97706}
+.overview-kpi-danger{border-left:4px solid #c24141}
+.dashboard-focus-card,.dashboard-trend-card{padding:16px 18px}
+.section-caption{margin:4px 0 0;color:#718397;font-size:13px}
+.dashboard-focus-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.focus-list-block{
+  border:1px solid #e1eaf1;
+  border-radius:12px;
+  padding:14px;
+  background:#fbfdff;
+}
+.focus-list-block h4{margin:0 0 10px;font-size:15px;color:#17324d}
+.clean-task-list{margin:0;padding-left:18px}
+.clean-task-list li{padding:8px 0;border-bottom:1px solid #edf2f6;line-height:1.45}
+.clean-task-list li:last-child{border-bottom:0}
+
+/* Tom tat nhe, khong dung nhieu the trang thai lon */
+.summary-strip{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+  margin:0 0 14px;
+}
+.summary-item{
+  background:#fff;
+  border:1px solid #dce7ef;
+  border-radius:12px;
+  padding:12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:54px;
+}
+.summary-item span{font-size:13px;color:#607487;font-weight:700}
+.summary-item strong{font-size:23px;color:#0b3765}
+.summary-item-warning{border-left:4px solid #d97706}
+.summary-item-success{border-left:4px solid #2f855a}
+
+/* Loc co ban hien ngay, loc it dung de gon trong "Loc them" */
+.simple-filter-grid{
+  display:grid!important;
+  grid-template-columns:160px 160px minmax(260px,1fr) 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.advanced-filter-details{
+  margin-top:10px;
+  border-top:1px solid #e6edf3;
+  padding-top:8px;
+}
+.advanced-filter-details summary{
+  cursor:pointer;
+  color:#47627a;
+  font-size:13px;
+  font-weight:700;
+  width:max-content;
+}
+.advanced-filter-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(170px,1fr));
+  gap:10px;
+  margin-top:10px;
+}
+
+/* Bang su co: an Nguon bao va Nguoi bao o man hinh danh sach */
+.incident-table-v2 th:nth-child(6),
+.incident-table-v2 td:nth-child(6),
+.incident-table-v2 th:nth-child(7),
+.incident-table-v2 td:nth-child(7){display:none}
+.incident-table-v2 .wrap-text{max-width:360px}
+
+/* Bang sua chua: danh sach chi giu thong tin de quyet dinh xu ly */
+.repair-table-v2 th:nth-child(7),
+.repair-table-v2 td:nth-child(7),
+.repair-table-v2 th:nth-child(9),
+.repair-table-v2 td:nth-child(9),
+.repair-table-v2 th:nth-child(10),
+.repair-table-v2 td:nth-child(10),
+.repair-table-v2 th:nth-child(11),
+.repair-table-v2 td:nth-child(11){display:none}
+.repair-stats .repair-stat-card:nth-child(3),
+.repair-stats .repair-stat-card:nth-child(5),
+.repair-stats .repair-stat-card:nth-child(6){display:none}
+.repair-stats{grid-template-columns:repeat(3,minmax(160px,1fr));max-width:760px}
+
+/* Danh sach thiet bi: bo cac cot thu cap khoi tam nhin mac dinh */
+.device-table th:nth-child(5),
+.device-table td:nth-child(5),
+.device-table th:nth-child(8),
+.device-table td:nth-child(8),
+.device-table th:nth-child(9),
+.device-table td:nth-child(9){display:none}
+.device-table .device-name-cell{min-width:210px}
+.device-table .department-cell{min-width:115px}
+
+/* Nhe hoa tong the */
+.main{max-width:1600px}
+.card{border-radius:14px}
+.topbar{margin-bottom:14px}
+.page-subtitle{max-width:760px}
+.table-wrap.scroll-area{max-height:66vh}
+.table-actions.compact-actions{min-width:145px}
+.table-actions.compact-actions .btn{padding:6px 8px;font-size:12px}
+
+@media(max-width:1100px){
+  .overview-kpis{grid-template-columns:repeat(2,1fr)}
+  .simple-filter-grid{grid-template-columns:1fr 1fr!important}
+  .simple-filter-grid .field-wide{grid-column:1/-1}
+  .advanced-filter-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:720px){
+  .overview-kpis,.dashboard-focus-grid,.summary-strip,.advanced-filter-grid{grid-template-columns:1fr}
+  .simple-filter-grid{grid-template-columns:1fr!important}
+  .repair-stats{grid-template-columns:1fr;max-width:none}
+}
+
+
+/* v39.1 - mac dinh chi hien bo loc dung thuong xuyen */
+.repair-filter-grid-v2{
+  grid-template-columns:160px 160px minmax(300px,1fr) 190px auto!important;
+}
+.repair-filter-grid-v2 > label:nth-child(4),
+.repair-filter-grid-v2 > label:nth-child(5),
+.repair-filter-grid-v2 > label:nth-child(6),
+.repair-filter-grid-v2 > label:nth-child(8){display:none}
+
+.device-filter-row{
+  grid-template-columns:minmax(300px,1fr) 200px 190px auto auto auto!important;
+}
+.device-filter-row #groupFilter,
+.device-filter-row #yearFilter,
+.device-filter-row #qualityFilter,
+.device-filter-row #fundingFilter{display:none}
+
+@media(max-width:1050px){
+  .repair-filter-grid-v2,.device-filter-row{grid-template-columns:1fr 1fr!important}
+  .repair-filter-grid-v2 .field-wide,
+  .device-filter-row #searchInput{grid-column:1/-1}
+}
+@media(max-width:700px){
+  .repair-filter-grid-v2,.device-filter-row{grid-template-columns:1fr!important}
+}
+
+
+/* ===== v40 - Mot noi dieu hanh, chi hien thong tin can hanh dong ===== */
+.work-principle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin:0 0 14px;
+  padding:12px 16px;
+  border:1px solid #d8e8f3;
+  border-radius:12px;
+  background:#f7fbfe;
+  color:#17324d;
+}
+.work-principle strong{font-size:15px;color:#0b5cad}
+.work-principle span{font-size:13px;color:#607487;text-align:right}
+.work-summary-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin-bottom:14px;
+}
+.work-summary-card{
+  min-height:92px;
+  padding:14px 16px;
+  border:1px solid #dce7ef;
+  border-left:4px solid #0b64b4;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 3px 12px rgba(15,42,68,.04);
+}
+.work-summary-card span{display:block;font-size:13px;font-weight:800;color:#536b82}
+.work-summary-card strong{display:block;margin:5px 0 4px;font-size:27px;line-height:1;color:#0b3765}
+.work-summary-card small{font-size:11px;color:#7a8d9e}
+.work-summary-alert{border-left-color:#dc2626}
+.work-summary-warning{border-left-color:#d97706}
+.work-summary-danger{border-left-color:#b91c1c}
+.work-shortcuts-card{padding:10px 14px}
+.work-shortcuts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.work-filter-grid{
+  display:grid!important;
+  grid-template-columns:190px 160px minmax(300px,1fr) auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.work-queue-card{padding:14px 16px}
+.work-queue-table th{white-space:nowrap}
+.work-queue-table td{vertical-align:top}
+.work-queue-table th:nth-child(1),.work-queue-table td:nth-child(1){width:82px}
+.work-queue-table th:nth-child(2),.work-queue-table td:nth-child(2){width:120px}
+.work-queue-table th:nth-child(3),.work-queue-table td:nth-child(3){min-width:220px}
+.work-queue-table th:nth-child(4),.work-queue-table td:nth-child(4){min-width:150px}
+.work-queue-table th:nth-child(5),.work-queue-table td:nth-child(5){min-width:180px}
+.work-queue-table th:nth-child(6),.work-queue-table td:nth-child(6){min-width:210px}
+.work-device-link{font-weight:800;color:#0b5cad;text-decoration:none}
+.work-device-link:hover{text-decoration:underline}
+.work-status-text{font-weight:800;color:#17324d}
+.work-detail-line{margin-top:4px;color:#718397;max-width:280px;white-space:normal}
+.work-next-action{font-weight:700;color:#314b63;white-space:normal}
+
+/* Danh sach nghiep vu: thong tin chi tiet mo trong ho so */
+.primary-list-table th,.primary-list-table td{vertical-align:top}
+.primary-list-table .row-secondary{display:block;margin-top:3px;color:#718397;font-size:12px;line-height:1.35}
+.list-action-primary{white-space:nowrap}
+.compact-primary-filters{
+  display:grid!important;
+  grid-template-columns:160px 160px minmax(280px,1fr) 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.compact-primary-filters.no-dates{
+  grid-template-columns:minmax(300px,1fr) 220px 190px auto!important;
+}
+.secondary-row-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+
+/* Trang thiet bi: bo loc chinh gon, loc phu de trong Loc them */
+.device-primary-filter-grid{
+  display:grid!important;
+  grid-template-columns:minmax(320px,1fr) 230px 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.device-primary-filter-grid .filter-actions{display:flex;gap:8px;align-items:end}
+.device-secondary-filters{grid-template-columns:repeat(4,minmax(170px,1fr))}
+
+/* Ket qua va thoi han la hai khai niem rieng */
+.deadline-cell .tag{margin-top:4px}
+.result-cell .tag{white-space:nowrap}
+
+@media(max-width:1100px){
+  .work-summary-grid{grid-template-columns:repeat(2,1fr)}
+  .work-filter-grid,.compact-primary-filters,.compact-primary-filters.no-dates,.device-primary-filter-grid{grid-template-columns:1fr 1fr!important}
+  .work-filter-grid .field-wide,.compact-primary-filters .field-wide,.device-primary-filter-grid .field-wide{grid-column:1/-1}
+  .work-principle{display:block}
+  .work-principle span{display:block;text-align:left;margin-top:4px}
+}
+@media(max-width:700px){
+  .work-summary-grid,.work-filter-grid,.compact-primary-filters,.compact-primary-filters.no-dates,.device-primary-filter-grid,.device-secondary-filters{grid-template-columns:1fr!important}
+  .work-shortcuts .btn{width:100%;justify-content:center}
+}
+
+
+/* v40 compatibility: cac bang da rut gon cot, khong ap dung quy tac an cot cua v39 */
+.device-table th:nth-child(5),.device-table td:nth-child(5),
+.device-table th:nth-child(8),.device-table td:nth-child(8){display:table-cell!important}
+.incident-table-v2 th:nth-child(6),.incident-table-v2 td:nth-child(6),
+.incident-table-v2 th:nth-child(7),.incident-table-v2 td:nth-child(7){display:table-cell!important}
+.repair-table-v2 th:nth-child(7),.repair-table-v2 td:nth-child(7){display:table-cell!important}
+.repair-summary-strip{max-width:760px}
+
+
+/* v40 reports: bao cao nghiep vu la man hinh chinh, phan tich nang mo khi can */
+.report-primary-filter-grid{
+  display:grid!important;
+  grid-template-columns:260px 210px 190px minmax(260px,1fr) auto!important;
+  gap:10px!important;
+  align-items:end!important;
+}
+.report-detail-panel{padding:0;overflow:hidden}
+.report-detail-summary{
+  list-style:none;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:15px 18px;
+  color:#17324d;
+}
+.report-detail-summary::-webkit-details-marker{display:none}
+.report-detail-summary span:first-child{display:flex;flex-direction:column;gap:3px}
+.report-detail-summary b{font-size:16px}
+.report-detail-summary small{color:#718397;font-weight:500}
+.report-detail-open-label{font-size:12px;font-weight:800;color:#0b5cad;white-space:nowrap}
+.report-detail-panel[open] .report-detail-summary{border-bottom:1px solid #e6edf3;background:#fbfdff}
+.report-detail-panel[open] .report-detail-open-label::after{content:" · đang mở"}
+.report-detail-body{padding:16px 18px 18px}
+.report-note{margin-bottom:12px;color:#64748b}
+.kpi-filter-grid{
+  display:grid!important;
+  grid-template-columns:160px 160px 220px 190px auto!important;
+  gap:10px!important;
+  align-items:end!important;
+  margin-bottom:14px;
+}
+.inline-number-field{display:flex;align-items:center;gap:6px}
+.inline-number-field input{min-width:0}
+.report-detail-body .due-list-block{margin-top:12px}
+.report-detail-body .dashboard-upcoming-grid{margin-top:4px}
+
+@media(max-width:1150px){
+  .report-primary-filter-grid,.kpi-filter-grid{grid-template-columns:1fr 1fr!important}
+  .report-primary-filter-grid .field-wide{grid-column:1/-1}
+}
+@media(max-width:700px){
+  .report-primary-filter-grid,.kpi-filter-grid{grid-template-columns:1fr!important}
+  .report-detail-summary{align-items:flex-start}
+}
+
+/* v5.0 dashboard + navigation refresh 2026-09-26 */
+.brand h1{font-size:17px;line-height:1.2}
+.brand p{font-weight:800;letter-spacing:.04em}
+.menu-section-label{
+  margin:13px 12px 3px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.08em;
+  color:rgba(255,255,255,.58);
+}
+.menu-admin-link{margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:14px!important;border-radius:0!important}
+.dashboard-period-card{padding:14px 16px;margin-bottom:14px}
+.dashboard-period-row{display:flex;align-items:end;justify-content:space-between;gap:16px}
+.dashboard-period-controls{display:grid;grid-template-columns:190px 155px 155px;gap:10px;align-items:end}
+.dashboard-period-controls .field{margin:0}
+.dashboard-period-controls select,.dashboard-period-controls input{
+  width:100%;min-height:42px;padding:9px 11px;border:1px solid #bfd0e1;border-radius:10px;background:#fff;color:#17324d
+}
+.dashboard-period-note{max-width:560px;text-align:right;color:#617995;font-size:13px;line-height:1.45}
+.overview-kpis.dashboard-kpis-v2{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.dashboard-kpis-v2 .overview-kpi{min-height:100px;padding:14px 16px}
+.dashboard-kpis-v2 .overview-kpi strong{font-size:29px}
+.overview-kpi-success{border-left:4px solid #2f855a}
+.dashboard-quick-actions{display:flex;gap:8px;justify-content:flex-end;margin:0 0 14px}
+.dashboard-upcoming-card,.dashboard-priority-card{padding:16px 18px}
+.dashboard-upcoming-table th,.dashboard-priority-table th{white-space:nowrap}
+.dashboard-upcoming-table td,.dashboard-priority-table td{vertical-align:top}
+.dashboard-upcoming-table th:nth-child(1){width:90px}
+.dashboard-upcoming-table th:nth-child(4){width:145px}
+.dashboard-upcoming-table th:last-child,.dashboard-priority-table th:last-child{width:92px}
+.dashboard-priority-table th:nth-child(1){width:92px}
+.dashboard-priority-table th:nth-child(2){min-width:220px}
+.dashboard-priority-table th:nth-child(3){min-width:190px}
+.dashboard-priority-table th:nth-child(4){min-width:150px}
+.dashboard-priority-table th:nth-child(5){width:105px}
+.tag.gray{background:#edf2f7;color:#53697d}
+
+@media(max-width:1250px){
+  .overview-kpis.dashboard-kpis-v2{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .dashboard-period-row{align-items:stretch;flex-direction:column}
+  .dashboard-period-note{text-align:left;max-width:none}
+}
+@media(max-width:850px){
+  .overview-kpis.dashboard-kpis-v2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dashboard-period-controls{grid-template-columns:1fr 1fr}
+  .dashboard-period-controls .field:first-child{grid-column:1/-1}
+}
+@media(max-width:620px){
+  .overview-kpis.dashboard-kpis-v2,.dashboard-period-controls{grid-template-columns:1fr}
+  .dashboard-period-controls .field:first-child{grid-column:auto}
+  .dashboard-quick-actions{display:grid;grid-template-columns:1fr}
+  .dashboard-quick-actions .btn{text-align:center}
+}

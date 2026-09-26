@@ -1,34 +1,104 @@
 <!DOCTYPE html>
 <html lang="vi">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Báo cáo</title><link rel="stylesheet" href="/styles.css"/></head>
-<body><div class="layout"><div id="menuHost"></div><main class="main">
-  <div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="user-box">Người dùng: Quản trị viên</div></div>
-  <section class="card compact-card">
-    <div class="filters" style="grid-template-columns:220px 180px 180px 1.2fr auto auto">
-      <label class="field"><span class="field-label">Loại báo cáo</span><select id="reportType">
-        <option value="warrantySoon">Thiết bị sắp hết bảo hành</option>
-        <option value="maintenanceOverdue">Thiết bị quá hạn bảo dưỡng</option>
-        <option value="inspectionOverdue">Thiết bị quá hạn kiểm định</option>
-        <option value="frequentRepairs">Thiết bị sửa chữa nhiều lần</option>
-        <option value="costByDepartment">Chi phí sửa chữa theo khoa/phòng</option>
-        <option value="replaceList">Đề nghị thay thế/thanh lý</option>
-        <option value="statusRatio">Tỷ lệ thiết bị theo trạng thái</option>
-      </select></label>
-      <label class="field"><span class="field-label">Khoa/phòng</span><select id="deptFilter"><option value="ALL">Tất cả</option></select></label>
-      <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả</option></select></label>
-      <label class="field"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Tìm mã/tên thiết bị/khoa/nhóm"/></label>
-      <button class="btn btn-primary" id="filterBtn">Lọc</button>
-      <button class="btn" id="exportBtn">Xuất Excel</button>
-    </div>
-  </section>
-  <section class="reports-summary-grid" id="reportCards"></section>
-  <section class="card report-main-card">
-    <div class="table-card-header report-title-row">
-      <div>
-        <h3 id="countLabel">0 dòng</h3>
-        <div id="reportHint" class="small">Chọn loại báo cáo và bấm Lọc để xem dữ liệu.</div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Báo cáo - Quản lý TTBYT BVQY4</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div>
+        <div class="user-box" style="display:none"></div>
       </div>
-    </div>
-    <div class="table-wrap scroll-area"><table class="report-table"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
-  </section>
-</main></div><script src="/api.js"></script><script src="/vendor/xlsx.full.min.js"></script><script src="/reports.js"></script></body></html>
+
+      <section class="card compact-card">
+        <div class="filters report-primary-filter-grid">
+          <label class="field"><span class="field-label">Loại báo cáo</span><select id="reportType">
+            <option value="warrantySoon">Thiết bị sắp hết bảo hành</option>
+            <option value="maintenanceOverdue">Bảo dưỡng quá hạn</option>
+            <option value="inspectionOverdue">KĐ/HC/ATBX quá hạn</option>
+            <option value="inspectionFailed">KĐ/HC/ATBX không đạt</option>
+            <option value="inspectionMissingSchedule">KĐ/HC/ATBX chưa có lịch</option>
+            <option value="frequentRepairs">Thiết bị sửa chữa nhiều lần</option>
+            <option value="costByDepartment">Chi phí sửa chữa theo khoa/phòng</option>
+            <option value="replaceList">Thiết bị cần xem xét thay thế / thanh lý</option>
+            <option value="statusRatio">Thiết bị theo tình trạng</option>
+          </select></label>
+          <label class="field"><span class="field-label">Khoa/phòng</span><select id="deptFilter"><option value="ALL">Tất cả</option></select></label>
+          <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả</option></select></label>
+          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên thiết bị, khoa hoặc nhóm" /></label>
+          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Xem báo cáo</button><button class="btn" id="exportBtn">Xuất Excel</button></div>
+        </div>
+      </section>
+
+      <section class="reports-summary-grid" id="reportCards"></section>
+      <section class="card report-main-card">
+        <div class="table-card-header report-title-row">
+          <div>
+            <h3 id="countLabel">0 dòng</h3>
+            <div id="reportHint" class="small">Chọn loại báo cáo để xem dữ liệu.</div>
+          </div>
+        </div>
+        <div class="table-wrap scroll-area"><table class="report-table"><thead id="thead"></thead><tbody id="rows"></tbody></table></div>
+      </section>
+
+      <details class="card report-detail-panel">
+        <summary class="report-detail-summary">
+          <span><b>Hiệu quả xử lý sự cố & ứng dụng QR</b><small>KPI phục vụ đánh giá triển khai; mở khi cần phân tích.</small></span>
+          <span class="report-detail-open-label">Mở phân tích</span>
+        </summary>
+        <div class="report-detail-body">
+          <div class="small report-note">Tổng hợp dữ liệu thực tế theo khoảng thời gian. Mục tiêu phản hồi là chỉ tiêu nội bộ do đơn vị tự đặt, không mặc định là chuẩn pháp lý.</div>
+          <div class="filters kpi-filter-grid">
+            <label class="field"><span class="field-label">Từ ngày</span><input id="kpiFromDate" type="date" /></label>
+            <label class="field"><span class="field-label">Đến ngày</span><input id="kpiToDate" type="date" /></label>
+            <label class="field"><span class="field-label">Khoa/phòng</span><select id="kpiDeptFilter"><option value="ALL">Tất cả</option></select></label>
+            <label class="field"><span class="field-label">Mục tiêu phản hồi</span><div class="inline-number-field"><input id="kpiResponseTarget" type="number" min="1" max="1440" value="30" /><span class="small">phút</span></div></label>
+            <div class="filter-actions"><button class="btn btn-primary" id="loadKpiBtn">Tính KPI</button><button class="btn" id="exportKpiBtn">Xuất KPI</button></div>
+          </div>
+          <section class="reports-summary-grid" id="kpiCards"></section>
+          <div class="dashboard-upcoming-grid">
+            <div class="due-list-block">
+              <h4>Theo nguồn báo</h4>
+              <div class="table-wrap"><table><thead><tr><th>Nguồn</th><th>Số sự cố</th><th>Có tiếp nhận</th><th>Đủ mốc</th><th>Phản hồi TB</th><th>Trung vị</th><th>≤ mục tiêu</th><th>Đã xử lý</th><th>Xử lý TB</th></tr></thead><tbody id="kpiSourceRows"></tbody></table></div>
+              <div id="kpiSourceNote" class="small report-note"></div>
+            </div>
+            <div class="due-list-block">
+              <h4>Theo tháng</h4>
+              <div class="table-wrap"><table><thead><tr><th>Tháng</th><th>Sự cố</th><th>Sự cố qua QR</th><th>Tỷ lệ QR</th><th>Lượt kiểm tra QR</th></tr></thead><tbody id="kpiMonthRows"></tbody></table></div>
+            </div>
+          </div>
+          <div class="due-list-block">
+            <h4>Theo dõi QR theo ngày</h4>
+            <div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Lượt kiểm tra QR</th><th>Thiết bị duy nhất</th><th>Phát hiện vấn đề</th><th>Tổng sự cố</th><th>Sự cố qua QR</th></tr></thead><tbody id="kpiDayRows"></tbody></table></div>
+          </div>
+          <div id="kpiQualityNote" class="muted-note"></div>
+        </div>
+      </details>
+
+      <details class="card report-detail-panel">
+        <summary class="report-detail-summary">
+          <span><b>Chất lượng dữ liệu thiết bị</b><small>Dùng khi rà soát dữ liệu, không chiếm màn hình báo cáo thường ngày.</small></span>
+          <span class="report-detail-open-label">Mở rà soát</span>
+        </summary>
+        <div class="report-detail-body">
+          <div class="section-head">
+            <div class="small">Hệ thống chỉ cảnh báo dữ liệu cốt lõi, không tự suy đoán hoặc tự sửa Serial.</div>
+            <button class="btn" id="exportDataQualityBtn">Xuất danh sách rà soát</button>
+          </div>
+          <section class="reports-summary-grid" id="dataQualityCards"></section>
+          <div class="table-wrap scroll-area">
+            <table><thead><tr><th>STT</th><th>Mã thiết bị</th><th>Tên thiết bị</th><th>Khoa</th><th>Serial</th><th>Mã bảo hiểm</th><th>Nội dung cần rà soát</th></tr></thead><tbody id="dataQualityRows"></tbody></table>
+          </div>
+        </div>
+      </details>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/reports.js"></script>
+</body>
+</html>

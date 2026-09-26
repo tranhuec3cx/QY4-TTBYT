@@ -1,17 +1,25 @@
 {
-  "name": "qy4-ttbyt-app-v36",
-  "version": "v36-danh-muc-khoa-ban-chuan",
+  "name": "qy4-ttbyt",
+  "version": "5.0.0",
   "private": true,
   "description": "Phần mềm quản lý trang thiết bị y tế - Bệnh viện Quân y 4",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "preflight:realdata": "node scripts/preflight-realdata.js",
+    "verify:backup": "node scripts/verify-backup-restore.js",
+    "audit:migration": "node scripts/audit-migration.js",
+    "release:gate": "node scripts/final-release-gate.js",
+    "verify:release": "node scripts/verify-release-bundle.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
-    "express": "^4.21.2",
-    "xlsx": "^0.18.5",
-    "multer": "^1.4.5-lts.1",
+    "express": "^4.22.3",
+    "multer": "2.4.0",
+    "qrcode-generator": "2.0.4",
     "exceljs": "^4.4.0"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>Hệ thống</title><link rel="stylesheet" href="/styles.css"/></head>
+<body><div class="layout"><div id="menuHost"></div><main class="main">
+<div class="topbar"><div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div><div class="user-box" style="display:none"></div></div>
+<div id="settingsTabsHost"></div>
+
+<section class="card">
+  <div class="section-head">
+    <div><h2 class="section-title">Sẵn sàng triển khai</h2><div class="small">Kiểm tra nhanh các điều kiện quan trọng trước khi chạy dữ liệu thật, demo Hội đồng hoặc in QR hàng loạt.</div></div>
+    <button class="btn btn-primary" id="reloadReadinessBtn">Kiểm tra lại</button>
+  </div>
+  <section class="reports-summary-grid" id="readinessSummary"></section>
+  <div id="readinessGenerated" class="muted-note" style="margin:10px 0"></div>
+  <div class="table-wrap scroll-area">
+    <table><thead><tr><th>Trạng thái</th><th>Nội dung kiểm tra</th><th>Kết quả / việc cần làm</th></tr></thead><tbody id="readinessRows"></tbody></table>
+  </div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><h2 class="section-title">Sao lưu dữ liệu</h2><div class="small">Mỗi gói sao lưu gồm database SQLite đã kiểm tra toàn vẹn và snapshot ảnh/video/tài liệu đính kèm. Khi chạy thật nên cấu hình thêm QY4_BACKUP_MIRROR_DIR tới ổ/thư mục khác để tránh mất cả dữ liệu chính và backup khi máy chủ hỏng.</div></div><button class="btn btn-primary" id="backupBtn">Sao lưu ngay</button></div>
+  <div id="backupStatus" class="muted-note"></div>
+  <div class="table-wrap scroll-area"><table><thead><tr><th>STT</th><th>Gói sao lưu</th></tr></thead><tbody id="backupRows"></tbody></table></div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><h2 class="section-title">Nhật ký hệ thống</h2><div class="small">Theo dõi các thay đổi quản trị quan trọng: thiết bị, điều chuyển, kiểm kê và sao lưu.</div></div><button class="btn" id="reloadAuditBtn">Làm mới</button></div>
+  <div class="table-wrap scroll-area"><table><thead><tr><th>Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>Đối tượng</th><th>Nội dung</th></tr></thead><tbody id="auditRows"></tbody></table></div>
+</section>
+
+<section class="card">
+  <div class="section-head"><div><h2 class="section-title">Người dùng và phân quyền</h2><div class="small">Xác thực đăng nhập và phân quyền API đã được tích hợp. Khi triển khai chính thức, bật QY4_AUTH_REQUIRED=1 và thiết lập mật khẩu quản trị ban đầu bằng biến môi trường QY4_ADMIN_PASSWORD.</div></div><a class="btn" href="/users.html">Quản lý người dùng</a></div>
+  <div id="authStatus" class="muted-note" style="margin-top:10px"></div>
+</section>
+</main></div><script src="/api.js"></script><script src="/settings-system.js"></script></body></html>

@@ -2,7 +2,6 @@ let REPAIR_ROWS = [];
 let FILTERED_REPAIRS = [];
 let DEVICES = [];
 let META = { departments: [], groups: [] };
-let SOURCE_INCIDENT = null;
 
 function norm(value) {
   return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -22,9 +21,24 @@ function getDevice(id) {
   return DEVICES.find(d => Number(d.id) === Number(id)) || null;
 }
 function deviceLabel(d) {
-  if (!d) return "";
-  return `${d.device_code || "TB-" + d.id} - ${d.name || ""}${d.model ? " - " + d.model : ""}`;
+  return devicePickerLabel(d);
 }
+function syncRepairDeviceStatus(){
+  const status=normalizeRepairStatus(q("repairStatus")?.value || "Đang xử lý");
+  const select=q("statusAfter");
+  if(!select) return;
+  if(status==="Đã hoàn thành"){
+    select.disabled=false;
+    if(!["Đang hoạt động","Hoạt động hạn chế"].includes(select.value)) select.value="Đang hoạt động";
+  }else if(status==="Không sửa được"){
+    select.value="Ngừng hoạt động";
+    select.disabled=true;
+  }else{
+    select.value="Chờ sửa chữa";
+    select.disabled=true;
+  }
+}
+
 function repairStatusClass(status) {
   const st = normalizeRepairStatus(status);
   if (st === "Đã hoàn thành") return "green";
@@ -32,22 +46,11 @@ function repairStatusClass(status) {
   if (st === "Không sửa được") return "red";
   return "gray";
 }
-function renderDeviceOptions() {
-  const list = DEVICES.map(d => `<option value="${esc(deviceLabel(d))}" data-id="${d.id}"></option>`).join("");
-  q("deviceOptions").innerHTML = list;
-}
-function resolveDeviceFromSearch() {
-  const raw = q("repairDeviceSearch").value.trim();
-  if (!raw) return null;
-  const rawNorm = norm(raw);
-  return DEVICES.find(d => norm(deviceLabel(d)) === rawNorm)
-      || DEVICES.find(d => norm([d.device_code, d.serial, d.name, d.model].join(" ")).includes(rawNorm));
-}
 function setSelectedDevice(device) {
   q("selectedDeviceId").value = device ? device.id : "";
   q("repairDeviceName").value = device ? (device.name || "") : "";
   q("repairDeviceCode").value = device ? (device.device_code || "") : "";
-  q("repairDept").value = device ? (device.department_name || device.department_code || "") : "";
+  q("repairDept").value = device ? (device.department_code || device.department_name || "") : "";
   q("repairLocation").value = device ? (device.location || "") : "";
   q("repairModel").value = device ? (device.model || "") : "";
   q("repairSerial").value = device ? (device.serial || "") : "";
@@ -60,7 +63,9 @@ function resetRepairForm() {
   q("repairForm").reset();
   q("repairId").value = "";
   q("sourceIncidentId").value = "";
-  SOURCE_INCIDENT = null;
+  q("repairStatus").disabled = false;
+  q("repairStatus").title = "";
+  q("repairDeviceSearch").readOnly = false;
   clearSelectedDevice();
   q("repairDialogTitle").textContent = "Tạo phiếu sửa chữa";
   q("repairDialogSubtitle").textContent = "Nhập hoặc chỉnh sửa thông tin phiếu sửa chữa thiết bị y tế";
@@ -68,7 +73,11 @@ function resetRepairForm() {
   q("prefillNotice").style.display = "none";
   q("saveRepairBtn").textContent = "Lưu phiếu";
   q("cost").value = 0;
-  if (q("actionTime")) q("actionTime").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  q("repairDate").value = nowDateTimeLocalValue();
+  q("person").value = window.QY4_AUTH_USER?.full_name || "";
+  q("reporter").value = window.QY4_AUTH_USER?.full_name || "";
+  q("priority").value = "Bình thường";
+  if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
   if (q("saveHistory")) q("saveHistory").checked = true;
 }
 function openRepairDialog(mode = "create") {
@@ -79,45 +88,40 @@ function closeRepairDialog() {
   q("repairDialog").close();
 }
 function renderStats(rows) {
-  const count = rows.length;
   const stat = (name) => rows.filter(r => normalizeRepairStatus(r.processing_status) === name).length;
-  const cost = rows.reduce((s, r) => s + Number(r.cost || 0), 0);
-  const cards = [
-    ["Tổng phiếu", count],
-    ["Đang xử lý", stat("Đang xử lý")],
-    ["Chờ linh kiện", stat("Chờ linh kiện")],
-    ["Đã hoàn thành", stat("Đã hoàn thành")],
-    ["Không sửa được", stat("Không sửa được")],
-    ["Tổng chi phí", formatCurrency(cost)]
-  ];
-  q("repairStats").innerHTML = cards.map(([label, value]) => `<div class="stat-card repair-stat-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
+  const ended = stat("Đã hoàn thành") + stat("Không sửa được");
+  q("repairStats").innerHTML = [
+    ["Đang xử lý", stat("Đang xử lý"), ""],
+    ["Chờ linh kiện", stat("Chờ linh kiện"), " summary-item-warning"],
+    ["Đã kết thúc", ended, " summary-item-success"]
+  ].map(([label,value,cls]) => `<div class="summary-item${cls}"><span>${label}</span><strong>${value}</strong></div>`).join("");
+}
+function repairNextAction(r) {
+  const status = normalizeRepairStatus(r.processing_status);
+  if (status === "Chờ linh kiện") return "Theo dõi linh kiện và thời gian ngừng máy";
+  if (status === "Đang xử lý") return "Cập nhật tiến độ sửa chữa";
+  if (status === "Không sửa được") return "Đánh giá phương án thay thế / thanh lý";
+  return r.result || r.status_after || "Đã kết thúc";
 }
 function renderRows(rows) {
-  q("countLabel").textContent = `${rows.length} bản ghi`;
+  q("countLabel").textContent = `${rows.length} phiếu sửa chữa`;
   if (!rows.length) {
-    q("rows").innerHTML = `<tr><td colspan="13" class="center-empty">Chưa có phiếu sửa chữa phù hợp.</td></tr>`;
+    q("rows").innerHTML = `<tr><td colspan="7" class="center-empty">Chưa có phiếu sửa chữa phù hợp.</td></tr>`;
     return;
   }
-  q("rows").innerHTML = rows.map((r, i) => `
+  q("rows").innerHTML = rows.map((r) => `
     <tr id="repair-row-${Number(r.id)}">
-      <td>${i + 1}</td>
-      <td>${formatDateTimeVN(r.received_at || r.repair_date)}</td>
-      <td class="device-code">${esc(r.device_code || r.serial || "")}</td>
-      <td><b>${esc(r.device_name || "")}</b><div class="small">${esc(r.model || "")}</div></td>
-      <td><b>${esc(r.department_name || r.department_code || "")}</b><div class="small">${esc(r.location || "")}</div></td>
+      <td>${formatDateTimeVNLines(r.received_at || r.repair_date)}</td>
+      <td>${technicalDeviceCell(r)}</td>
+      <td>${technicalLocationCell(r)}</td>
       <td class="wrap-text">${esc(r.issue || "")}</td>
-      <td class="wrap-text">${esc(r.work || "")}</td>
-      <td>${esc(r.person || "")}</td>
       <td><span class="tag ${repairStatusClass(r.processing_status)}">${esc(normalizeRepairStatus(r.processing_status))}</span></td>
-      <td>${esc(r.method || "")}</td>
-      <td>${formatCurrency(r.cost)}</td>
-      <td>${esc(r.result || "")}<div class="small">${esc(r.status_after || "")}</div></td>
+      <td class="wrap-text">${esc(repairNextAction(r))}</td>
       <td>
         <div class="table-actions compact-actions">
-          <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Xem HS</button>
-          <button class="btn" onclick="editRepair(${Number(r.id)})">Cập nhật</button>
+          <button class="btn btn-primary" onclick="editRepair(${Number(r.id)})">Mở phiếu</button>
+          <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Hồ sơ</button>
           <button class="btn" onclick="showRepairHistory(${Number(r.id)})">Lịch sử</button>
-          <button class="btn btn-danger" onclick="deleteRepair(${Number(r.id)})">Xóa</button>
         </div>
       </td>
     </tr>`).join("");
@@ -173,23 +177,43 @@ function editRepair(id) {
   const d = getDevice(r.device_id) || r;
   q("repairDeviceSearch").value = deviceLabel(d);
   setSelectedDevice(d);
+  q("repairDeviceSearch").readOnly = true;
   q("repairDate").value = toDateTimeLocalValue(r.received_at || r.repair_date || "");
-  if (q("actionTime")) q("actionTime").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
+  if (q("actionTime")) q("actionTime").value = nowDateTimeLocalValue();
   if (q("saveHistory")) q("saveHistory").checked = true;
   q("issue").value = r.issue || "";
   q("work").value = r.work || "";
   q("person").value = r.person || "";
+  q("priority").value = r.priority || "Bình thường";
+  q("reporter").value = r.reporter || "";
+  q("note").value = r.note || "";
   q("method").value = r.method || "Nội bộ";
   q("cost").value = r.cost || 0;
   q("result").value = r.result || "";
   q("statusAfter").value = r.status_after || "Đang hoạt động";
-  q("repairStatus").value = normalizeRepairStatus(r.processing_status);
+  const normalizedStatus = normalizeRepairStatus(r.processing_status);
+  q("repairStatus").value = normalizedStatus;
+  const isTerminal = ["Đã hoàn thành","Không sửa được"].includes(normalizedStatus);
+  q("repairStatus").disabled = isTerminal;
+  q("repairStatus").title = isTerminal ? "Phiếu đã kết thúc; trạng thái xử lý được khóa để bảo toàn lịch sử." : "";
+  if (isTerminal) {
+    q("repairDialogSubtitle").textContent = "Có thể hiệu chỉnh nội dung/chi phí/ghi chú; trạng thái kết thúc được khóa để bảo toàn lịch sử";
+  }
+  syncRepairDeviceStatus();
+  if (normalizedStatus==="Đã hoàn thành" && ["Đang hoạt động","Hoạt động hạn chế"].includes(r.status_after)) q("statusAfter").value=r.status_after;
   openRepairDialog("edit");
 }
 async function deleteRepair(id) {
-  if (!confirm("Xóa phiếu sửa chữa này?")) return;
-  await api(`/api/repairs/${id}`, { method: "DELETE" });
-  await loadData();
+  const r=REPAIR_ROWS.find(x=>Number(x.id)===Number(id));
+  if(!r) return;
+  if (!r.can_delete) return alert(r.delete_reason || "Phiếu này không được phép xóa.");
+  if (!confirm(`Xóa phiếu sửa chữa độc lập tạo nhầm #${id}? Thiết bị sẽ được khôi phục trạng thái trước sửa chữa: ${r.status_before || "chưa xác định"}. Hành động này chỉ dùng cho phiếu nhập nhầm.`)) return;
+  try{
+    await api(`/api/repairs/${id}`, { method: "DELETE" });
+    await loadData();
+  }catch(e){
+    alert(e.message || "Không xóa được phiếu sửa chữa.");
+  }
 }
 function repairHistoryTypeLabel(r) {
   const t = r.entry_type || r.action_type || "Cập nhật";
@@ -235,19 +259,6 @@ async function showRepairHistory(id) {
   q("repairHistoryBody").innerHTML = renderRepairTimeline(rows, repair);
   q("repairHistoryDialog").showModal();
 }
-async function updateSourceIncidentStatus() {
-  if (!SOURCE_INCIDENT || !SOURCE_INCIDENT.id) return;
-  const p = {
-    device_id: SOURCE_INCIDENT.device_id,
-    incident_datetime: SOURCE_INCIDENT.incident_datetime,
-    description: SOURCE_INCIDENT.description,
-    severity: SOURCE_INCIDENT.severity,
-    reporter: SOURCE_INCIDENT.reporter,
-    status: "Đã chuyển sửa chữa",
-    note: SOURCE_INCIDENT.note || ""
-  };
-  try { await api(`/api/incidents/${SOURCE_INCIDENT.id}`, { method: "PUT", body: JSON.stringify(p) }); } catch (e) { console.warn(e); }
-}
 async function saveRepair(e) {
   e.preventDefault();
   const deviceId = Number(q("selectedDeviceId").value);
@@ -261,14 +272,17 @@ async function saveRepair(e) {
     issue: q("issue").value.trim(),
     work: q("work").value.trim(),
     person: q("person").value.trim(),
+    priority: q("priority").value,
+    reporter: q("reporter").value.trim(),
+    note: q("note").value.trim(),
     method: q("method").value,
     cost: Number(q("cost").value || 0),
     result: q("result").value.trim(),
     status_after: (() => {
       const s = normalizeRepairStatus(q("repairStatus").value);
-      if (s === "Đã hoàn thành") return "Đang hoạt động";
       if (s === "Không sửa được") return "Ngừng hoạt động";
-      return q("statusAfter").value || "Chờ sửa chữa";
+      if (s === "Đang xử lý" || s === "Chờ linh kiện") return "Chờ sửa chữa";
+      return ["Đang hoạt động","Hoạt động hạn chế"].includes(q("statusAfter").value) ? q("statusAfter").value : "Đang hoạt động";
     })(),
     processing_status: normalizeRepairStatus(q("repairStatus").value),
     action_time: q("actionTime") ? fromDateTimeLocalValue(q("actionTime").value) : "",
@@ -278,45 +292,9 @@ async function saveRepair(e) {
   if (id) await api(`/api/repairs/${id}`, { method: "PUT", body: JSON.stringify(payload) });
   else {
     await api("/api/repairs", { method: "POST", body: JSON.stringify(payload) });
-    await updateSourceIncidentStatus();
   }
   closeRepairDialog();
   await loadData();
-}
-function applyIncidentPrefill() {
-  const raw = localStorage.getItem("repair_prefill_from_incident");
-  if (!raw) return;
-  try {
-    const r = JSON.parse(raw);
-    SOURCE_INCIDENT = r;
-    resetRepairForm();
-    q("sourceIncidentId").value = r.id || "";
-    q("repairDialogTitle").textContent = "Tạo phiếu sửa chữa từ sự cố";
-    q("repairDialogSubtitle").textContent = "Thông tin sự cố đã được chuyển sang phiếu sửa chữa, vui lòng kiểm tra trước khi lưu";
-    q("sourceBadge").style.display = "inline-flex";
-    const d = getDevice(r.device_id) || r;
-    q("repairDeviceSearch").value = deviceLabel(d);
-    setSelectedDevice(d);
-    q("repairDate").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
-    if (q("actionTime")) q("actionTime").value = toDateTimeLocalValue(new Date().toISOString().slice(0,16));
-    if (q("saveHistory")) q("saveHistory").checked = true;
-    q("issue").value = r.description || "";
-    if (q("reporter")) q("reporter").value = r.reporter || "";
-    if (q("priority")) q("priority").value = r.severity || "Bình thường";
-    q("repairStatus").value = "Đang xử lý";
-    q("person").value = "Khoa Trang bị";
-    q("method").value = "Nội bộ";
-    q("work").value = "Chờ kiểm tra và xử lý kỹ thuật";
-    if (q("note")) q("note").value = r.note || "";
-    q("statusAfter").value = "Chờ sửa chữa";
-    q("prefillNotice").textContent = `Đã chuyển thông tin từ sự cố #${r.id || ""}. Phiếu chỉ được lưu khi bấm “Lưu phiếu”.`;
-    q("prefillNotice").style.display = "block";
-    localStorage.removeItem("repair_prefill_from_incident");
-    openRepairDialog("prefill");
-  } catch (e) {
-    console.error(e);
-    localStorage.removeItem("repair_prefill_from_incident");
-  }
 }
 async function loadData() {
   DEVICES = await api("/api/devices");
@@ -325,7 +303,7 @@ async function loadData() {
   q("departmentFilter").innerHTML = `<option value="ALL">Tất cả khoa/phòng</option>` + (META.departments || []).map(d => `<option value="${d.code}">${esc(d.code)} - ${esc(d.name)}</option>`).join("");
   q("groupFilter").innerHTML = `<option value="ALL">Tất cả nhóm thiết bị</option>` + (META.groups || []).map(g => `<option value="${g.code}">${esc(g.code)} - ${esc(g.name)}</option>`).join("");
   q("deviceFilter").innerHTML = `<option value="ALL">Tất cả thiết bị</option>` + DEVICES.map(d => `<option value="${d.id}">${esc(deviceLabel(d))}</option>`).join("");
-  renderDeviceOptions();
+  bindDevicePicker("repairDeviceSearch","selectedDeviceId","deviceOptions",DEVICES,(d)=>setSelectedDevice(d));
   applyFilter();
 }
 function openRepairFromUrl() {
@@ -348,7 +326,7 @@ function openRepairFromUrl() {
   editRepair(Number(repairId));
 }
 
-function exportRepairsExcel() {
+async function exportRepairsExcel() {
   const rows = FILTERED_REPAIRS.map((r, i) => ({
     "STT": i + 1,
     "Thời gian tiếp nhận": r.received_at || r.repair_date || "",
@@ -356,6 +334,8 @@ function exportRepairsExcel() {
     "Tên thiết bị": r.device_name || "",
     "Khoa/phòng": r.department_name || r.department_code || "",
     "Vị trí": r.location || "",
+    "Mức độ ưu tiên": r.priority || "",
+    "Người báo / ghi nhận": r.reporter || "",
     "Nguyên nhân hỏng": r.issue || "",
     "Nội dung sửa chữa": r.work || "",
     "Người thực hiện": r.person || "",
@@ -363,26 +343,23 @@ function exportRepairsExcel() {
     "Hình thức": r.method || "",
     "Kinh phí": r.cost || 0,
     "Kết quả": r.result || "",
-    "TTTB sau sửa": r.status_after || ""
+    "TTTB sau sửa": r.status_after || "",
+    "Ghi chú": r.note || ""
   }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "SuaChua");
-  XLSX.writeFile(wb, `bao_cao_sua_chua_${new Date().toISOString().slice(0,10)}.xlsx`);
+  await exportXlsx(`bao_cao_sua_chua_${todayISO()}.xlsx`,[{name:"SuaChua",rows}]);
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   setLayout("maintenance", "Sửa chữa thiết bị", "Theo dõi phiếu sửa chữa, tình trạng xử lý và chi phí khắc phục sự cố thiết bị");
   setDefaultDateRange();
   await loadData();
-  applyIncidentPrefill();
   openRepairFromUrl();
   q("createRepairBtn").onclick = () => openRepairDialog("create");
   q("closeRepairDialogBtn").onclick = closeRepairDialog;
   q("cancelRepairBtn").onclick = closeRepairDialog;
   q("repairForm").addEventListener("submit", saveRepair);
-  q("repairDeviceSearch").addEventListener("change", () => setSelectedDevice(resolveDeviceFromSearch()));
-  q("repairDeviceSearch").addEventListener("input", () => { if (!q("repairDeviceSearch").value.trim()) setSelectedDevice(null); });
+  q("repairStatus").addEventListener("change", syncRepairDeviceStatus);
+  syncRepairDeviceStatus();
   ["filterBtn","searchInput","fromDate","toDate","departmentFilter","groupFilter","deviceFilter","repairStatusFilter","methodFilter"].forEach(id => {
     const el = q(id); if (!el) return;
     el.addEventListener(id === "filterBtn" ? "click" : "input", applyFilter);

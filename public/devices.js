@@ -4,6 +4,13 @@ let DEVICES = [];
 let FILTERED = [];
 
 function byId(id) { return DEVICES.find(x => x.id === id); }
+function selectedInspectionRequirements(){
+  return Array.from(document.querySelectorAll('input[name="inspectionRequiredType"]:checked')).map(x=>x.value);
+}
+function setInspectionRequirements(values){
+  const selected=new Set(Array.isArray(values)?values:[]);
+  document.querySelectorAll('input[name="inspectionRequiredType"]').forEach(x=>{x.checked=selected.has(x.value);});
+}
 function departmentName(code) { return META.departments.find(x => x.code === code)?.name || code; }
 function groupName(code) { return META.groups.find(x => x.code === code)?.name || code; }
 function escapeHtml(value) {
@@ -38,30 +45,29 @@ function renderRows() {
   q("deviceRows").innerHTML = FILTERED.map((d, i) => `
     <tr>
       <td class="col-stt">${i+1}</td>
-      <td class="device-code">${d.device_code}</td>
-      <td class="device-name-cell"><div class="device-name" title="${escapeHtml(d.name || "")}">${d.name || ""}</div></td>
+      <td class="device-code">${escapeHtml(d.device_code || "")}</td>
+      <td class="device-name-cell"><div class="device-name" title="${escapeHtml(d.name || "")}">${escapeHtml(d.name || "")}</div></td>
       <td class="department-cell"><b>${escapeHtml(d.department_code || "")}</b><div class="small">${escapeHtml(d.department_name || departmentName(d.department_code) || "")}</div></td>
-      <td>${d.manufacturer || ""}</td>
-      <td>${d.model || ""}</td>
-      <td>${d.serial || ""}</td>
-      <td>${d.year_in_use || ""}</td>
-      <td>${d.location || ""}</td>
-      <td><span class="tag ${statusTagClass(d.status)}">${d.status || ""}</span></td>
+      <td>${escapeHtml(d.model || "")}</td>
+      <td>${escapeHtml(d.serial || "")}</td>
+      <td><span class="tag ${statusTagClass(d.status)}">${escapeHtml(d.status || "")}</span></td>
       <td>
         <div class="table-actions device-row-actions">
-          <a class="btn btn-sm" href="/device-detail.html?id=${d.id}">Xem hồ sơ</a>
-          <button class="btn btn-sm" onclick="showDeviceQrModal(byId(${d.id}))">QR</button>
-          <button class="btn btn-sm" onclick="editDevice(${d.id})">Cập nhật</button>
-          <button class="btn btn-sm danger-light" onclick="deleteDevice(${d.id})">Xóa</button>
+          <a class="btn btn-sm btn-primary" href="/device-detail.html?id=${d.id}">Mở hồ sơ</a>
+          ${d.limited_view ? "" : `<button class="btn btn-sm" data-technical-write onclick="showDeviceQrModal(byId(${d.id}))">QR</button>
+          <button class="btn btn-sm" data-technical-write onclick="editDevice(${d.id})">Cập nhật</button>`}
         </div>
       </td>
     </tr>
-  `).join("") || `<tr><td colspan="11" class="center-empty">Chưa có dữ liệu.</td></tr>`;
+  `).join("") || `<tr><td colspan="8" class="center-empty">Chưa có dữ liệu.</td></tr>`;
 }
 function editDevice(id) {
   const d = byId(id);
   q("deviceId").value = d.id;
   q("departmentInput").value = d.department_code;
+  q("departmentInput").disabled = true;
+  q("locationInput").readOnly = true;
+  if(q("transferOnlyNote")) q("transferOnlyNote").style.display = "block";
   q("groupInput").value = d.group_code;
   q("nameInput").value = d.name || "";
   q("manufacturerInput").value = d.manufacturer || "";
@@ -74,6 +80,7 @@ function editDevice(id) {
   q("warrantyInput").value = d.warranty_end || "";
   q("statusInput").value = d.status || "Đang hoạt động";
   q("qualityInput").value = String(d.quality_level || 3);
+  setInspectionRequirements(d.inspection_required_types || []);
   q("costInput").value = d.cost || 0;
   q("fundingInput").value = d.funding || "";
   q("locationInput").value = d.location || "";
@@ -81,13 +88,20 @@ function editDevice(id) {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 }
 async function deleteDevice(id) {
-  if (!confirm("Xóa thiết bị này?")) return;
-  await api(`/api/devices/${id}`, { method: "DELETE" });
-  await loadData();
+  if (!confirm("Lưu trữ thiết bị này? Thiết bị sẽ ngừng hiển thị trong danh sách đang quản lý nhưng QR và toàn bộ lịch sử vẫn được giữ.")) return;
+  try{
+    await api(`/api/devices/${id}`, { method: "DELETE" });
+    await loadData();
+  }catch(e){
+    alert(e.message || "Chưa thể lưu trữ thiết bị.");
+  }
 }
 function resetForm() {
   q("deviceForm").reset();
   q("deviceId").value = "";
+  q("departmentInput").disabled = false;
+  q("locationInput").readOnly = false;
+  if(q("transferOnlyNote")) q("transferOnlyNote").style.display = "none";
 }
 async function saveDevice(e) {
   e.preventDefault();
@@ -105,12 +119,14 @@ async function saveDevice(e) {
     warranty_end: q("warrantyInput").value,
     status: q("statusInput").value,
     quality_level: Number(q("qualityInput").value || 3),
+    inspection_required_types: selectedInspectionRequirements(),
     cost: Number(q("costInput").value || 0),
     funding: q("fundingInput").value.trim(),
     location: q("locationInput").value.trim(),
     note: q("noteInput").value.trim()
   };
   const id = q("deviceId").value;
+  if (!(await confirmDeviceDuplicate(payload, Number(id || 0)))) return;
   if (id) await api(`/api/devices/${id}`, { method: "PUT", body: JSON.stringify(payload) });
   else await api(`/api/devices`, { method: "POST", body: JSON.stringify(payload) });
   resetForm();
@@ -118,8 +134,8 @@ async function saveDevice(e) {
   alert("Đã lưu thiết bị.");
 }
 function exportDevices() {
-  const rows = [["Mã thiết bị","Tên thiết bị","Nhóm","Khoa/Phòng","Hãng SX","Model","Năm SD","Hạn BH","Tình trạng","Cấp chất lượng","Serial","Nước sản xuất","Năm sản xuất","Nguyên giá","Nguồn kinh phí","Vị trí","Ghi chú"]];
-  FILTERED.forEach(d => rows.push([d.device_code,d.name,d.group_name,d.department_name,d.manufacturer,d.model,d.year_in_use,formatDateVN(d.warranty_end),d.status,d.quality_level,d.serial,d.country,d.year_manufactured,d.cost,d.funding,d.location,d.note]));
+  const rows = [["Mã thiết bị","Tên thiết bị","Nhóm","Khoa/Phòng","Hãng SX","Model","Serial Number","Mã bảo hiểm","Năm SD","Hạn BH","Tình trạng","Cấp chất lượng","Nghĩa vụ KĐ/HC/ATBX","Nước sản xuất","Năm sản xuất","Nguyên giá","Nguồn kinh phí","Vị trí","Ghi chú"]];
+  FILTERED.forEach(d => rows.push([d.device_code,d.name,d.group_name,d.department_name,d.manufacturer,d.model,d.serial,d.insurance_code,d.year_in_use,formatDateVN(d.warranty_end),d.status,d.quality_level,(d.inspection_required_types||[]).join("; "),d.country,d.year_manufactured,d.cost,d.funding,d.location,d.note]));
   exportCsv("danh_sach_thiet_bi.csv", rows);
 }
 async function loadData() {
@@ -129,7 +145,7 @@ async function loadData() {
   q("groupFilter").innerHTML = opt(META.groups, "Tất cả nhóm");
   const years = [...new Set(DEVICES.map(d => d.year_in_use))].sort((a,b)=>b-a);
   q("yearFilter").innerHTML = '<option value="ALL">Tất cả năm</option>' + years.map(y => `<option value="${y}">${y}</option>`).join("");
-  q("statusFilter").innerHTML = '<option value="ALL">Tất cả trạng thái</option><option>Đang hoạt động</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option>';
+  q("statusFilter").innerHTML = '<option value="ALL">Tất cả trạng thái</option><option>Đang hoạt động</option><option>Hoạt động hạn chế</option><option>Chờ sửa chữa</option><option>Ngừng hoạt động</option>';
   q("qualityFilter").innerHTML = '<option value="ALL">Tất cả cấp chất lượng</option><option value="1">Cấp 1</option><option value="2">Cấp 2</option><option value="3">Cấp 3</option><option value="4">Cấp 4</option><option value="5">Cấp 5</option>';
   const fundings = [...new Set(DEVICES.map(d => (d.funding || "").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b, "vi"));
   if (q("fundingFilter")) q("fundingFilter").innerHTML = '<option value="ALL">Tất cả nguồn kinh phí</option>' + fundings.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
@@ -140,7 +156,7 @@ async function loadData() {
 }
 document.addEventListener("DOMContentLoaded", async () => {
   setLayout("devices","Thiết bị y tế","Danh mục thiết bị theo khoa/phòng, nhóm thiết bị và tình trạng sử dụng");
-  applyFieldLabels("deviceForm", {departmentInput:"Khoa sử dụng",groupInput:"Nhóm thiết bị",nameInput:"Tên thiết bị",manufacturerInput:"Hãng sản xuất",modelInput:"Model",insuranceInput:"Mã bảo hiểm",serialInput:"Serial hãng",countryInput:"Nước sản xuất",yearManufacturedInput:"Năm sản xuất",yearUseInput:"Năm sử dụng",warrantyInput:"Hạn bảo hành",statusInput:"Tình trạng",qualityInput:"Cấp chất lượng",costInput:"Nguyên giá",fundingInput:"Nguồn kinh phí",locationInput:"Vị trí đặt máy",noteInput:"Ghi chú"});
+  applyFieldLabels("deviceForm", {departmentInput:"Khoa sử dụng",groupInput:"Nhóm thiết bị",nameInput:"Tên thiết bị",manufacturerInput:"Hãng sản xuất",modelInput:"Model",insuranceInput:"Mã bảo hiểm / mã quản lý",serialInput:"Serial Number",countryInput:"Nước sản xuất",yearManufacturedInput:"Năm sản xuất",yearUseInput:"Năm sử dụng",warrantyInput:"Hạn bảo hành",statusInput:"Tình trạng",qualityInput:"Cấp chất lượng hồ sơ (1–5)",costInput:"Nguyên giá",fundingInput:"Nguồn kinh phí",locationInput:"Vị trí đặt máy",noteInput:"Ghi chú"});
   await loadData();
   q("filterBtn").onclick = applyFilters;
   q("resetBtn").onclick = () => {
@@ -160,7 +176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 
-function exportDevicesExcel() {
+async function exportDevicesExcel() {
   const rows = FILTERED.map(d => ({
     "Mã thiết bị": d.device_code,
     "Khoa/phòng": d.department_name || d.department_code,
@@ -168,22 +184,21 @@ function exportDevicesExcel() {
     "Tên thiết bị": d.name,
     "Hãng sản xuất": d.manufacturer || "",
     "Model": d.model || "",
-    "Serial": d.serial || "",
+    "Serial Number": d.serial || "",
+    "Mã bảo hiểm / mã quản lý": d.insurance_code || "",
     "Nước sản xuất": d.country || "",
     "Năm sản xuất": d.year_manufactured || "",
     "Năm sử dụng": d.year_in_use || "",
     "Hạn bảo hành": d.warranty_end || "",
     "Tình trạng": d.status || "",
     "Cấp chất lượng": d.quality_level || "",
+    "Nghĩa vụ KĐ/HC/ATBX": (d.inspection_required_types || []).join("; "),
     "Nguyên giá": d.cost || 0,
     "Nguồn kinh phí": d.funding || "",
     "Vị trí đặt máy": d.location || "",
     "Ghi chú": d.note || ""
   }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "BaoCao");
-  XLSX.writeFile(wb, `danh_sach_thiet_bi_${reportFileStamp()}.xlsx`);
+  await exportXlsx(`danh_sach_thiet_bi_${reportFileStamp()}.xlsx`, [{name:"BaoCao",rows}]);
 }
 
 
