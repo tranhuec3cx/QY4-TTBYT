@@ -88,7 +88,13 @@ jobs:
           if (-not (Test-Path "./final-release-gate.cmd")) { throw "Missing one-click Windows final release gate" }
           if (-not (Test-Path "./build-release-bundle.ps1")) { throw "Missing release bundle builder" }
           if (-not (Test-Path "./build-release-bundle.cmd")) { throw "Missing one-click Windows release bundle builder" }
-          [void][ScriptBlock]::Create((Get-Content -Raw -Path "./build-release-bundle.ps1"))
+          if (-not (Test-Path "./build-release-bundle-offline.cmd")) { throw "Missing one-click Windows offline bundle builder" }
+          $bundleScript = Get-Content -Raw -Path "./build-release-bundle.ps1"
+          [void][ScriptBlock]::Create($bundleScript)
+          if ($bundleScript -notmatch 'IncludeDependencies') { throw "Offline bundle switch missing" }
+          if ($bundleScript -notmatch 'npm ls --depth=0') { throw "Offline bundle must verify installed dependencies" }
+          if ($bundleScript -notmatch "require\('better-sqlite3'\)") { throw "Offline bundle must load-test native SQLite dependency" }
+          if ($bundleScript -notmatch 'Build architecture') { throw "Release manifest must record build architecture" }
           if ($content -notmatch 'QY4_PUBLIC_ORIGIN') { throw "Production launcher must warn about server-locked QR origin" }
           $apiJs = Get-Content -Raw -Path "./public/api.js"
           if ($apiJs -notmatch 'origin_locked' -or $apiJs -notmatch 'origin_print_safe' -or $apiJs -notmatch 'qrPrintBtn') { throw "QR UI must honor server-locked origin before printing" }
