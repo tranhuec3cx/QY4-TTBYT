@@ -17,6 +17,7 @@ Mục tiêu: xác nhận bản Release Candidate chạy được với **databas
 - [ ] Vào **Cài đặt → Hệ thống → Sẵn sàng triển khai**.
 - [ ] Không còn mục **Cần xử lý** liên quan database, xác thực, QR UID, backup, **định danh lõi danh mục thiết bị**, **nhất quán phiếu sửa chữa/trạng thái thiết bị**, **liên kết Sự cố – Sửa chữa** hoặc **lịch sử Điều chuyển**.
 - [ ] Ghi lại IP LAN server được in trong cửa sổ chạy, ví dụ `http://192.168.x.x:5000`.
+- [ ] Trước khi **in QR hàng loạt**, cấu hình `QY4_PUBLIC_ORIGIN` bằng IP/hostname nội bộ cố định và xác nhận **Sẵn sàng triển khai → Địa chỉ chuẩn dùng để in QR = Đạt**.
 
 ## 2. Kiểm tra dữ liệu thiết bị — 5–10 máy đại diện
 
@@ -41,6 +42,7 @@ Trên máy tính:
 
 - [ ] Mở 01 thiết bị → QR.
 - [ ] Địa chỉ QR là IP LAN/hostname, **không phải localhost/127.0.0.1**.
+- [ ] Nếu đã cấu hình `QY4_PUBLIC_ORIGIN`, mở QR từ 02 trình duyệt/máy khác nhau và xác nhận cùng dùng đúng một địa chỉ chuẩn; ô địa chỉ QR trên modal ở trạng thái khóa.
 - [ ] QR hiển thị được khi Internet ngoài bị tắt/mất.
 
 Trên điện thoại cùng Wi-Fi/hotspot:
@@ -157,3 +159,4 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 12. **Sẵn sàng triển khai → Nhất quán lịch sử điều chuyển** không có mức **Cần xử lý**; mọi mức **Lưu ý** đã được đối chiếu thủ công.
 13. Backup mới nhất và backup mirror (nếu cấu hình) đều vượt qua **SQLite quick_check**; mirror đặt cùng ổ chỉ được xem là bản sao tiện dụng, không phải dự phòng hỏng ổ.
 14. `npm run verify:backup` hoàn thành với **PHỤC HỒI THỬ ĐẠT**, gồm DB, file đính kèm, khóa ngoại và transaction ghi/rollback trên bản copy tạm.
+15. Trước khi in tem hàng loạt, `QY4_PUBLIC_ORIGIN` đã được khóa ở cấp server và **Sẵn sàng triển khai → Địa chỉ chuẩn dùng để in QR** ở mức **Đạt**.
