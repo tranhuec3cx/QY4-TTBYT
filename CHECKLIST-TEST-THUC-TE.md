@@ -134,7 +134,14 @@ Chọn một khoa có danh mục nhỏ để test nhanh.
 - [ ] “Sẵn sàng triển khai” báo backup cục bộ đạt và không còn mục backup ở mức **Cần xử lý**.
 - [ ] Chạy `npm run verify:backup`; kết quả phải là **KET QUA: PHUC HOI THU DAT**. Đây là kiểm tra trên bản copy tạm, không làm thay đổi backup gốc.
 
-## 10. Kết thúc phiên test
+## 10. Final Release Gate kỹ thuật
+
+- [ ] Sau khi tạo backup mới nhất, chạy `npm run release:gate` hoặc double-click `final-release-gate.cmd`.
+- [ ] Kết quả phải là **FINAL RELEASE GATE KỸ THUẬT ĐẠT**.
+- [ ] Nếu gate bỏ qua migration audit vì không có `prestart_*`, xác nhận đây là cài mới; nếu là nâng database cũ thì không được bỏ qua.
+- [ ] Gate đạt không thay thế việc kiểm **Sẵn sàng triển khai**, QR điện thoại và luồng nghiệp vụ thực tế.
+
+## 11. Kết thúc phiên test
 
 - [ ] Chụp lại màn Dashboard.
 - [ ] Ghi lại lỗi thực tế theo mẫu: **Màn hình → thao tác → kết quả mong đợi → kết quả thực tế**.
@@ -162,3 +169,4 @@ Có thể chuyển PR khỏi Draft khi đồng thời đạt:
 14. `npm run verify:backup` hoàn thành với **PHỤC HỒI THỬ ĐẠT**, gồm DB, file đính kèm, khóa ngoại và transaction ghi/rollback trên bản copy tạm.
 15. Trước khi in tem hàng loạt, `QY4_PUBLIC_ORIGIN` đã được khóa ở cấp server và **Sẵn sàng triển khai → Địa chỉ chuẩn dùng để in QR** ở mức **Đạt**.
 16. Nếu nâng từ database cũ, `npm run audit:migration` hoàn thành với **MIGRATION AUDIT ĐẠT**; không mất ID cũ và không thay đổi sai Serial/khoa/nhóm/vị trí hoặc liên kết nghiệp vụ.
+17. `npm run release:gate` hoàn thành với **FINAL RELEASE GATE KỸ THUẬT ĐẠT** trước khi chuyển PR khỏi Draft.
