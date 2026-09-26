@@ -4892,6 +4892,141 @@ app.post("/api/inventory-sessions/:id/complete", (req, res) => {
   res.json({ok:true,pending});
 });
 
+
+app.get("/api/dashboard/summary", (req, res) => {
+  const today = localDateISO();
+  let fromDate = String(req.query.from_date || localDatePlusDays(-29)).slice(0,10);
+  let toDate = String(req.query.to_date || today).slice(0,10);
+  if (!isValidIsoDate(fromDate) || !isValidIsoDate(toDate)) {
+    return res.status(400).json({ error:"Khoảng thời gian không hợp lệ." });
+  }
+  if (toDate > today) toDate = today;
+  if (fromDate > toDate) {
+    return res.status(400).json({ error:"Từ ngày phải nhỏ hơn hoặc bằng đến ngày." });
+  }
+
+  const incidentsInPeriod = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM incidents
+    WHERE substr(incident_datetime,1,10)>=? AND substr(incident_datetime,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const completedRepairs = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    JOIN devices d ON d.id=r.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND r.completed_at IS NOT NULL AND r.completed_at<>''
+      AND substr(r.completed_at,1,10)>=? AND substr(r.completed_at,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const completedLocalIncidents = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM incidents i
+    JOIN devices d ON d.id=i.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND i.completed_at IS NOT NULL AND i.completed_at<>''
+      AND substr(i.completed_at,1,10)>=? AND substr(i.completed_at,1,10)<=?
+      AND NOT EXISTS (SELECT 1 FROM repairs r WHERE r.incident_id=i.id)
+  `).get(fromDate,toDate).c || 0);
+
+  const completedMaintenances = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM maintenances m
+    JOIN devices d ON d.id=m.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(m.maintenance_date,1,10)>=? AND substr(m.maintenance_date,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const completedInspections = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM inspections i
+    JOIN devices d ON d.id=i.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(i.inspection_date,1,10)>=? AND substr(i.inspection_date,1,10)<=?
+  `).get(fromDate,toDate).c || 0);
+
+  const openRepairsAtEnd = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM repairs r
+    JOIN devices d ON d.id=r.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(COALESCE(NULLIF(r.received_at,''),NULLIF(r.repair_date,''),'9999-12-31'),1,10)<=?
+      AND (r.completed_at IS NULL OR r.completed_at='' OR substr(r.completed_at,1,10)>?)
+  `).get(toDate,toDate).c || 0);
+
+  const openStandaloneIncidentsAtEnd = Number(db.prepare(`
+    SELECT COUNT(*) c
+    FROM incidents i
+    JOIN devices d ON d.id=i.device_id
+    WHERE COALESCE(d.is_archived,0)=0
+      AND substr(i.incident_datetime,1,10)<=?
+      AND (i.completed_at IS NULL OR i.completed_at='' OR substr(i.completed_at,1,10)>?)
+      AND NOT EXISTS (
+        SELECT 1 FROM repairs r
+        WHERE r.incident_id=i.id
+          AND substr(COALESCE(NULLIF(r.received_at,''),NULLIF(r.repair_date,''),'9999-12-31'),1,10)<=?
+      )
+  `).get(toDate,toDate,toDate).c || 0);
+
+  const canonicalScheduleType = (value, fallback) => {
+    const raw = String(value || fallback || "").trim();
+    const key = normalizeScheduleText(raw);
+    if (!key) return normalizeScheduleText(fallback || "khong phan loai");
+    if (key === "atbx" || key.includes("an toan buc xa")) return "kiem dinh an toan buc xa";
+    if (key.includes("kiem xa")) return "kiem xa";
+    if (key.includes("hieu chuan")) return "hieu chuan";
+    if (key.includes("kiem dinh")) return "kiem dinh";
+    if (key === "bao duong" || key === "bao duong dinh ky") return "bao duong dinh ky";
+    return key;
+  };
+  const latestScheduleRowsAt = (table, dateField, fallbackType) => {
+    const allowed = table === "maintenances"
+      ? { table:"maintenances", dateField:"maintenance_date" }
+      : { table:"inspections", dateField:"inspection_date" };
+    const rows = db.prepare(`
+      SELECT t.*, d.is_archived
+      FROM ${allowed.table} t
+      JOIN devices d ON d.id=t.device_id
+      WHERE COALESCE(d.is_archived,0)=0
+        AND substr(COALESCE(t.${allowed.dateField},''),1,10)<=?
+    `).all(toDate);
+    const map = new Map();
+    for (const row of rows) {
+      const type = canonicalScheduleType(row.type, fallbackType);
+      const key = `${Number(row.device_id)}|${type}`;
+      const rowKey = `${String(row[allowed.dateField] || "")}|${String(Number(row.id || 0)).padStart(12,"0")}`;
+      const current = map.get(key);
+      const currentKey = current
+        ? `${String(current[allowed.dateField] || "")}|${String(Number(current.id || 0)).padStart(12,"0")}`
+        : "";
+      if (!current || rowKey > currentKey) map.set(key,row);
+    }
+    return Array.from(map.values());
+  };
+
+  const overdueMaintenanceAtEnd = latestScheduleRowsAt("maintenances","maintenance_date","Bảo dưỡng định kỳ")
+    .filter(row => row.next_date && String(row.next_date).slice(0,10) < toDate).length;
+  const overdueInspectionAtEnd = latestScheduleRowsAt("inspections","inspection_date","Kiểm định")
+    .filter(row => row.next_date && String(row.next_date).slice(0,10) < toDate).length;
+
+  res.json({
+    period:{ from_date:fromDate, to_date:toDate },
+    device_total:Number(db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0").get().c || 0),
+    incidents_in_period:incidentsInPeriod,
+    completed_work_in_period:completedRepairs + completedLocalIncidents + completedMaintenances + completedInspections,
+    backlog_at_end:openRepairsAtEnd + openStandaloneIncidentsAtEnd,
+    overdue_maintenance_at_end:overdueMaintenanceAtEnd,
+    overdue_inspection_at_end:overdueInspectionAtEnd,
+    completed_breakdown:{
+      repairs:completedRepairs,
+      incidents_local:completedLocalIncidents,
+      maintenances:completedMaintenances,
+      inspections:completedInspections
+    }
+  });
+});
+
 app.get("/api/dashboard/operations", (req, res) => {
   const today = localDateISO();
   const plus30 = localDatePlusDays(30);
