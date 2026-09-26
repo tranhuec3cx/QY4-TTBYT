@@ -134,19 +134,23 @@ function makeMaintenanceTasks(rows){
         status:`Quá hạn ${overdue} ngày`,
         next_action:"Lập và thực hiện bảo dưỡng",
         detail:r.schedule_type || r.type || "Bảo dưỡng định kỳ",
-        href:`/inspection.html?edit_id=${Number(r.id)}&from=lcm`
+        href:`/inspection.html?device_id=${Number(r.device_id)}&type=${encodeURIComponent(r.schedule_type || r.type || "Bảo dưỡng định kỳ")}&from=lcm`
       };
     });
 }
 function makeInspectionTasks(rows,ops){
   const today=workToday();
   const tasks=[];
+  const activeKeys=new Set();
   const latest=latestByDeviceAndType(rows,"inspection_date","Kiểm định");
   for(const r of latest){
     if(Number(r.is_archived || 0)) continue;
     const failed=isFailedResult(r.result);
     const overdue=Boolean(r.next_date && String(r.next_date).slice(0,10)<today);
     if(!failed && !overdue) continue;
+    const scheduleType=normalizeScheduleType(r.schedule_type || r.type,"Kiểm định");
+    const key=`${Number(r.device_id || 0)}|${scheduleType}`;
+    activeKeys.add(key);
     const overdueDays=overdue ? daysOverdue(r.next_date) : 0;
     tasks.push({
       type:"KĐ/HC/ATBX",
@@ -158,13 +162,15 @@ function makeInspectionTasks(rows,ops){
       ...taskLocation(r),
       status:failed ? "Kết quả không đạt" : `Quá hạn ${overdueDays} ngày`,
       next_action:failed ? "Đánh giá và lập hồ sơ xử lý tiếp theo" : "Thực hiện hồ sơ đến hạn",
-      detail:r.schedule_type || r.type || "KĐ/HC/ATBX",
-      href:`/inspections.html?edit_id=${Number(r.id)}&from=lcm`
+      detail:scheduleType,
+      href:`/inspections.html?device_id=${Number(r.device_id)}&type=${encodeURIComponent(scheduleType)}&from=lcm`
     });
   }
   for(const gap of (ops?.missingInspectionSchedules || [])){
     const deviceId=Number(gap.id || gap.device_id || 0);
-    const type=gap.obligation_type || "Kiểm định";
+    const type=normalizeScheduleType(gap.obligation_type || "Kiểm định","Kiểm định");
+    if(activeKeys.has(`${deviceId}|${type}`)) continue;
+    activeKeys.add(`${deviceId}|${type}`);
     tasks.push({
       type:"KĐ/HC/ATBX",
       priority:"Thường",
