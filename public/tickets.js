@@ -18,6 +18,20 @@ function normalizeIncidentStatus(status, linkedRepairId){
   return linkedRepairId ? "Đã chuyển sửa chữa" : "Mới ghi nhận";
 }
 function normalizeIncidentRow(r){ return { ...r, status: normalizeIncidentStatus(r.status, r.linked_repair_id) }; }
+function incidentStage(r){
+  if(String(r?.status || "") === "Mới ghi nhận") return "NEW";
+  if(String(r?.status || "") === "Đã xử lý tại chỗ") return "DONE";
+  if(String(r?.status || "") === "Đã chuyển sửa chữa" && ["Đã hoàn thành","Không sửa được"].includes(String(r?.linked_repair_status || ""))) return "DONE";
+  return "ACTIVE";
+}
+function incidentStageLabel(r){
+  const stage=incidentStage(r);
+  return stage==="NEW" ? "Mới" : stage==="DONE" ? "Hoàn thành" : "Đang xử lý";
+}
+function incidentStageClass(r){
+  const stage=incidentStage(r);
+  return stage==="NEW" ? "yellow" : stage==="DONE" ? "green" : "orange";
+}
 function fillDeviceMeta(){ const d=getDevice(q("deviceId").value); q("incidentDept").value=d?(d.department_code||d.department_name||""):""; q("incidentLocation").value=d?(d.location||""):""; }
 function localDateTimeInputValue(){
   const d = new Date();
@@ -61,12 +75,10 @@ function incidentActions(r){
 }
 
 function renderIncidentStats(rows){
-  const stat = st => rows.filter(r => r.status === st).length;
-  if(q("stTotalIncidents")) q("stTotalIncidents").textContent = rows.length;
-  if(q("stNewIncidents")) q("stNewIncidents").textContent = stat("Mới ghi nhận");
-  if(q("stAcceptedIncidents")) q("stAcceptedIncidents").textContent = stat("Đã tiếp nhận");
-  if(q("stTransferIncidents")) q("stTransferIncidents").textContent = stat("Đã chuyển sửa chữa");
-  if(q("stOnsiteIncidents")) q("stOnsiteIncidents").textContent = stat("Đã xử lý tại chỗ");
+  const countStage = stage => rows.filter(r => incidentStage(r) === stage).length;
+  if(q("stNewIncidents")) q("stNewIncidents").textContent = countStage("NEW");
+  if(q("stActiveIncidents")) q("stActiveIncidents").textContent = countStage("ACTIVE");
+  if(q("stDoneIncidents")) q("stDoneIncidents").textContent = countStage("DONE");
 }
 function toggleLocalResolutionField(){
   const show = q("status") && q("status").value === "Đã xử lý tại chỗ";
@@ -140,24 +152,24 @@ function sourceTagClass(source){
 function renderRows(rows){
   q("countLabel").textContent = `${rows.length} sự cố`;
   renderIncidentStats(rows);
-  if(!rows.length){ q("rows").innerHTML = `<tr><td colspan="10" class="center-empty">Chưa có sự cố phù hợp.</td></tr>`; return; }
-  q("rows").innerHTML = rows.map((r,i)=>`
+  if(!rows.length){ q("rows").innerHTML = `<tr><td colspan="7" class="center-empty">Chưa có sự cố phù hợp.</td></tr>`; return; }
+  q("rows").innerHTML = rows.map((r,i)=>{
+    const attachments = Array.isArray(r.files) && r.files.length ? `<div class="row-secondary">${mediaCell(r)} ${r.files.length} tệp đính kèm</div>` : "";
+    return `
     <tr>
       <td>${i+1}</td>
       <td>${formatDateTimeVNLines(r.incident_datetime)}</td>
       <td>${technicalDeviceCell(r)}</td>
       <td>${technicalLocationCell(r)}</td>
-      <td class="wrap-text">${esc(r.description || "")}</td>
-      <td><span class="tag ${sourceTagClass(r.source_channel)}">${esc(r.source_channel || "Không xác định")}</span></td>
-      <td>${esc(r.reporter || "")}</td>
-      <td><span class="tag ${statusClass(r.status)}">${esc(r.status || "")}</span></td>
-      <td>${mediaCell(r)}</td>
+      <td class="wrap-text">${esc(r.description || "")}${attachments}</td>
+      <td><span class="tag ${incidentStageClass(r)}">${incidentStageLabel(r)}</span><span class="row-secondary">${esc(r.status || "")}</span></td>
       <td><div class="table-actions compact-actions">${incidentActions(r)}</div></td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 }
 function applyFilter(){
-  const text=norm(q("searchInput").value); const from=q("fromDate").value; const to=q("toDate").value; const dev=q("deviceFilter").value; const st=q("statusFilter").value; const source=q("sourceFilter").value;
-  const rows=INCIDENT_ROWS.filter(r => inDateRange(String(r.incident_datetime||"").slice(0,10), from, to) && (dev==="ALL"||String(r.device_id)===dev) && (st==="ALL"||r.status===st) && (source==="ALL"||String(r.source_channel||"Không xác định")===source) && (!text || norm([r.device_code,r.device_name,r.description,r.reporter,r.status,r.source_channel,r.acknowledged_by,r.note].join(" ")).includes(text))).sort((a,b)=>String(b.incident_datetime||"").localeCompare(String(a.incident_datetime||"")) || Number(b.id)-Number(a.id));
+  const text=norm(q("searchInput").value); const from=q("fromDate").value; const to=q("toDate").value; const dev=q("deviceFilter").value; const stage=q("statusFilter").value; const source=q("sourceFilter").value;
+  const rows=INCIDENT_ROWS.filter(r => inDateRange(String(r.incident_datetime||"").slice(0,10), from, to) && (dev==="ALL"||String(r.device_id)===dev) && (stage==="ALL"||incidentStage(r)===stage) && (source==="ALL"||String(r.source_channel||"Không xác định")===source) && (!text || norm([r.device_code,r.device_name,r.description,r.reporter,r.status,r.source_channel,r.acknowledged_by,r.note].join(" ")).includes(text))).sort((a,b)=>String(b.incident_datetime||"").localeCompare(String(a.incident_datetime||"")) || Number(b.id)-Number(a.id));
   FILTERED_INCIDENTS=rows; renderRows(rows);
 }
 function clearFilters(){ q("searchInput").value=""; q("deviceFilter").value="ALL"; q("statusFilter").value="ALL"; q("sourceFilter").value="ALL"; setDefaultDateRange(); applyFilter(); }
