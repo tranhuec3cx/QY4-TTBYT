@@ -86,6 +86,9 @@ jobs:
           if (-not (Test-Path "./audit-migration.cmd")) { throw "Missing one-click Windows migration audit" }
           if (-not (Test-Path "./scripts/final-release-gate.js")) { throw "Missing consolidated final release gate script" }
           if (-not (Test-Path "./final-release-gate.cmd")) { throw "Missing one-click Windows final release gate" }
+          if (-not (Test-Path "./build-release-bundle.ps1")) { throw "Missing release bundle builder" }
+          if (-not (Test-Path "./build-release-bundle.cmd")) { throw "Missing one-click Windows release bundle builder" }
+          [void][ScriptBlock]::Create((Get-Content -Raw -Path "./build-release-bundle.ps1"))
           if ($content -notmatch 'QY4_PUBLIC_ORIGIN') { throw "Production launcher must warn about server-locked QR origin" }
           $apiJs = Get-Content -Raw -Path "./public/api.js"
           if ($apiJs -notmatch 'origin_locked' -or $apiJs -notmatch 'origin_print_safe' -or $apiJs -notmatch 'qrPrintBtn') { throw "QR UI must honor server-locked origin before printing" }
@@ -2100,6 +2103,66 @@ jobs:
           if(!demoLab || JSON.stringify(demoLab.inspection_required_types)!==JSON.stringify(["Hiệu chuẩn"])) throw new Error("Demo reset lost laboratory calibration obligation");
           console.log("Authenticated demo reset passed");
           NODE
+
+      - name: Build sanitized release bundle
+        shell: pwsh
+        run: |
+          ./build-release-bundle.ps1 -Version "5.0.0-RC-${{ github.run_number }}"
+          $zip = Get-ChildItem "./dist" -Filter "*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $zip) { throw "Release ZIP not created" }
+          Write-Host "Release ZIP: $($zip.FullName)"
+
+      - name: Validate release bundle contents
+        run: |
+          ZIP=$(find dist -maxdepth 1 -type f -name '*.zip' | head -1)
+          test -n "$ZIP"
+          unzip -Z1 "$ZIP" >/tmp/release-files.txt
+          grep -q '^server.js
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^package.json
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^package-lock.json
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^start-qy4-production.cmd
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^final-release-gate.cmd
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^RELEASE-MANIFEST-SHA256.txt
+          cat /tmp/qy4-server.log || true
+          cat /tmp/qy4-auth-server.log || true
+          cat /tmp/qy4-demo-reset.log || true
+ /tmp/release-files.txt
+          grep -q '^public/' /tmp/release-files.txt
+          grep -q '^scripts/' /tmp/release-files.txt
+          if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
+            echo "Release bundle contains forbidden runtime/sensitive files:"
+            grep -Ei '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt
+            exit 1
+          fi
+          echo "Sanitized release bundle validation passed"
+
+      - name: Upload release candidate bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: QY4-TTBYT-5.0.0-RC-${{ github.run_number }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Show server log on failure
         if: failure()
