@@ -84,7 +84,7 @@ jobs:
           if (-not (Test-Path "./verify-backup.cmd")) { throw "Missing one-click Windows backup verifier" }
           if ($content -notmatch 'QY4_PUBLIC_ORIGIN') { throw "Production launcher must warn about server-locked QR origin" }
           $apiJs = Get-Content -Raw -Path "./public/api.js"
-          if ($apiJs -notmatch 'origin_locked' -or $apiJs -notmatch 'qrPrintBtn') { throw "QR UI must honor server-locked origin before printing" }
+          if ($apiJs -notmatch 'origin_locked' -or $apiJs -notmatch 'origin_print_safe' -or $apiJs -notmatch 'qrPrintBtn') { throw "QR UI must honor server-locked origin before printing" }
           $npmCiIndex = $content.IndexOf("npm ci")
           $preflightIndex = $content.IndexOf("scripts\preflight-realdata.js")
           $npmStartIndex = $content.LastIndexOf("npm start")
@@ -1819,7 +1819,7 @@ jobs:
           node - <<'NODE'
           const x=JSON.parse(require("fs").readFileSync("/tmp/engineer-qr-origins.json","utf8"));
           if(!Array.isArray(x.origins)||!x.origins.length) throw new Error("QR origin access failed");
-          if(x.configured_origin!=="http://qy4-ci.local:5001" || x.recommended_origin!=="http://qy4-ci.local:5001" || x.origin_locked!==true || x.configured_origin_valid!==true) {
+          if(x.configured_origin!=="http://qy4-ci.local:5001" || x.recommended_origin!=="http://qy4-ci.local:5001" || x.origin_locked!==true || x.configured_origin_valid!==true || x.origin_print_safe!==true) {
             throw new Error("Server-locked QR origin was not exposed correctly: "+JSON.stringify(x));
           }
           console.log("Server-locked QR origin API passed");
@@ -1963,7 +1963,7 @@ jobs:
           if(r.system?.backup_mirror_separate_storage!==false || r.system?.backup_mirror_same_filesystem!==true) throw new Error("Mirror storage separation detection failed");
           if(m.get("transport_security")?.level!=="Lưu ý" || r.system?.https!==false) throw new Error("HTTP authenticated deployment must remain a transport-security warning");
           if(m.get("qr_origin")?.level!=="Đạt") throw new Error("Configured QR origin should pass readiness: "+JSON.stringify(m.get("qr_origin")));
-          if(r.system?.configured_qr_origin!=="http://qy4-ci.local:5001" || r.system?.qr_origin_locked!==true || r.system?.configured_qr_origin_valid!==true) throw new Error("Configured QR origin readiness fields failed");
+          if(r.system?.configured_qr_origin!=="http://qy4-ci.local:5001" || r.system?.qr_origin_locked!==true || r.system?.configured_qr_origin_valid!==true || r.system?.qr_origin_print_safe!==true) throw new Error("Configured QR origin readiness fields failed");
           console.log("Authenticated readiness checklist passed");
           NODE
 
