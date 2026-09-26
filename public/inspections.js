@@ -12,7 +12,29 @@ function fileCell(r){
   if(!path) return "";
   return `<a class="btn btn-secondary btn-sm" href="${esc(path)}" target="_blank" rel="noopener">Tải file</a><div class="small file-name-line">${esc(fileNameFromPath(path))}</div>`;
 }
-function render(data){q('countLabel').textContent=`${data.length} bản ghi`; q('rows').innerHTML=data.length?data.map(r=>`<tr><td>${formatDateVN(r.next_date)}<br>${dueTag(r.next_date)}</td><td>${formatDateTimeVNLines(r.inspection_date)}</td><td>${technicalDeviceCell(r)}</td><td>${technicalLocationCell(r)}</td><td>${esc(r.type||'')}</td><td>${esc(r.organization||'')}</td><td>${esc(r.certificate_no||'')}</td><td><span class="tag ${statusTagClass(r.result)}">${esc(r.result||'')}</span></td><td>${fileCell(r)}</td><td><span class="tag green">Đã lưu</span></td><td><div class="table-actions"><button class="btn" onclick="editRow(${r.id})">Cập nhật</button><button class="btn btn-secondary" onclick="openDeviceProfile(${r.device_id})">Mở HS</button><span class="tag gray" title="Hồ sơ kiểm định/hiệu chuẩn được bảo toàn trong lịch sử kỹ thuật">Lịch sử</span></div></td></tr>`).join(''):'<tr><td colspan="11" class="center-empty">Chưa có dữ liệu.</td></tr>';}
+function render(data){
+  q("countLabel").textContent=`${data.length} hồ sơ`;
+  if(!data.length){
+    q("rows").innerHTML='<tr><td colspan="7" class="center-empty">Chưa có dữ liệu.</td></tr>';
+    return;
+  }
+  q("rows").innerHTML=data.map(r=>{
+    const path=attachedFilePath(r);
+    return `<tr>
+      <td class="deadline-cell"><b>${formatDateVN(r.next_date) || "—"}</b><br>${dueTag(r.next_date)}</td>
+      <td>${technicalDeviceCell(r)}<span class="row-secondary">Thực hiện: ${formatDateTimeVNLines(r.inspection_date)}</span></td>
+      <td>${technicalLocationCell(r)}</td>
+      <td><b>${esc(r.type||"")}</b></td>
+      <td class="result-cell"><span class="tag ${statusTagClass(r.result)}">${esc(r.result||"")}</span></td>
+      <td>${esc(r.organization||"")}<span class="row-secondary">${r.certificate_no ? "Số CN: "+esc(r.certificate_no) : ""}</span></td>
+      <td><div class="table-actions compact-actions">
+        <button class="btn btn-primary" onclick="editRow(${Number(r.id)})">Mở hồ sơ</button>
+        <button class="btn btn-secondary" onclick="openDeviceProfile(${Number(r.device_id)})">Thiết bị</button>
+        ${path ? `<a class="btn" href="${esc(path)}" target="_blank" rel="noopener">File</a>` : ""}
+      </div></td>
+    </tr>`;
+  }).join("");
+}
 function applyFilter(){const text=q('searchInput').value.toLowerCase(); const dev=q('deviceFilter').value; const typ=q('typeFilter').value; const org=q('orgFilter') ? q('orgFilter').value : 'ALL'; const from=q('fromDate')?.value||''; const to=q('toDate')?.value||''; FILTERED=ROWS.filter(r=>inDateRange(r.inspection_date,from,to)&&(!text||[r.device_code,r.device_name,r.certificate_no,r.organization].join(' ').toLowerCase().includes(text))&&(dev==='ALL'||String(r.device_id)===dev)&&(typ==='ALL'||r.type===typ)&&(org==='ALL'||(r.organization||'')===org)).sort((a,b)=>daysTo(a.next_date)-daysTo(b.next_date)); render(FILTERED);}
 function editRow(id){const r=ROWS.find(x=>x.id===id); if(!r)return; q('recordId').value=r.id; setDevicePickerSelection('deviceSearch','deviceId',DEVICES,r.device_id,()=>fillInfo()); q('deviceSearch').readOnly=true; q('dept').value=r.department_name||r.department_code||''; q('location').value=r.location||''; q('type').value=r.type||'Kiểm định'; q('inspectionDate').value=toDateTimeLocalValue(r.inspection_date||''); q('organization').value=r.organization||''; q('certificateNo').value=r.certificate_no||''; q('result').value=r.result||'Đạt'; q('nextDate').value=r.next_date||''; CURRENT_INSPECTION_FILE_PATH = attachedFilePath(r); q('fileNote').value=CURRENT_INSPECTION_FILE_PATH ? fileNameFromPath(r.file_note) : (r.file_note||''); q('note').value=r.note||''; q('formCard').scrollIntoView({behavior:'smooth'});}
 async function load(){DEVICES=await api('/api/devices'); ROWS=await api('/api/inspections'); q('deviceFilter').innerHTML='<option value="ALL">Tất cả thiết bị</option>'+DEVICES.map(d=>`<option value="${d.id}">${esc(devicePickerLabel(d))}</option>`).join(''); bindDevicePicker('deviceSearch','deviceId','inspectionDeviceOptions',DEVICES,()=>fillInfo()); if(q('orgFilter')){const orgs=[...new Set(ROWS.map(r=>r.organization).filter(Boolean))].sort(); q('orgFilter').innerHTML='<option value="ALL">Tất cả đơn vị</option>'+orgs.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');} fillInfo(); applyFilter();}
