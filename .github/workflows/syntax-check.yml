@@ -2117,36 +2117,12 @@ jobs:
           ZIP=$(find dist -maxdepth 1 -type f -name '*.zip' | head -1)
           test -n "$ZIP"
           unzip -Z1 "$ZIP" >/tmp/release-files.txt
-          grep -q '^server.js
-          cat /tmp/qy4-server.log || true
-          cat /tmp/qy4-auth-server.log || true
-          cat /tmp/qy4-demo-reset.log || true
- /tmp/release-files.txt
-          grep -q '^package.json
-          cat /tmp/qy4-server.log || true
-          cat /tmp/qy4-auth-server.log || true
-          cat /tmp/qy4-demo-reset.log || true
- /tmp/release-files.txt
-          grep -q '^package-lock.json
-          cat /tmp/qy4-server.log || true
-          cat /tmp/qy4-auth-server.log || true
-          cat /tmp/qy4-demo-reset.log || true
- /tmp/release-files.txt
-          grep -q '^start-qy4-production.cmd
-          cat /tmp/qy4-server.log || true
-          cat /tmp/qy4-auth-server.log || true
-          cat /tmp/qy4-demo-reset.log || true
- /tmp/release-files.txt
-          grep -q '^final-release-gate.cmd
-          cat /tmp/qy4-server.log || true
-          cat /tmp/qy4-auth-server.log || true
-          cat /tmp/qy4-demo-reset.log || true
- /tmp/release-files.txt
-          grep -q '^RELEASE-MANIFEST-SHA256.txt
-          cat /tmp/qy4-server.log || true
-          cat /tmp/qy4-auth-server.log || true
-          cat /tmp/qy4-demo-reset.log || true
- /tmp/release-files.txt
+          grep -q '^server\.js$' /tmp/release-files.txt
+          grep -q '^package\.json$' /tmp/release-files.txt
+          grep -q '^package-lock\.json$' /tmp/release-files.txt
+          grep -q '^start-qy4-production\.cmd$' /tmp/release-files.txt
+          grep -q '^final-release-gate\.cmd$' /tmp/release-files.txt
+          grep -q '^RELEASE-MANIFEST-SHA256\.txt$' /tmp/release-files.txt
           grep -q '^public/' /tmp/release-files.txt
           grep -q '^scripts/' /tmp/release-files.txt
           if grep -Eiq '(^|/)(node_modules|\.git)(/|$)|(^|/)\.env($|\.)|\.(sqlite|sqlite3|db)$|-wal$|-shm$|\.log$|(^|/)backups/prestart_' /tmp/release-files.txt; then
