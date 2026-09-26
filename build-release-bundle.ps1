@@ -55,16 +55,8 @@ foreach ($d in $requiredDirs) {
     Copy-Item (Join-Path $PSScriptRoot $d) (Join-Path $stage $d) -Recurse -Force
 }
 
-# Runtime folders are intentionally empty in the release source bundle.
-@(
-    "db",
-    "uploads",
-    "uploads\documents",
-    "uploads\qr",
-    "backups"
-) | ForEach-Object {
-    New-Item -ItemType Directory -Path (Join-Path $stage $_) -Force | Out-Null
-}
+# Runtime data folders are intentionally not packaged.
+# server.js creates db/uploads paths on first start; backups are created on demand.
 
 $forbiddenPatterns = @(
     "^\.env$",
@@ -74,10 +66,10 @@ $forbiddenPatterns = @(
     "-shm$",
     "\.log$"
 )
-$forbiddenSegments = @("node_modules",".git","backups\prestart_")
+$forbiddenSegments = @("node_modules",".git","backups/prestart_")
 $bad = @()
 Get-ChildItem $stage -Recurse -Force -File | ForEach-Object {
-    $rel = $_.FullName.Substring($stage.Length).TrimStart("\","/")
+    $rel = $_.FullName.Substring($stage.Length).TrimStart([char[]]"\/").Replace("\","/")
     foreach ($p in $forbiddenPatterns) {
         if ($rel -match $p) { $bad += $rel; break }
     }
@@ -100,7 +92,7 @@ Get-ChildItem $stage -Recurse -File |
     Where-Object { $_.FullName -ne $manifestPath } |
     Sort-Object FullName |
     ForEach-Object {
-        $rel = $_.FullName.Substring($stage.Length).TrimStart("\","/").Replace("\","/")
+        $rel = $_.FullName.Substring($stage.Length).TrimStart([char[]]"\/").Replace("\","/")
         $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         $manifestLines += "$hash  $rel"
     }
