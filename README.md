@@ -368,7 +368,7 @@ hoặc chạy PowerShell:
 
 Gói ZIP được tạo trong `dist/` theo **allowlist**, chỉ gồm source, giao diện, launcher và các script kiểm tra cần thiết. Script sinh `RELEASE-MANIFEST-SHA256.txt` để đối chiếu hash từng file.
 
-Gói release **cố ý không chứa**:
+Gói source mặc định **cố ý không chứa**:
 
 - `db/*.sqlite`, WAL/SHM;
 - `uploads/` vận hành;
@@ -376,6 +376,28 @@ Gói release **cố ý không chứa**:
 - `.env*` hoặc mật khẩu;
 - `node_modules/`;
 - log runtime.
+
+### Gói offline Windows — dùng khi máy đích không truy cập npm
+
+Nếu máy triển khai nằm trong mạng nội bộ/quân sự và có nguy cơ không chạy được `npm ci`, chuẩn bị dependency trước trên **máy Windows tương thích với máy đích** rồi double-click:
+
+```text
+build-release-bundle-offline.cmd
+```
+
+hoặc:
+
+```powershell
+.\build-release-bundle.ps1 -IncludeDependencies
+```
+
+Builder chỉ tạo gói offline khi:
+
+- `node_modules` đang tồn tại;
+- `npm ls --depth=0` xác nhận dependency khớp `package.json/package-lock.json`;
+- các runtime package, đặc biệt native module `better-sqlite3`, nạp được trên máy build.
+
+Gói offline vẫn **không chứa database, uploads, backups, .env, mật khẩu hay log vận hành**. File `RELEASE-MANIFEST-SHA256.txt` ghi thêm **OS, kiến trúc máy và Node version** của máy build. Do `better-sqlite3` có thành phần native, chỉ dùng gói offline trên máy đích có hệ điều hành/kiến trúc tương thích; với BVQY4 nên build trên Windows x64 tương ứng.
 
 Khi **nâng cấp máy đang có dữ liệu thật**, không thay thế/xóa các thư mục dữ liệu đang vận hành bằng ZIP release. Trước tiên sao lưu, sau đó cập nhật source và chạy `start-qy4-production.cmd` để preflight + migration có kiểm soát.
 
