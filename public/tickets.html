@@ -15,31 +15,38 @@
         <div class="page-actions"><button class="btn btn-primary" id="newIncidentBtn">+ Ghi nhận sự cố</button><button class="btn" id="exportIncidentExcelBtn">Xuất Excel</button><div class="user-box" style="display:none"></div></div>
       </div>
 
-      <section class="card compact-card">
-        <div class="filters incident-filter-grid">
+      <section class="card compact-card clean-filter-card">
+        <div class="filters simple-filter-grid">
           <label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date" /></label>
           <label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date" /></label>
-          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Thiết bị / mô tả / người ghi nhận" /></label>
-          <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
-                    <label class="field"><span class="field-label">Trạng thái</span><select id="statusFilter"><option value="ALL">Tất cả trạng thái</option><option>Mới ghi nhận</option><option>Đã tiếp nhận</option><option>Đã chuyển sửa chữa</option><option>Đã xử lý tại chỗ</option></select></label>
-          <label class="field"><span class="field-label">Nguồn báo</span><select id="sourceFilter"><option value="ALL">Tất cả nguồn</option><option>QR</option><option>Nhập trực tiếp</option><option>Không xác định</option></select></label>
-          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Xóa lọc</button></div>
+          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Thiết bị / mô tả sự cố" /></label>
+          <label class="field"><span class="field-label">Trạng thái</span><select id="statusFilter"><option value="ALL">Tất cả trạng thái</option><option>Mới ghi nhận</option><option>Đã tiếp nhận</option><option>Đã chuyển sửa chữa</option><option>Đã xử lý tại chỗ</option></select></label>
+          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Đặt lại</button></div>
         </div>
+        <details class="advanced-filter-details">
+          <summary>Lọc thêm</summary>
+          <div class="advanced-filter-grid">
+            <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
+            <label class="field"><span class="field-label">Nguồn báo</span><select id="sourceFilter"><option value="ALL">Tất cả nguồn</option><option>QR</option><option>Nhập trực tiếp</option><option>Không xác định</option></select></label>
+          </div>
+        </details>
       </section>
 
-      <section class="ticket-stats dashboard-stats-4" id="incidentStats">
-        <div class="card stat-card simple-card"><h3>Tổng sự cố</h3><div id="stTotalIncidents" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Mới ghi nhận</h3><div id="stNewIncidents" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Đã tiếp nhận</h3><div id="stAcceptedIncidents" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Đã chuyển sửa chữa</h3><div id="stTransferIncidents" class="value">0</div></div>
-        <div class="card stat-card simple-card"><h3>Đã xử lý tại chỗ</h3><div id="stOnsiteIncidents" class="value">0</div></div>
+      <section class="summary-strip" id="incidentStats">
+        <div class="summary-item"><span>Tổng sự cố</span><strong id="stTotalIncidents">0</strong></div>
+        <div class="summary-item summary-item-warning"><span>Chưa xử lý xong</span><strong id="stOpenIncidents">0</strong></div>
+        <div class="summary-item summary-item-success"><span>Đã chuyển/đã xử lý</span><strong id="stClosedIncidents">0</strong></div>
       </section>
+      <div class="hidden-ui-metrics" aria-hidden="true">
+        <span id="stNewIncidents"></span><span id="stAcceptedIncidents"></span>
+        <span id="stTransferIncidents"></span><span id="stOnsiteIncidents"></span>
+      </div>
 
       <section class="card">
         <div class="table-card-header"><h3 id="countLabel">0 sự cố</h3></div>
         <div class="table-wrap scroll-area">
           <table class="incident-table-v2">
-            <thead><tr><th>STT</th><th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Mô tả sự cố</th><th>Nguồn báo</th><th>Người báo</th><th>Trạng thái</th><th>Ảnh/Video</th><th>Thao tác</th></tr></thead>
+            <thead><tr><th>STT</th><th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Mô tả sự cố</th><th>Trạng thái</th><th>Ảnh/Video</th><th>Thao tác</th></tr></thead>
             <tbody id="rows"></tbody>
           </table>
         </div>
