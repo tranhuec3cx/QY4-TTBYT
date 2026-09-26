@@ -1,6 +1,7 @@
 param(
     [string]$Version = "5.0.0-RC",
-    [string]$OutputDir = ""
+    [string]$OutputDir = "",
+    [switch]$IncludeDependencies
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +44,26 @@ foreach ($d in $requiredDirs) {
     }
 }
 
+if ($IncludeDependencies) {
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        throw "Goi offline can Node.js trong PATH de xac minh dependency."
+    }
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        throw "Goi offline can npm trong PATH de xac minh dependency."
+    }
+    if (-not (Test-Path (Join-Path $PSScriptRoot "node_modules") -PathType Container)) {
+        throw "Chua co node_modules. Hay chay start-qy4-production.cmd/npm ci tren may Windows dich truoc khi build goi offline."
+    }
+    npm ls --depth=0 --silent *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "node_modules khong khop package.json/package-lock.json; khong dong goi offline."
+    }
+    node -e "require('better-sqlite3'); require('express'); require('multer'); require('exceljs'); require('qrcode-generator'); console.log('runtime dependencies ok')" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Dependency runtime khong nap duoc tren may build; khong dong goi offline."
+    }
+}
+
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 if (Test-Path $zip) { Remove-Item $zip -Force }
@@ -53,6 +74,10 @@ foreach ($f in $requiredFiles) {
 }
 foreach ($d in $requiredDirs) {
     Copy-Item (Join-Path $PSScriptRoot $d) (Join-Path $stage $d) -Recurse -Force
+}
+if ($IncludeDependencies) {
+    Write-Host "Dang dong kem node_modules da duoc xac minh tren may build..." -ForegroundColor Cyan
+    Copy-Item (Join-Path $PSScriptRoot "node_modules") (Join-Path $stage "node_modules") -Recurse -Force
 }
 
 # Runtime data folders are intentionally not packaged.
@@ -66,7 +91,10 @@ $forbiddenPatterns = @(
     "-shm$",
     "\.log$"
 )
-$forbiddenSegments = @("node_modules",".git","backups/prestart_")
+$forbiddenSegments = @(".git","backups/prestart_")
+if (-not $IncludeDependencies) {
+    $forbiddenSegments += "node_modules"
+}
 $bad = @()
 Get-ChildItem $stage -Recurse -Force -File | ForEach-Object {
     $rel = $_.FullName.Substring($stage.Length).TrimStart([char[]]"\/").Replace("\","/")
@@ -85,7 +113,11 @@ $manifestPath = Join-Path $stage "RELEASE-MANIFEST-SHA256.txt"
 $manifestLines = @(
     "# QY4-TTBYT $Version",
     "# Generated: $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss zzz'))",
-    "# Source bundle intentionally excludes runtime database/uploads/backups/secrets/node_modules.",
+    $(if ($IncludeDependencies) {
+        "# Offline Windows bundle includes verified node_modules from the build machine; runtime database/uploads/backups/secrets remain excluded."
+      } else {
+        "# Source bundle intentionally excludes runtime database/uploads/backups/secrets/node_modules."
+      }),
     ""
 )
 Get-ChildItem $stage -Recurse -File |
@@ -105,6 +137,12 @@ $size = (Get-Item $zip).Length
 Write-Host "[DAT] Da tao: $zip" -ForegroundColor Green
 Write-Host "[DAT] SHA256 : $zipHash" -ForegroundColor Green
 Write-Host "[DAT] Kich thuoc: $size byte" -ForegroundColor Green
+if ($IncludeDependencies) {
+    Write-Host "[DAT] Goi OFFLINE da kem node_modules duoc xac minh tren may build." -ForegroundColor Green
+    Write-Host "[LUU Y] Chi dung goi offline nay cho cung he dieu hanh/kien truc voi may build; voi BVQY4 nen build tren Windows x64 dich." -ForegroundColor Yellow
+} else {
+    Write-Host "[LUU Y] Goi source khong kem node_modules; may dich can npm ci hoac cache dependency." -ForegroundColor Yellow
+}
 Write-Host "[LUU Y] Goi nay KHONG chua database/uploads/backups dang van hanh." -ForegroundColor Yellow
 Write-Host "[LUU Y] Khi nang cap may that, sao luu du lieu va dung launcher/preflight theo README." -ForegroundColor Yellow
 
