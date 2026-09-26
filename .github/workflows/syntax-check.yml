@@ -80,6 +80,11 @@ jobs:
           if ($content -notmatch 'prestart_') { throw "Production launcher must create pre-migration DB backup" }
           if ($content -notmatch 'QY4_PRESTART_KEEP') { throw "Production launcher must cap pre-start backup retention" }
           if (-not (Test-Path "./scripts/preflight-realdata.js")) { throw "Missing real-data preflight script" }
+          if (-not (Test-Path "./scripts/verify-backup-restore.js")) { throw "Missing backup restore rehearsal script" }
+          if (-not (Test-Path "./verify-backup.cmd")) { throw "Missing one-click Windows backup verifier" }
+          if ($content -notmatch 'QY4_PUBLIC_ORIGIN') { throw "Production launcher must warn about server-locked QR origin" }
+          $apiJs = Get-Content -Raw -Path "./public/api.js"
+          if ($apiJs -notmatch 'origin_locked' -or $apiJs -notmatch 'qrPrintBtn') { throw "QR UI must honor server-locked origin before printing" }
           $npmCiIndex = $content.IndexOf("npm ci")
           $preflightIndex = $content.IndexOf("scripts\preflight-realdata.js")
           $npmStartIndex = $content.LastIndexOf("npm start")
