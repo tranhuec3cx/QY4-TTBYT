@@ -24,18 +24,23 @@
 
       <section class="repair-stats" id="repairStats"></section>
 
-      <section class="card compact-card">
-        <div class="filters repair-filter-grid-v2">
+      <section class="card compact-card clean-filter-card">
+        <div class="filters compact-primary-filters">
           <label class="field"><span class="field-label">Từ ngày</span><input id="fromDate" type="date" /></label>
           <label class="field"><span class="field-label">Đến ngày</span><input id="toDate" type="date" /></label>
-          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên, model, serial, nguyên nhân, nội dung" /></label>
-          <label class="field"><span class="field-label">Khoa/phòng</span><select id="departmentFilter"><option value="ALL">Tất cả khoa/phòng</option></select></label>
-          <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả nhóm thiết bị</option></select></label>
-          <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
-          <label class="field"><span class="field-label">Trạng thái</span><select id="repairStatusFilter"><option value="ALL">Tất cả trạng thái</option><option>Đang xử lý</option><option>Chờ linh kiện</option><option>Đã hoàn thành</option><option>Không sửa được</option></select></label>
-          <label class="field"><span class="field-label">Hình thức</span><select id="methodFilter"><option value="ALL">Tất cả hình thức</option><option>Nội bộ</option><option>Thuê ngoài</option><option>Thay thế linh kiện</option><option>Nâng cấp thiết bị</option></select></label>
-          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Xóa lọc</button></div>
+          <label class="field field-wide"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Mã, tên thiết bị, Model, Serial hoặc tình trạng hỏng" /></label>
+          <label class="field"><span class="field-label">Trạng thái</span><select id="repairStatusFilter"><option value="ALL">Tất cả</option><option>Đang xử lý</option><option>Chờ linh kiện</option><option>Đã hoàn thành</option><option>Không sửa được</option></select></label>
+          <div class="filter-actions"><button class="btn btn-primary" id="filterBtn">Lọc</button><button class="btn" id="clearFilterBtn">Đặt lại</button></div>
         </div>
+        <details class="advanced-filter-details">
+          <summary>Lọc thêm</summary>
+          <div class="advanced-filter-grid">
+            <label class="field"><span class="field-label">Khoa/phòng</span><select id="departmentFilter"><option value="ALL">Tất cả khoa/phòng</option></select></label>
+            <label class="field"><span class="field-label">Nhóm thiết bị</span><select id="groupFilter"><option value="ALL">Tất cả nhóm thiết bị</option></select></label>
+            <label class="field"><span class="field-label">Thiết bị</span><select id="deviceFilter"><option value="ALL">Tất cả thiết bị</option></select></label>
+            <label class="field"><span class="field-label">Hình thức</span><select id="methodFilter"><option value="ALL">Tất cả hình thức</option><option>Nội bộ</option><option>Thuê ngoài</option><option>Thay thế linh kiện</option><option>Nâng cấp thiết bị</option></select></label>
+          </div>
+        </details>
       </section>
 
       <section class="card repair-table-card">
@@ -44,7 +49,7 @@
           <table class="repair-table-v2">
             <thead>
               <tr>
-                <th>STT</th><th>Thời gian tiếp nhận</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Nguyên nhân hỏng</th><th>Nội dung sửa chữa</th><th>Người thực hiện</th><th>Trạng thái</th><th>Hình thức</th><th>Kinh phí</th><th>Kết quả / TTTB sau sửa</th><th>Thao tác</th>
+                <th>Thời gian</th><th>Thiết bị</th><th>Khoa/vị trí</th><th>Tình trạng hỏng</th><th>Trạng thái</th><th>Việc tiếp theo</th><th>Thao tác</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
