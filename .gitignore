@@ -30,3 +30,6 @@ Desktop.ini
 
 # IDE
 .vscode/
+
+# Generated release bundles
+dist/
