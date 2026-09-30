@@ -1524,8 +1524,63 @@ function ensureAuthSchema() {
   }
 }
 
+
+function ensureReceptionSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS receptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reception_code TEXT UNIQUE,
+      reception_datetime TEXT NOT NULL,
+      name TEXT NOT NULL,
+      model TEXT,
+      serial TEXT NOT NULL,
+      manufacturer TEXT,
+      country TEXT,
+      supplier TEXT,
+      department_code TEXT NOT NULL,
+      location TEXT,
+      accessories TEXT,
+      documents_note TEXT,
+      missing_documents TEXT,
+      receiver TEXT,
+      note TEXT,
+      group_code TEXT,
+      year_manufactured INTEGER DEFAULT 0,
+      funding TEXT,
+      cost INTEGER DEFAULT 0,
+      warranty_end TEXT,
+      device_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'Đang tiếp nhận',
+      handover_datetime TEXT,
+      handover_actor TEXT,
+      handover_receiver TEXT,
+      handover_doc_no TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (department_code) REFERENCES departments(code),
+      FOREIGN KEY (group_code) REFERENCES device_groups(code),
+      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE RESTRICT
+    );
+    CREATE TABLE IF NOT EXISTS reception_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reception_id INTEGER NOT NULL,
+      original_name TEXT,
+      stored_name TEXT,
+      file_path TEXT,
+      file_mime TEXT,
+      file_size INTEGER DEFAULT 0,
+      uploaded_at TEXT NOT NULL,
+      FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_receptions_time ON receptions(reception_datetime DESC);
+    CREATE INDEX IF NOT EXISTS idx_receptions_department ON receptions(department_code);
+    CREATE INDEX IF NOT EXISTS idx_reception_files_reception ON reception_files(reception_id);
+  `);
+}
+
 initDb();
 ensureCoreManagementSchema();
+ensureReceptionSchema();
 ensureAuthSchema();
 ensureDeviceCodeColumnsAndData();
 normalizeIncidentStatusesInDb();
@@ -6259,6 +6314,191 @@ app.post("/api/reset-seed", (req, res) => {
     res.status(500).json({error:e.message || "Không thể reset dữ liệu mẫu."});
   }
 });
+
+
+function receptionRow(id) {
+  const row=db.prepare(`
+    SELECT r.*, d.name AS department_name,
+           dv.device_code, dv.qr_uid
+    FROM receptions r
+    LEFT JOIN departments d ON d.code=r.department_code
+    LEFT JOIN devices dv ON dv.id=r.device_id
+    WHERE r.id=?
+  `).get(Number(id));
+  if(!row) return null;
+  row.files=db.prepare("SELECT * FROM reception_files WHERE reception_id=? ORDER BY id").all(Number(id));
+  return row;
+}
+function receptionCode(id, dt) {
+  const y=String(dt || nowSql()).slice(0,4) || String(new Date().getFullYear());
+  return `TN-${y}-${String(id).padStart(4,"0")}`;
+}
+function validateReceptionPayload(body) {
+  const p={
+    reception_datetime:String(body?.reception_datetime || "").trim(),
+    name:String(body?.name || "").trim(),
+    serial:String(body?.serial || "").trim(),
+    model:String(body?.model || "").trim(),
+    manufacturer:String(body?.manufacturer || "").trim(),
+    country:String(body?.country || "").trim(),
+    supplier:String(body?.supplier || "").trim(),
+    department_code:String(body?.department_code || "").trim(),
+    location:String(body?.location || "").trim(),
+    accessories:String(body?.accessories || "").trim(),
+    documents_note:String(body?.documents_note || "").trim(),
+    missing_documents:String(body?.missing_documents || "").trim(),
+    receiver:String(body?.receiver || "").trim(),
+    note:String(body?.note || "").trim()
+  };
+  if(!p.reception_datetime) throw new Error("Vui lòng nhập thời gian tiếp nhận.");
+  if(!p.name) throw new Error("Vui lòng nhập tên thiết bị.");
+  if(!p.serial) throw new Error("Vui lòng nhập Serial number.");
+  if(!p.department_code) throw new Error("Vui lòng chọn Khoa sử dụng.");
+  if(!db.prepare("SELECT code FROM departments WHERE code=?").get(p.department_code)) throw new Error("Khoa sử dụng không tồn tại trong danh mục.");
+  return p;
+}
+
+app.get("/api/receptions", (req,res)=>{
+  const where=["1=1"], args=[];
+  if(req.query.from_date){where.push("substr(r.reception_datetime,1,10)>=?");args.push(String(req.query.from_date));}
+  if(req.query.to_date){where.push("substr(r.reception_datetime,1,10)<=?");args.push(String(req.query.to_date));}
+  if(req.query.department_code){where.push("r.department_code=?");args.push(String(req.query.department_code));}
+  if(req.query.q){
+    const x=`%${String(req.query.q).trim()}%`;
+    where.push("(r.name LIKE ? OR r.serial LIKE ? OR r.reception_code LIKE ? OR r.model LIKE ?)");
+    args.push(x,x,x,x);
+  }
+  const rows=db.prepare(`
+    SELECT r.*, d.name AS department_name, dv.device_code, dv.qr_uid
+    FROM receptions r
+    LEFT JOIN departments d ON d.code=r.department_code
+    LEFT JOIN devices dv ON dv.id=r.device_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY r.reception_datetime DESC, r.id DESC
+  `).all(...args);
+  res.json(rows);
+});
+
+app.get("/api/receptions/:id", (req,res)=>{
+  const row=receptionRow(req.params.id);
+  if(!row) return res.status(404).json({error:"Không tìm thấy hồ sơ tiếp nhận."});
+  res.json(row);
+});
+
+app.post("/api/receptions", (req,res)=>{
+  try{
+    const p=validateReceptionPayload(req.body);
+    const duplicate=db.prepare("SELECT id,reception_code FROM receptions WHERE serial=? AND status<>'Đã bàn giao' LIMIT 1").get(p.serial);
+    if(duplicate) return res.status(409).json({error:`Serial ${p.serial} đang có trong hồ sơ tiếp nhận ${duplicate.reception_code || "#"+duplicate.id}.`});
+    const t=nowSql();
+    const info=db.prepare(`
+      INSERT INTO receptions
+      (reception_datetime,name,serial,model,manufacturer,country,supplier,department_code,location,accessories,documents_note,missing_documents,receiver,note,status,created_at,updated_at)
+      VALUES (@reception_datetime,@name,@serial,@model,@manufacturer,@country,@supplier,@department_code,@location,@accessories,@documents_note,@missing_documents,@receiver,@note,'Đang tiếp nhận',@created_at,@updated_at)
+    `).run({...p,created_at:t,updated_at:t});
+    const code=receptionCode(info.lastInsertRowid,p.reception_datetime);
+    db.prepare("UPDATE receptions SET reception_code=? WHERE id=?").run(code,info.lastInsertRowid);
+    writeAudit(requestActor(req),"Tiếp nhận thiết bị","reception",info.lastInsertRowid,`${code} | ${p.name} | SN ${p.serial}`);
+    res.json({id:info.lastInsertRowid,reception_code:code});
+  }catch(e){res.status(400).json({error:e.message || "Không thể tạo hồ sơ tiếp nhận."});}
+});
+
+app.put("/api/receptions/:id", (req,res)=>{
+  try{
+    const old=receptionRow(req.params.id);
+    if(!old) return res.status(404).json({error:"Không tìm thấy hồ sơ tiếp nhận."});
+    if(old.status==="Đã bàn giao") return res.status(409).json({error:"Hồ sơ đã bàn giao, không chỉnh sửa bước tiếp nhận."});
+    const p=validateReceptionPayload(req.body);
+    db.prepare(`
+      UPDATE receptions SET reception_datetime=@reception_datetime,name=@name,serial=@serial,model=@model,
+      manufacturer=@manufacturer,country=@country,supplier=@supplier,department_code=@department_code,location=@location,
+      accessories=@accessories,documents_note=@documents_note,missing_documents=@missing_documents,receiver=@receiver,
+      note=@note,updated_at=@updated_at WHERE id=@id
+    `).run({...p,updated_at:nowSql(),id:Number(req.params.id)});
+    writeAudit(requestActor(req),"Cập nhật tiếp nhận","reception",req.params.id,old.reception_code || "");
+    res.json({ok:true});
+  }catch(e){res.status(400).json({error:e.message || "Không thể cập nhật hồ sơ tiếp nhận."});}
+});
+
+app.post("/api/receptions/:id/files", uploadDocument.single("file"), (req,res)=>{
+  try{
+    const row=receptionRow(req.params.id);
+    if(!row) return res.status(404).json({error:"Không tìm thấy hồ sơ tiếp nhận."});
+    if(!req.file) return res.status(400).json({error:"Chưa chọn tệp đính kèm."});
+    const rel=`/uploads/documents/${req.file.filename}`;
+    const info=db.prepare(`
+      INSERT INTO reception_files(reception_id,original_name,stored_name,file_path,file_mime,file_size,uploaded_at)
+      VALUES (?,?,?,?,?,?,?)
+    `).run(Number(req.params.id),req.file.originalname,req.file.filename,rel,req.file.mimetype,req.file.size,nowSql());
+    writeAudit(requestActor(req),"Đính kèm hồ sơ tiếp nhận","reception",req.params.id,req.file.originalname);
+    res.json({id:info.lastInsertRowid,file_path:rel});
+  }catch(e){
+    cleanupSingleUpload(req);
+    res.status(400).json({error:e.message || "Không tải được tệp đính kèm."});
+  }
+});
+
+app.post("/api/receptions/:id/create-device", (req,res)=>{
+  const tx=db.transaction(()=>{
+    const r=receptionRow(req.params.id);
+    if(!r) throw new Error("Không tìm thấy hồ sơ tiếp nhận.");
+    if(r.device_id) return {id:r.device_id,qr_uid:r.qr_uid,device_code:r.device_code};
+    const groupCode=String(req.body?.group_code || "").trim();
+    if(!groupCode || !db.prepare("SELECT code FROM device_groups WHERE code=?").get(groupCode)) throw new Error("Vui lòng chọn nhóm thiết bị.");
+    const serialDup=findSerialDuplicate(r.serial,0);
+    if(serialDup) throw new Error(`Serial ${r.serial} đã có trong danh mục thiết bị (${serialDup.device_code || "#"+serialDup.id}).`);
+    const code=generateDeviceCode(r.department_code,groupCode);
+    const yearInUse=Number(String(r.reception_datetime).slice(0,4)) || new Date().getFullYear();
+    const yearManufactured=Math.max(0,Number(req.body?.year_manufactured || 0));
+    const cost=Math.max(0,Number(req.body?.cost || 0));
+    const funding=String(req.body?.funding || "").trim();
+    const warrantyEnd=String(req.body?.warranty_end || "").trim();
+    const info=db.prepare(`
+      INSERT INTO devices
+      (department_code,group_code,name,manufacturer,model,year_in_use,warranty_end,status,quality_level,serial,country,year_manufactured,cost,funding,location,note,device_code,insurance_code,inspection_required_types)
+      VALUES (?,?,?,?,?,?,?,'Đang hoạt động',3,?,?,?,?,?,?,?,?,'','[]')
+    `).run(r.department_code,groupCode,r.name,r.manufacturer,r.model,yearInUse,warrantyEnd,r.serial,r.country,yearManufactured,cost,funding,r.location,r.note || "",code);
+    const deviceId=Number(info.lastInsertRowid);
+    const qrUid=ensureDeviceQrUid(deviceId);
+    const files=db.prepare("SELECT * FROM reception_files WHERE reception_id=?").all(Number(r.id));
+    const addDoc=db.prepare(`
+      INSERT INTO documents(device_id,name,type,doc_date,updated_by,note,original_name,stored_name,file_path,file_mime,file_size,department_code_snapshot,location_snapshot)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `);
+    for(const f of files){
+      addDoc.run(deviceId,f.original_name || "Tệp tiếp nhận","Hồ sơ tiếp nhận",String(r.reception_datetime).slice(0,10),requestActor(req),r.documents_note || "",f.original_name,f.stored_name,f.file_path,f.file_mime,f.file_size || 0,r.department_code,r.location || "");
+    }
+    db.prepare(`
+      UPDATE receptions SET group_code=?,year_manufactured=?,funding=?,cost=?,warranty_end=?,device_id=?,status='Đã lập hồ sơ',updated_at=?
+      WHERE id=?
+    `).run(groupCode,yearManufactured,funding,cost,warrantyEnd,deviceId,nowSql(),Number(r.id));
+    writeAudit(requestActor(req),"Lập hồ sơ thiết bị","reception",r.id,`${code} | QR ${qrUid}`);
+    writeAudit(requestActor(req),"Tạo thiết bị từ tiếp nhận","device",deviceId,`${code} | ${r.name}`);
+    return {id:deviceId,qr_uid:qrUid,device_code:code};
+  });
+  try{res.json(tx());}catch(e){res.status(400).json({error:e.message || "Không lập được hồ sơ thiết bị."});}
+});
+
+app.post("/api/receptions/:id/handover", (req,res)=>{
+  try{
+    const r=receptionRow(req.params.id);
+    if(!r) return res.status(404).json({error:"Không tìm thấy hồ sơ tiếp nhận."});
+    if(!r.device_id) return res.status(409).json({error:"Phải lập hồ sơ thiết bị trước khi bàn giao."});
+    const dt=String(req.body?.handover_datetime || "").trim();
+    const receiver=String(req.body?.handover_receiver || "").trim();
+    if(!dt) return res.status(400).json({error:"Vui lòng nhập thời gian bàn giao."});
+    if(!receiver) return res.status(400).json({error:"Vui lòng nhập người nhận."});
+    const actor=String(req.body?.handover_actor || requestActor(req)).trim();
+    const docNo=String(req.body?.handover_doc_no || "").trim();
+    db.prepare(`
+      UPDATE receptions SET status='Đã bàn giao',handover_datetime=?,handover_actor=?,handover_receiver=?,handover_doc_no=?,updated_at=? WHERE id=?
+    `).run(dt,actor,receiver,docNo,nowSql(),Number(r.id));
+    db.prepare("UPDATE devices SET status='Đang hoạt động',department_code=?,location=? WHERE id=?").run(r.department_code,r.location || "",Number(r.device_id));
+    writeAudit(actor || requestActor(req),"Bàn giao sử dụng","reception",r.id,`${r.device_code || ""} | ${r.department_code} | ${r.location || ""} | Người nhận: ${receiver}`);
+    res.json({ok:true,device_id:r.device_id});
+  }catch(e){res.status(400).json({error:e.message || "Không hoàn thành được bàn giao."});}
+});
+
 
 if (process.env.QY4_DEMO_SEED === "1") refreshDemoTodayData();
 
