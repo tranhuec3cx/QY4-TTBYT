@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tiếp nhận thiết bị - QY4-TTBYT</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .reception-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 16px}
+    .reception-step{border:1px solid #d7e2ea;border-radius:10px;padding:10px 12px;background:#fff;color:#5b6b78;font-weight:700}
+    .reception-step.active{border-color:#0b5a8a;background:#eef7fc;color:#0b5a8a}
+    .reception-step.done{border-color:#7dbb8a;background:#f1faf3;color:#2d6a3d}
+    .reception-step small{display:block;font-weight:500;margin-top:3px;color:inherit}
+    .reception-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .reception-grid .span-2{grid-column:span 2}.reception-grid .span-3{grid-column:1/-1}
+    .reception-file-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .reception-file{background:#f4f7f9;border:1px solid #dce5eb;border-radius:8px;padding:7px 10px;font-size:13px}
+    .lifecycle-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .lifecycle-summary>div{border:1px solid #e0e6eb;border-radius:10px;padding:10px;background:#fff}
+    .lifecycle-summary span{display:block;color:#6b7882;font-size:12px}.lifecycle-summary b{display:block;margin-top:4px}
+    @media(max-width:900px){.reception-grid{grid-template-columns:1fr 1fr}.reception-grid .span-3{grid-column:1/-1}.lifecycle-summary{grid-template-columns:1fr 1fr}}
+    @media(max-width:640px){.reception-steps,.reception-grid,.lifecycle-summary{grid-template-columns:1fr}.reception-grid .span-2,.reception-grid .span-3{grid-column:auto}}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <div id="menuHost"></div>
+  <main class="main">
+    <div class="topbar">
+      <div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div>
+      <div class="page-actions"><button class="btn btn-primary" id="newReceptionBtn">+ Tiếp nhận thiết bị</button><div class="user-box" style="display:none"></div></div>
+    </div>
+
+    <section class="kpi-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      <div class="kpi-card"><div class="kpi-label">Tổng tiếp nhận</div><div class="kpi-value" id="kpiTotal">0</div></div>
+      <div class="kpi-card"><div class="kpi-label">Chưa lập hồ sơ</div><div class="kpi-value" id="kpiPendingProfile">0</div></div>
+      <div class="kpi-card"><div class="kpi-label">Chưa bàn giao</div><div class="kpi-value" id="kpiPendingHandover">0</div></div>
+    </section>
+
+    <section class="card compact-card clean-filter-card">
+      <div class="filters" style="grid-template-columns:170px 170px 220px minmax(220px,1fr) auto">
+        <label class="field"><span class="field-label">Từ thời gian</span><input id="fromDate" type="date"></label>
+        <label class="field"><span class="field-label">Đến thời gian</span><input id="toDate" type="date"></label>
+        <label class="field"><span class="field-label">Khoa sử dụng</span><select id="departmentFilter"></select></label>
+        <label class="field"><span class="field-label">Tìm kiếm</span><input id="searchInput" placeholder="Tên thiết bị, Serial, mã tiếp nhận"></label>
+        <button class="btn" id="filterBtn">Lọc</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-wrap scroll-area">
+        <table>
+          <thead><tr><th>Mã TN</th><th>Thời gian</th><th>Thiết bị</th><th>Serial number</th><th>Khoa sử dụng</th><th>Tiến độ</th><th>Thao tác</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="workflowCard" style="display:none">
+      <div class="section-head"><div><h2 class="section-title" id="workflowTitle">Tiếp nhận thiết bị</h2><div class="small" id="workflowCode"></div></div><button class="btn" id="closeWorkflowBtn">Đóng</button></div>
+      <div class="reception-steps">
+        <div class="reception-step" id="step1Box">1. Tiếp nhận<small>Ghi nhận thiết bị và hồ sơ kèm theo</small></div>
+        <div class="reception-step" id="step2Box">2. Lập hồ sơ thiết bị<small>Mã thiết bị và QR cố định</small></div>
+        <div class="reception-step" id="step3Box">3. Bàn giao sử dụng<small>Xác nhận khoa, vị trí và người nhận</small></div>
+      </div>
+
+      <div id="step1Panel">
+        <form id="receptionForm">
+          <div class="reception-grid">
+            <label class="field"><span class="field-label">Thời gian tiếp nhận *</span><input id="receptionDatetime" type="datetime-local" required></label>
+            <label class="field"><span class="field-label">Tên thiết bị *</span><input id="deviceName" required></label>
+            <label class="field"><span class="field-label">Serial number *</span><input id="serial" required></label>
+            <label class="field"><span class="field-label">Model</span><input id="model"></label>
+            <label class="field"><span class="field-label">Hãng sản xuất</span><input id="manufacturer"></label>
+            <label class="field"><span class="field-label">Nước sản xuất</span><input id="country"></label>
+            <label class="field"><span class="field-label">Nhà cung cấp</span><input id="supplier"></label>
+            <label class="field"><span class="field-label">Khoa sử dụng *</span><select id="departmentCode" required></select></label>
+            <label class="field"><span class="field-label">Vị trí sử dụng</span><input id="location" placeholder="Ví dụ: Phòng siêu âm số 2"></label>
+            <label class="field span-2"><span class="field-label">Phụ kiện chính</span><input id="accessories" placeholder="Ví dụ: 01 đầu dò Convex; 01 đầu dò Linear"></label>
+            <label class="field"><span class="field-label">Người tiếp nhận</span><input id="receiver"></label>
+            <label class="field span-2"><span class="field-label">Hồ sơ/tài liệu</span><input id="documentsNote" placeholder="HDSD, catalogue, bảo hành, CO/CQ..."></label>
+            <label class="field"><span class="field-label">Hồ sơ cần bổ sung</span><input id="missingDocuments" placeholder="Để trống nếu không có"></label>
+            <label class="field span-3"><span class="field-label">Tệp đính kèm</span><input id="attachments" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.zip"><div class="small">Có thể chọn nhiều tệp.</div></label>
+            <label class="field span-3"><span class="field-label">Ghi chú</span><textarea id="note"></textarea></label>
+          </div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Lưu tiếp nhận</button></div>
+        </form>
+        <div id="existingFiles" class="reception-file-list"></div>
+      </div>
+
+      <div id="step2Panel" style="display:none">
+        <div class="lifecycle-summary" id="step2Summary"></div>
+        <form id="profileForm" style="margin-top:14px">
+          <div class="reception-grid">
+            <label class="field"><span class="field-label">Nhóm thiết bị *</span><select id="groupCode" required></select></label>
+            <label class="field"><span class="field-label">Năm sản xuất</span><input id="yearManufactured" type="number" min="1900" max="2100"></label>
+            <label class="field"><span class="field-label">Nguồn kinh phí</span><input id="funding"></label>
+            <label class="field"><span class="field-label">Nguyên giá</span><input id="cost" type="number" min="0"></label>
+            <label class="field"><span class="field-label">Hạn bảo hành</span><input id="warrantyEnd" type="date"></label>
+          </div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Lập hồ sơ và tạo QR</button></div>
+        </form>
+        <div id="profileResult" style="display:none;margin-top:14px" class="notice success"></div>
+      </div>
+
+      <div id="step3Panel" style="display:none">
+        <form id="handoverForm">
+          <div class="reception-grid">
+            <label class="field"><span class="field-label">Thời gian bàn giao *</span><input id="handoverDatetime" type="datetime-local" required></label>
+            <label class="field"><span class="field-label">Khoa sử dụng</span><input id="handoverDepartment" readonly></label>
+            <label class="field"><span class="field-label">Vị trí sử dụng</span><input id="handoverLocation" readonly></label>
+            <label class="field"><span class="field-label">Người bàn giao</span><input id="handoverActor"></label>
+            <label class="field"><span class="field-label">Người nhận *</span><input id="handoverReceiver" required></label>
+            <label class="field"><span class="field-label">Số biên bản</span><input id="handoverDocNo"></label>
+          </div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Hoàn thành tiếp nhận</button></div>
+        </form>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="/api.js"></script>
+<script src="/receptions.js"></script>
+</body></html>
