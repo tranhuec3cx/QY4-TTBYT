@@ -157,7 +157,9 @@ function renderMenu(active) {
       </div>
       <nav class="menu">
         <a class="${activeClass("dashboard")}" href="/dashboard.html">Tổng quan</a>
-        <a class="${activeClass("devices")}" href="/index.html">Thiết bị</a>
+        <div class="menu-section-label">QUẢN LÝ THIẾT BỊ</div>
+        <a class="${activeClass("receptions")}" href="/receptions.html">Tiếp nhận thiết bị</a>
+        <a class="${activeClass("devices")}" href="/index.html">Danh mục thiết bị</a>
 
         <div class="menu-section-label">CÔNG VIỆC KỸ THUẬT</div>
         <a class="${activeClass("tickets")}" href="/tickets.html">Sự cố</a>
@@ -191,6 +193,7 @@ function goBackSmart(defaultUrl = smartBackDefault()) {
     inspection: "/inspection.html",
     inventory: "/inventory.html",
     devices: "/index.html",
+    receptions: "/receptions.html",
     dashboard: "/dashboard.html",
     lcm: "/lcm.html"
   };
