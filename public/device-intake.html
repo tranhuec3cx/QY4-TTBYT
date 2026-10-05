@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tiếp nhận thiết bị mới - QY4-TTBYT</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h1 id="pageTitle" class="page-title"></h1>
+          <p id="pageSubtitle" class="page-subtitle"></p>
+        </div>
+        <div class="page-actions"><a class="btn" href="/index.html">Danh mục thiết bị</a><div class="user-box" style="display:none"></div></div>
+      </div>
+
+      <section class="card" style="padding:18px">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px" id="stepBar">
+          <div class="intake-step" data-step="1"><b>1. Tiếp nhận ban đầu</b><div class="small">Ghi nhận thiết bị và hồ sơ ban đầu</div></div>
+          <div class="intake-step" data-step="2"><b>2. Kiểm tra - nghiệm thu</b><div class="small">Xác nhận đủ điều kiện tiếp nhận</div></div>
+          <div class="intake-step" data-step="3"><b>3. Mã hóa - lập hồ sơ</b><div class="small">Phân nhóm, khoa sử dụng, vị trí</div></div>
+          <div class="intake-step" data-step="4"><b>4. Bàn giao sử dụng</b><div class="small">Tạo hồ sơ chính thức và QR</div></div>
+        </div>
+        <div class="muted-note" style="margin-top:12px">Thiết bị chỉ được ghi vào danh mục chính thức sau khi bước nghiệm thu đạt và hoàn tất bàn giao. Mã thiết bị và QR cố định được hệ thống sinh khi tạo hồ sơ.</div>
+      </section>
+
+      <form id="intakeForm">
+        <section class="card intake-panel" data-panel="1">
+          <div class="section-head"><h2 class="section-title">Bước 1 - Tiếp nhận ban đầu</h2><span class="tag blue">Đầu vào</span></div>
+          <div class="form-grid">
+            <input id="receiptDate" type="date" required />
+            <input id="deviceName" placeholder="Tên thiết bị" required />
+            <input id="manufacturer" placeholder="Hãng sản xuất" />
+            <input id="model" placeholder="Model" />
+            <input id="serial" placeholder="Serial Number" />
+            <input id="country" placeholder="Nước sản xuất" />
+            <input id="yearManufactured" type="number" placeholder="Năm sản xuất" />
+            <input id="funding" placeholder="Nguồn kinh phí" />
+            <input id="cost" type="number" min="0" placeholder="Nguyên giá" />
+            <textarea id="receiptNote" class="span-3" placeholder="Ghi chú tiếp nhận ban đầu"></textarea>
+          </div>
+          <div class="form-actions"><button class="btn btn-primary" type="button" data-next="2">Tiếp tục kiểm tra - nghiệm thu</button></div>
+        </section>
+
+        <section class="card intake-panel" data-panel="2" style="display:none">
+          <div class="section-head"><h2 class="section-title">Bước 2 - Kiểm tra, nghiệm thu</h2><span class="tag orange">Kiểm soát</span></div>
+          <div class="form-grid">
+            <input id="acceptanceDate" type="date" required />
+            <input id="inspector" placeholder="Người kiểm tra / nghiệm thu" required />
+            <select id="acceptanceResult" required><option value="">-- Kết quả nghiệm thu --</option><option value="Đạt">Đạt - đủ điều kiện tiếp nhận</option><option value="Không đạt">Không đạt - chưa lập hồ sơ sử dụng</option></select>
+            <label class="field"><span class="field-label">Hồ sơ, tài liệu kèm theo</span><select id="documentStatus"><option>Đầy đủ</option><option>Chưa đầy đủ</option></select></label>
+            <label class="field"><span class="field-label">Ngoại quan / phụ kiện</span><select id="conditionStatus"><option>Đạt</option><option>Có lưu ý</option><option>Không đạt</option></select></label>
+            <textarea id="acceptanceNote" class="span-3" placeholder="Nội dung kiểm tra, lưu ý hoặc tồn tại cần xử lý"></textarea>
+          </div>
+          <div class="muted-note">Nếu kết quả là <b>Không đạt</b>, phần mềm không cho chuyển sang bước mã hóa và lập hồ sơ chính thức.</div>
+          <div class="form-actions"><button class="btn" type="button" data-back="1">Quay lại</button><button class="btn btn-primary" type="button" id="acceptanceNext">Nghiệm thu đạt - tiếp tục</button></div>
+        </section>
+
+        <section class="card intake-panel" data-panel="3" style="display:none">
+          <div class="section-head"><h2 class="section-title">Bước 3 - Mã hóa, lập hồ sơ thiết bị</h2><span class="tag green">Hồ sơ</span></div>
+          <div class="form-grid">
+            <select id="department" required></select>
+            <select id="group" required></select>
+            <input id="location" placeholder="Vị trí đặt máy sau bàn giao" required />
+            <input id="yearInUse" type="number" placeholder="Năm đưa vào sử dụng" />
+            <input id="warrantyEnd" type="date" />
+            <input id="insuranceCode" placeholder="Mã bảo hiểm / mã quản lý cũ (nếu có)" />
+            <div class="field span-3">
+              <span class="field-label">Nghĩa vụ KĐ/HC/ATBX cần theo dõi</span>
+              <div style="display:flex;flex-wrap:wrap;gap:12px 18px;padding:8px 10px;border:1px solid var(--border,#d9e1e8);border-radius:8px">
+                <label><input type="checkbox" name="requiredType" value="Kiểm định" /> Kiểm định</label>
+                <label><input type="checkbox" name="requiredType" value="Hiệu chuẩn" /> Hiệu chuẩn</label>
+                <label><input type="checkbox" name="requiredType" value="Kiểm xạ" /> Kiểm xạ</label>
+                <label><input type="checkbox" name="requiredType" value="Kiểm định an toàn bức xạ" /> Kiểm định an toàn bức xạ</label>
+              </div>
+            </div>
+            <div class="span-3" style="padding:12px;border:1px dashed var(--border,#d9e1e8);border-radius:8px">
+              <b>Mã thiết bị:</b> hệ thống tự sinh theo quy tắc hiện hành &nbsp; • &nbsp; <b>QR:</b> sinh một lần khi hoàn tất hồ sơ và không đổi khi điều chuyển.
+            </div>
+          </div>
+          <div class="form-actions"><button class="btn" type="button" data-back="2">Quay lại</button><button class="btn btn-primary" type="button" id="profileNext">Kiểm tra hồ sơ và bàn giao</button></div>
+        </section>
+
+        <section class="card intake-panel" data-panel="4" style="display:none">
+          <div class="section-head"><h2 class="section-title">Bước 4 - Bàn giao sử dụng</h2><span class="tag green">Hoàn tất</span></div>
+          <div class="form-grid">
+            <input id="handoverDate" type="date" required />
+            <input id="handoverActor" placeholder="Người bàn giao / Khoa Trang bị" required />
+            <input id="receiver" placeholder="Người / đơn vị tiếp nhận" required />
+            <textarea id="handoverNote" class="span-3" placeholder="Ghi chú bàn giao"></textarea>
+          </div>
+          <div id="intakeSummary" style="margin-top:14px"></div>
+          <div class="muted-note" style="margin-top:12px">Khi xác nhận, thiết bị được tạo ở trạng thái <b>Đang hoạt động</b>, được cấp mã và QR cố định. Toàn bộ thông tin tiếp nhận - nghiệm thu - bàn giao được lưu trong hồ sơ thiết bị.</div>
+          <div class="form-actions"><button class="btn" type="button" data-back="3">Quay lại</button><button class="btn btn-primary" type="submit" id="completeIntakeBtn">Hoàn tất và tạo hồ sơ thiết bị</button></div>
+        </section>
+      </form>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/device-intake.js"></script>
+  <style>
+    .intake-step{padding:12px;border:1px solid var(--border,#d9e1e8);border-radius:10px;background:#fff}
+    .intake-step.active{border-width:2px;box-shadow:0 0 0 2px rgba(33,115,170,.08)}
+    .intake-step.done{opacity:.72}
+    @media(max-width:900px){#stepBar{grid-template-columns:1fr 1fr!important}}
+    @media(max-width:560px){#stepBar{grid-template-columns:1fr!important}}
+  </style>
+</body>
+</html>
