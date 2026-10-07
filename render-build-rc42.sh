@@ -13,6 +13,9 @@ curl -fL "$QY4_BUNDLE_URL" -o /tmp/qy4-rc42.tgz
 tar -xzf /tmp/qy4-rc42.tgz -C .
 rm -f /tmp/qy4-rc42.tgz
 
+python3 render-patch-rc44.py
+node -c public/api.js
+node -c public/mobile-app.js
 npm ci
 
-echo "QY4-TTBYT RC42 bundle installed successfully"
+echo "QY4-TTBYT RC44 mobile/QR patch installed successfully"
