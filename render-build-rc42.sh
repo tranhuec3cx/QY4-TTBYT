@@ -15,9 +15,10 @@ rm -f /tmp/qy4-rc42.tgz
 
 python3 render-patch-rc44.py
 cp rc44-login.js public/login.js
+python3 rc44-cache-patch.py
 node -c public/api.js
 node -c public/mobile-app.js
 node -c public/login.js
 npm ci
 
-echo "QY4-TTBYT RC44 mobile/QR/login patch installed successfully"
+echo "QY4-TTBYT RC44 mobile/QR/login/cache patch installed successfully"
