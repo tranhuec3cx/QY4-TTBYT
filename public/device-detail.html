@@ -21,7 +21,12 @@
       <section class="card">
         <div class="detail-head" style="margin-bottom:6px">
           <div><h1 id="detailName" class="detail-title"></h1><div id="detailMeta" class="detail-meta"></div></div>
-          <div class="table-actions"><button class="btn" id="detailQrBtn" data-technical-write type="button">QR</button><button class="btn danger-light" id="archiveDeviceBtn" data-technical-write type="button">Lưu trữ</button><div id="detailStatus"></div></div>
+          <div class="table-actions">
+            <button class="btn" id="detailQrBtn" data-technical-write type="button">QR</button>
+            <button class="btn" data-technical-write type="button" onclick="window.location.href='/device-movement.html?device_id='+encodeURIComponent(new URL(window.location.href).searchParams.get('id')||'')">Biến động</button>
+            <button class="btn danger-light" data-technical-write type="button" onclick="window.location.href='/device-retirement.html?device_id='+encodeURIComponent(new URL(window.location.href).searchParams.get('id')||'')">Thanh lý</button>
+            <div id="detailStatus"></div>
+          </div>
         </div>
         <div id="deviceCurrentState" class="device-current-state"></div>
       </section>
@@ -43,7 +48,7 @@
         </div>
         <div id="infoGeneral" class="info-grid"></div>
         <form id="generalForm" style="display:none">
-          <p class="muted-note">Khoa sử dụng và vị trí đặt máy chỉ thay đổi tại tab <b>Điều chuyển</b> để bảo toàn lịch sử.</p>
+          <p class="muted-note">Khoa sử dụng và vị trí đặt máy chỉ thay đổi tại chức năng <b>Biến động thiết bị</b> hoặc tab <b>Điều chuyển</b> để bảo toàn lịch sử.</p>
           <div class="form-grid">
             <select id="generalDepartment" disabled></select>
             <select id="generalGroup" required></select>
@@ -77,8 +82,6 @@
         </form>
       </section>
 
-
-
       <section id="tab-technical" class="card tab-panel" data-technical-history>
         <div class="section-head"><h2 class="section-title">Công việc kỹ thuật</h2></div>
         <div class="filters" style="grid-template-columns:160px 160px 220px auto auto">
@@ -94,7 +97,7 @@
       </section>
 
       <section id="tab-transfers" class="card tab-panel" data-technical-history>
-        <div class="section-head"><h2 class="section-title">Lịch sử điều chuyển</h2><button class="btn btn-primary" id="toggleTransferBtn" data-technical-write type="button">+ Điều chuyển</button></div>
+        <div class="section-head"><h2 class="section-title">Lịch sử điều chuyển</h2><div class="table-actions"><button class="btn" data-technical-write type="button" onclick="window.location.href='/device-movement.html?device_id='+encodeURIComponent(new URL(window.location.href).searchParams.get('id')||'')">Mở quy trình biến động</button><button class="btn btn-primary" id="toggleTransferBtn" data-technical-write type="button">+ Điều chuyển nhanh</button></div></div>
         <div class="table-wrap scroll-area">
           <table><thead><tr><th>Thời gian</th><th>Từ khoa/vị trí</th><th>Đến khoa/vị trí</th><th>Lý do</th><th>Người thực hiện</th><th>Ghi chú</th><th>Hồ sơ</th></tr></thead><tbody id="transferRows"></tbody></table>
         </div>

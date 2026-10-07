@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thanh lý thiết bị - QY4-TTBYT</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div>
+        <div class="page-actions"><a class="btn" href="/index.html">Danh mục thiết bị</a><div class="user-box" style="display:none"></div></div>
+      </div>
+
+      <section class="card">
+        <div class="section-head"><h2 class="section-title">Thiết bị đề nghị thanh lý</h2><span class="tag orange">Kết thúc vòng đời</span></div>
+        <div class="filters" style="grid-template-columns:minmax(320px,1fr) auto">
+          <label class="field"><span class="field-label">Thiết bị</span><select id="retirementDevice"></select></label>
+          <button class="btn" id="openRetirementDeviceBtn" type="button">Mở hồ sơ</button>
+        </div>
+        <div id="retirementCurrent" class="device-current-state" style="margin-top:12px"></div>
+        <div class="muted-note" style="margin-top:10px">Thanh lý không phải xóa dữ liệu. Sau khi hoàn tất, thiết bị ngừng xuất hiện trong danh sách đang khai thác nhưng mã, QR và toàn bộ lịch sử kỹ thuật vẫn được bảo toàn.</div>
+      </section>
+
+      <section class="card" id="retirementWorkflow" style="display:none">
+        <div id="retirementStepBar" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px">
+          <div class="retirement-step active" data-step="1"><b>1. Đề nghị thanh lý</b><div class="small">Lý do, hiện trạng, người đề nghị</div></div>
+          <div class="retirement-step" data-step="2"><b>2. Quyết định thanh lý</b><div class="small">Số, ngày quyết định đã được phê duyệt</div></div>
+          <div class="retirement-step" data-step="3"><b>3. Hoàn tất hồ sơ</b><div class="small">Ngừng khai thác và lưu hồ sơ lịch sử</div></div>
+        </div>
+
+        <form id="retirementForm">
+          <div class="retirement-panel" data-panel="1">
+            <div class="form-grid">
+              <input id="proposalDate" type="date" required />
+              <input id="proposer" placeholder="Người đề nghị" required />
+              <select id="retirementReasonType"><option>Hư hỏng, không còn khả năng sử dụng</option><option>Không bảo đảm an toàn / chất lượng sử dụng</option><option>Lạc hậu, không còn nhu cầu khai thác</option><option>Lý do khác theo hồ sơ được phê duyệt</option></select>
+              <textarea id="retirementReason" class="span-3" placeholder="Mô tả hiện trạng và lý do đề nghị thanh lý" required></textarea>
+            </div>
+            <div class="form-actions"><button class="btn btn-primary" type="button" id="retirementStep1Next">Chuyển bước quyết định</button></div>
+          </div>
+
+          <div class="retirement-panel" data-panel="2" style="display:none">
+            <div class="form-grid">
+              <input id="decisionDate" type="date" required />
+              <input id="decisionNo" placeholder="Số quyết định / hồ sơ phê duyệt" required />
+              <input id="approvedBy" placeholder="Người/cấp có thẩm quyền phê duyệt" required />
+              <select id="decisionResult"><option value="Được phê duyệt thanh lý">Được phê duyệt thanh lý</option><option value="Chưa phê duyệt">Chưa phê duyệt</option></select>
+              <textarea id="decisionNote" class="span-3" placeholder="Ghi chú quyết định (nếu có)"></textarea>
+            </div>
+            <div class="muted-note">Phần mềm chỉ cho hoàn tất thanh lý khi trạng thái quyết định là <b>Được phê duyệt thanh lý</b>.</div>
+            <div class="form-actions"><button class="btn" type="button" data-retirement-back="1">Quay lại</button><button class="btn btn-primary" type="button" id="retirementStep2Next">Kiểm tra trước khi hoàn tất</button></div>
+          </div>
+
+          <div class="retirement-panel" data-panel="3" style="display:none">
+            <div class="form-grid">
+              <input id="completedDate" type="date" required />
+              <input id="retirementActor" placeholder="Người hoàn tất hồ sơ" required />
+              <select id="handlingMethod"><option>Thực hiện theo quyết định thanh lý đã được phê duyệt</option><option>Bàn giao xử lý theo quyết định đã được phê duyệt</option><option>Phương án khác theo quyết định đã được phê duyệt</option></select>
+              <textarea id="completionNote" class="span-3" placeholder="Ghi chú hoàn tất"></textarea>
+            </div>
+            <div id="retirementSummary" style="margin-top:14px"></div>
+            <div class="muted-note" style="margin-top:12px"><b>Kiểm soát bắt buộc:</b> không còn sự cố mở, không còn phiếu sửa chữa đang xử lý và không nằm trong đợt kiểm kê chưa hoàn thành.</div>
+            <div class="form-actions"><button class="btn" type="button" data-retirement-back="2">Quay lại</button><button class="btn danger-light" type="submit" id="completeRetirementBtn">Xác nhận hoàn tất thanh lý</button></div>
+          </div>
+        </form>
+      </section>
+
+      <section class="card" id="retirementDone" style="display:none">
+        <div class="section-head"><h2 class="section-title">Đã hoàn tất thanh lý</h2><span class="tag red">Ngừng khai thác</span></div>
+        <div id="retirementDoneText"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/device-retirement.js"></script>
+  <style>
+    .retirement-step{padding:12px;border:1px solid var(--border,#d9e1e8);border-radius:10px;background:#fff}
+    .retirement-step.active{border-width:2px;box-shadow:0 0 0 2px rgba(180,70,50,.08)}
+    .retirement-step.done{opacity:.72}
+    @media(max-width:760px){#retirementStepBar{grid-template-columns:1fr!important}}
+  </style>
+</body>
+</html>

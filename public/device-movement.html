@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Biến động thiết bị - QY4-TTBYT</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div id="menuHost"></div>
+    <main class="main">
+      <div class="topbar">
+        <div><h1 id="pageTitle" class="page-title"></h1><p id="pageSubtitle" class="page-subtitle"></p></div>
+        <div class="page-actions"><a class="btn" href="/index.html">Danh mục thiết bị</a><div class="user-box" style="display:none"></div></div>
+      </div>
+
+      <section class="card">
+        <div class="section-head"><h2 class="section-title">Chọn thiết bị</h2><span class="tag blue">Một QR - một lịch sử</span></div>
+        <div class="filters" style="grid-template-columns:minmax(320px,1fr) auto">
+          <label class="field"><span class="field-label">Thiết bị</span><select id="movementDevice"></select></label>
+          <button class="btn" id="openDeviceBtn" type="button">Mở hồ sơ</button>
+        </div>
+        <div id="movementCurrent" class="device-current-state" style="margin-top:12px"></div>
+      </section>
+
+      <section class="card" id="movementActionCard" style="display:none">
+        <div class="section-head"><h2 class="section-title">Chọn nghiệp vụ</h2></div>
+        <div class="movement-mode-grid">
+          <button type="button" class="movement-mode active" data-mode="location"><b>Thay đổi vị trí trong khoa</b><span>Đổi phòng/khu vực, không đổi khoa quản lý</span></button>
+          <button type="button" class="movement-mode" data-mode="recall"><b>Thu hồi về Khoa Trang bị</b><span>Khoa sử dụng bàn giao thiết bị về Khoa Trang bị</span></button>
+          <button type="button" class="movement-mode" data-mode="transfer"><b>Điều chuyển sang khoa khác</b><span>Từ Khoa Trang bị hoặc khoa hiện tại sang đơn vị mới</span></button>
+        </div>
+        <form id="movementForm" style="margin-top:16px">
+          <div class="form-grid">
+            <input id="movementDate" type="datetime-local" required />
+            <select id="movementDepartment" required></select>
+            <input id="movementLocation" placeholder="Vị trí mới" required />
+            <input id="movementActor" placeholder="Người thực hiện" required />
+            <input id="movementReason" class="span-2" placeholder="Lý do / căn cứ" required />
+            <textarea id="movementNote" class="span-3" placeholder="Ghi chú (không bắt buộc)"></textarea>
+          </div>
+          <div id="movementHint" class="muted-note"></div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Xác nhận biến động</button></div>
+        </form>
+      </section>
+
+      <section class="card" id="movementTimelineCard" style="display:none">
+        <div class="section-head"><h2 class="section-title">Lịch sử vị trí / điều chuyển</h2><span class="small">QR và mã thiết bị không thay đổi qua các lần biến động</span></div>
+        <div class="table-wrap scroll-area">
+          <table><thead><tr><th>Thời gian</th><th>Nghiệp vụ</th><th>Từ khoa / vị trí</th><th>Đến khoa / vị trí</th><th>Lý do</th><th>Người thực hiện</th></tr></thead><tbody id="movementRows"></tbody></table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/api.js"></script>
+  <script src="/device-movement.js"></script>
+  <style>
+    .movement-mode-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .movement-mode{background:#fff;border:1px solid var(--border,#d9e1e8);border-radius:10px;padding:14px;text-align:left;cursor:pointer;color:inherit}
+    .movement-mode b{display:block;margin-bottom:6px}.movement-mode span{display:block;font-size:12px;line-height:1.45;color:#64748b}
+    .movement-mode.active{border-width:2px;box-shadow:0 0 0 2px rgba(33,115,170,.08)}
+    @media(max-width:900px){.movement-mode-grid{grid-template-columns:1fr}}
+  </style>
+</body>
+</html>

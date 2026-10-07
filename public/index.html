@@ -15,7 +15,12 @@
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
         </div>
-        <div class="page-actions"><button class="btn btn-primary" data-technical-write onclick="document.getElementById('formCard').scrollIntoView({behavior:'smooth'})">+ Thêm thiết bị</button><div class="user-box" style="display:none"></div></div>
+        <div class="page-actions" data-technical-write>
+          <a class="btn btn-primary" href="/device-intake.html">+ Tiếp nhận thiết bị mới</a>
+          <a class="btn" href="/device-movement.html">Biến động thiết bị</a>
+          <a class="btn danger-light" href="/device-retirement.html">Thanh lý</a>
+          <div class="user-box" style="display:none"></div>
+        </div>
       </div>
       
 <section class="card compact-card clean-filter-card">
@@ -50,7 +55,7 @@
 </section>
 
 <section id="formCard" class="card" data-technical-write>
-  <div class="table-card-header"><h3>Thêm / cập nhật thiết bị</h3></div>
+  <div class="table-card-header"><h3>Thêm nhanh / cập nhật thông tin thiết bị</h3></div>
   <form id="deviceForm">
     <input type="hidden" id="deviceId" />
     <p id="transferOnlyNote" class="muted-note span-3" style="display:none">Khoa sử dụng và vị trí chỉ thay đổi trong <b>Hồ sơ thiết bị → Điều chuyển</b> để giữ lịch sử.</p>
@@ -83,7 +88,7 @@
       <input id="locationInput" placeholder="Vị trí đặt máy" />
       <textarea id="noteInput" class="span-3" placeholder="Ghi chú"></textarea>
     </div>
-    <div class="muted-note" style="margin-top:10px">Bắt buộc: Khoa sử dụng, Nhóm thiết bị, Tên thiết bị. Các trường chưa đủ có thể bổ sung sau và sẽ được thống kê tại Báo cáo → Chất lượng dữ liệu.</div>
+    <div class="muted-note" style="margin-top:10px">Bắt buộc: Khoa sử dụng, Nhóm thiết bị, Tên thiết bị. Khi tiếp nhận thiết bị mới để đưa vào sử dụng, ưu tiên dùng chức năng <b>Tiếp nhận thiết bị mới</b> ở đầu trang để có đủ chuỗi tiếp nhận - nghiệm thu - lập hồ sơ - bàn giao.</div>
     <div class="form-actions">
       <button class="btn btn-primary" type="submit">Lưu thiết bị</button>
       <button class="btn" type="button" onclick="resetForm()">Đặt lại form</button>
