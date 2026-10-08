@@ -18,9 +18,11 @@ cp rc44-login.js public/login.js
 python3 rc44-cache-patch.py
 python3 render-demo-accounts.py
 python3 rc49-settings-tabs-patch.py
+python3 rc50-system-cleanup-patch.py
 node -c public/api.js
 node -c public/mobile-app.js
 node -c public/login.js
+node -c public/settings-system.js
 npm ci
 
-echo "QY4-TTBYT RC49 settings navigation patch installed successfully"
+echo "QY4-TTBYT RC50 system settings cleanup installed successfully"
