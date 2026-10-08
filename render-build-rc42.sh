@@ -17,9 +17,10 @@ python3 render-patch-rc44.py
 cp rc44-login.js public/login.js
 python3 rc44-cache-patch.py
 python3 render-demo-accounts.py
+python3 rc49-settings-tabs-patch.py
 node -c public/api.js
 node -c public/mobile-app.js
 node -c public/login.js
 npm ci
 
-echo "QY4-TTBYT RC44 mobile/QR/login/cache/accounts patch installed successfully"
+echo "QY4-TTBYT RC49 settings navigation patch installed successfully"
