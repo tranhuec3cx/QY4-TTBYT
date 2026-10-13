@@ -5,6 +5,7 @@
   "description": "Phần mềm quản lý trang thiết bị y tế - Bệnh viện Quân y 4",
   "main": "server.js",
   "scripts": {
+    "postinstall": "node rc51-online-layout-patch.js",
     "start": "node server.js",
     "preflight:realdata": "node scripts/preflight-realdata.js",
     "verify:backup": "node scripts/verify-backup-restore.js",
