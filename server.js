@@ -5041,13 +5041,26 @@ app.get("/api/dashboard/operations", (req, res) => {
   const technicalActionDevices = Number(db.prepare(`
     SELECT COUNT(DISTINCT device_id) AS c
     FROM (
-      SELECT device_id
-      FROM incidents
-      WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')
+      SELECT i.device_id
+      FROM incidents i
+      JOIN devices d ON d.id=i.device_id
+      WHERE COALESCE(d.is_archived,0)=0
+        AND i.status IN ('Mới ghi nhận','Đã tiếp nhận')
+
       UNION ALL
-      SELECT device_id
-      FROM repairs
-      WHERE completed_at IS NULL OR completed_at=''
+
+      SELECT r.device_id
+      FROM repairs r
+      JOIN devices d ON d.id=r.device_id
+      WHERE COALESCE(d.is_archived,0)=0
+        AND r.processing_status IN ('Đang xử lý','Đang sửa chữa','Đang kiểm tra','Chờ linh kiện','Mới tiếp nhận')
+
+      UNION ALL
+
+      SELECT d.id AS device_id
+      FROM devices d
+      WHERE COALESCE(d.is_archived,0)=0
+        AND d.status IN ('Chờ sửa chữa','Ngừng hoạt động')
     )
     WHERE device_id IS NOT NULL
   `).get().c || 0);
