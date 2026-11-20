@@ -148,30 +148,43 @@ function statusTagClass(status) {
   return "red";
 }
 function renderMenu(active) {
-  const activeClass = key => active===key ? "active" : "";
+  const path = window.location.pathname || "";
+  const navClass = (paths = []) => paths.includes(path) ? "active" : "";
   return `
     <aside class="sidebar">
       <div class="brand">
         <img src="assets/BVQY4.jpg" alt="Logo Bệnh viện Quân y 4" />
-        <div><h1>QUẢN LÝ THIẾT BỊ Y TẾ</h1><p>BVQY4</p></div>
+        <div class="brand-copy">
+          <h1>BỆNH VIỆN QUÂN Y 4</h1>
+          <p>QUẢN LÝ THIẾT BỊ Y TẾ</p>
+        </div>
       </div>
+
       <nav class="menu">
-        <a class="${activeClass("dashboard")}" href="/dashboard.html">Tổng quan</a>
-        <a class="${activeClass("devices")}" href="/index.html">Thiết bị</a>
+        <a class="${navClass(["/dashboard.html","/"])}" href="/dashboard.html"><span class="menu-icon">▦</span><span>Tổng quan</span></a>
+
+        <div class="menu-section-label">QUẢN LÝ THIẾT BỊ</div>
+        <a class="${navClass(["/device-intake.html"])}" href="/device-intake.html"><span class="menu-icon">⊕</span><span>Tiếp nhận thiết bị</span></a>
+        <a class="${navClass(["/index.html","/device-detail.html"])}" href="/index.html"><span class="menu-icon">▤</span><span>Danh mục thiết bị</span></a>
 
         <div class="menu-section-label">CÔNG VIỆC KỸ THUẬT</div>
-        <a class="${activeClass("tickets")}" href="/tickets.html">Sự cố</a>
-        <a class="${activeClass("maintenance")}" href="/maintenance.html">Sửa chữa</a>
-        <a class="${activeClass("inspection")}" href="/inspection.html">Bảo dưỡng</a>
-        <a class="${activeClass("inspections")}" href="/inspections.html">KĐ / HC / ATBX</a>
+        <a class="${navClass(["/tickets.html"])}" href="/tickets.html"><span class="menu-icon">!</span><span>Sự cố</span></a>
+        <a class="${navClass(["/maintenance.html"])}" href="/maintenance.html"><span class="menu-icon">⌕</span><span>Sửa chữa</span></a>
+        <a class="${navClass(["/inspection.html"])}" href="/inspection.html"><span class="menu-icon">□</span><span>Bảo dưỡng</span></a>
+        <a class="${navClass(["/inspections.html"])}" href="/inspections.html"><span class="menu-icon">◈</span><span>KĐ / HC / ATBX</span></a>
+
+        <div class="menu-section-label">KIỂM SOÁT TÀI SẢN</div>
+        <a class="${navClass(["/inventory.html"])}" href="/inventory.html"><span class="menu-icon">▥</span><span>Kiểm kê</span></a>
+        <a class="${navClass(["/device-movement.html"])}" href="/device-movement.html"><span class="menu-icon">⇄</span><span>Điều chuyển</span></a>
+        <a class="${navClass(["/device-retirement.html"])}" href="/device-retirement.html"><span class="menu-icon">⌫</span><span>Thanh lý</span></a>
 
         <div class="menu-section-label">QUẢN LÝ</div>
-        <a class="${activeClass("inventory")}" href="/inventory.html">Kiểm kê – Điều chuyển</a>
-        <a class="${activeClass("reports")}" href="/reports.html">Báo cáo</a>
-        <a class="menu-admin-link ${activeClass("settings")}" href="/settings.html">⚙ Quản trị</a>
+        <a class="${navClass(["/reports.html"])}" href="/reports.html"><span class="menu-icon">▥</span><span>Báo cáo</span></a>
+        <a class="menu-admin-link ${navClass(["/settings.html","/settings-code.html","/settings-reminders.html","/settings-reports.html","/settings-system.html"])}" href="/settings.html"><span class="menu-icon">⚙</span><span>Cài đặt</span></a>
       </nav>
+
       <div class="sidebar-footer">
-        <div><b>@2026 Khoa Trang bị. BVQY4</b><span>– Version 5.0.0</span></div>
+        <div><b>@2026 Khoa Trang bị. BVQY4</b></div>
       </div>
     </aside>
   `;
@@ -220,7 +233,7 @@ async function refreshAuthUi() {
       box.style.alignItems = "center";
       box.style.gap = "10px";
       const safeAuthText = (v) => String(v ?? "").replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[ch] || ch));
-      box.innerHTML = `<span><b>${safeAuthText(data.user.full_name || data.user.username || "")}</b><br><small>${safeAuthText(data.user.role || "")}</small></span><button type="button" class="icon-btn" id="logoutBtn" title="Đăng xuất">↪</button>`;
+      box.innerHTML = `<button type="button" class="btn btn-logout" id="logoutBtn" title="Đăng xuất">Đăng xuất</button>`;
       const logout = document.getElementById("logoutBtn");
       if (logout) logout.onclick = async () => {
         await fetch("/api/auth/logout", { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" });
