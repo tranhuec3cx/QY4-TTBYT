@@ -5038,6 +5038,19 @@ app.get("/api/dashboard/operations", (req, res) => {
   const stopped = db.prepare("SELECT COUNT(*) c FROM devices WHERE COALESCE(is_archived,0)=0 AND status='Ngừng hoạt động'").get().c;
   const openIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')").get().c;
   const unacknowledgedIncidents = db.prepare("SELECT COUNT(*) c FROM incidents WHERE status='Mới ghi nhận' AND (acknowledged_at IS NULL OR acknowledged_at='')").get().c;
+  const technicalActionDevices = Number(db.prepare(`
+    SELECT COUNT(DISTINCT device_id) AS c
+    FROM (
+      SELECT device_id
+      FROM incidents
+      WHERE status IN ('Mới ghi nhận','Đã tiếp nhận')
+      UNION ALL
+      SELECT device_id
+      FROM repairs
+      WHERE completed_at IS NULL OR completed_at=''
+    )
+    WHERE device_id IS NOT NULL
+  `).get().c || 0);
   const avgResponseMinutes = Number(db.prepare(`
     SELECT AVG((julianday(acknowledged_at)-julianday(incident_datetime))*24*60) v
     FROM incidents
@@ -5073,7 +5086,7 @@ app.get("/api/dashboard/operations", (req, res) => {
   `).all(monthStart);
   res.json({
     today, timeZone:APP_TIME_ZONE, total, active, limited, operational, repairing, stopped,
-    openIncidents, unacknowledgedIncidents, dueInspection, overdueInspection, failedInspection,
+    openIncidents, unacknowledgedIncidents, technicalActionDevices, dueInspection, overdueInspection, failedInspection,
     missingInspectionSchedule, missingInspectionRecord, missingInspectionNextDate,
     missingInspectionSchedules: inspectionGaps.slice(0,12),
     waitingParts, qrChecksToday, qrIssuesToday, avgResponseMinutes, avgResolutionMinutes, monthlyIncidents
