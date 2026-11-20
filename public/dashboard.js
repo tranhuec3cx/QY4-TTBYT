@@ -204,49 +204,6 @@ function renderPriorityRows(rows){
     <td><a class="btn btn-soft-action btn-sm" href="${dashEsc(t.href)}">Xem chi tiết</a></td>
   </tr>`).join("");
 }
-function renderUpcoming(maintenances,inspections){
-  const today=dashDateISO();
-  const to=dashShiftDays(30);
-  const rows=[];
-  for(const r of dashLatestByDeviceType(maintenances,"maintenance_date","Bảo dưỡng định kỳ")){
-    const due=String(r.next_date || "").slice(0,10);
-    if(!due || due<today || due>to) continue;
-    rows.push({
-      due, type:r.schedule_type || r.type || "Bảo dưỡng định kỳ",
-      group:"Bảo dưỡng", device_id:Number(r.device_id || 0),
-      device_code:r.device_code || "", device_name:r.device_name || "",
-      href:`/inspection.html?device_id=${Number(r.device_id)}&type=${encodeURIComponent(r.schedule_type || r.type || "Bảo dưỡng định kỳ")}&from=dashboard`
-    });
-  }
-  for(const r of dashLatestByDeviceType(inspections,"inspection_date","Kiểm định")){
-    const due=String(r.next_date || "").slice(0,10);
-    if(!due || due<today || due>to) continue;
-    const type=dashCanonicalType(r.schedule_type || r.type,"Kiểm định");
-    rows.push({
-      due, type, group:"KĐ/HC/ATBX", device_id:Number(r.device_id || 0),
-      device_code:r.device_code || "", device_name:r.device_name || "",
-      href:`/inspections.html?device_id=${Number(r.device_id)}&type=${encodeURIComponent(type)}&from=dashboard`
-    });
-  }
-  rows.sort((a,b)=>a.due.localeCompare(b.due) || a.device_name.localeCompare(b.device_name,"vi"));
-  q("upcomingCountLabel").textContent=rows.length ? `${rows.length} việc sắp đến hạn` : "";
-  const host=q("upcomingRows");
-  if(!rows.length){
-    host.innerHTML='<tr><td colspan="5" class="center-empty">Không có bảo dưỡng hoặc KĐ/HC/ATBX đến hạn trong 30 ngày tới.</td></tr>';
-    return;
-  }
-  host.innerHTML=rows.slice(0,8).map(r=>{
-    const days=Math.max(0,dashDaysBetween(today,r.due));
-    const dayText=days===0 ? "Hôm nay" : `${days} ngày`;
-    return `<tr>
-      <td><b>${dashEsc(dayText)}</b></td>
-      <td><a class="work-device-link" href="/device-detail.html?id=${Number(r.device_id)}&from=dashboard">${dashEsc(r.device_name || "Thiết bị")}</a><div class="small device-code">${dashEsc(r.device_code || "")}</div></td>
-      <td><b>${dashEsc(r.group)}</b><div class="small">${dashEsc(r.type)}</div></td>
-      <td>${dashEsc(dashFmtDate(r.due))}</td>
-      <td><a class="btn btn-sm" href="${dashEsc(r.href)}">Mở</a></td>
-    </tr>`;
-  }).join("");
-}
 function presetRange(preset){
   const today=new Date();
   const to=dashDateISO(today);
@@ -327,7 +284,7 @@ document.addEventListener("DOMContentLoaded",async()=>{
   setLayout(
     "dashboard",
     "Tổng quan điều hành",
-    "Thiết bị, công việc kỹ thuật, kiểm kê và chất lượng dữ liệu cần xử lý"
+    "Theo dõi thiết bị, công việc kỹ thuật và các nội dung cần xử lý"
   );
 
   syncRangeFromPreset();
