@@ -191,17 +191,17 @@ function buildPriorityTasks(incidents,repairs,maintenances,inspections,ops){
 }
 function renderPriorityRows(rows){
   const host=q("priorityRows");
+  if(!host) return;
   if(!rows.length){
-    host.innerHTML='<tr><td colspan="6" class="center-empty">Không có công việc kỹ thuật cần ưu tiên xử lý.</td></tr>';
+    host.innerHTML='<tr><td colspan="5" class="center-empty">Không có công việc kỹ thuật cần ưu tiên xử lý.</td></tr>';
     return;
   }
-  host.innerHTML=rows.map(t=>`<tr>
-    <td><span class="tag ${dashPriorityClass(t.priority)}">${dashEsc(t.priority)}</span></td>
+  host.innerHTML=rows.map(t=>`<tr class="priority-row priority-${dashPriorityClass(t.priority)}">
     <td><a class="work-device-link" href="/device-detail.html?id=${Number(t.device_id)}&from=dashboard">${dashEsc(t.device_name || "Thiết bị")}</a><div class="small device-code">${dashEsc(t.device_code || "")}</div></td>
     <td><b>${dashEsc(t.type)}</b>${t.detail ? `<div class="small work-detail-line">${dashEsc(t.detail)}</div>` : ""}</td>
-    <td><span class="work-status-text">${dashEsc(t.status || "")}</span></td>
+    <td><span class="work-status-text">${dashEsc(t.status || "")}</span><div class="small priority-hint">${dashEsc(t.priority || "")}</div></td>
     <td>${dashEsc(dashTaskAge(t.date))}</td>
-    <td><a class="btn btn-primary btn-sm" href="${dashEsc(t.href)}">Mở xử lý</a></td>
+    <td><a class="btn btn-soft-action btn-sm" href="${dashEsc(t.href)}">Xem chi tiết</a></td>
   </tr>`).join("");
 }
 function renderUpcoming(maintenances,inspections){
@@ -285,49 +285,63 @@ async function loadDashboard(){
     q("periodContext").textContent="Khoảng thời gian chưa hợp lệ.";
     return;
   }
+
   q("periodContext").textContent="Đang cập nhật...";
+  const filterBtn=q("applyPeriodBtn");
+  if(filterBtn) filterBtn.disabled=true;
+
   try{
-    const [summary,ops,maints,inspections,incidents,repairs]=await Promise.all([
+    const [summary,ops,incidents,repairs,maints,inspections]=await Promise.all([
       api(`/api/dashboard/summary?from_date=${encodeURIComponent(from)}&to_date=${encodeURIComponent(to)}`),
       api("/api/dashboard/operations"),
-      api("/api/maintenances"),
-      api("/api/inspections"),
       api("/api/incidents"),
-      api("/api/repairs")
+      api("/api/repairs"),
+      api("/api/maintenances"),
+      api("/api/inspections")
     ]);
-    q("dbIncidentPeriod").textContent=Number(summary.incidents_in_period || 0);
-    q("dbCompletedPeriod").textContent=Number(summary.completed_work_in_period || 0);
-    q("dbBacklog").textContent=Number(summary.backlog_at_end || 0);
-    q("dbOverdueMaintenance").textContent=Number(summary.overdue_maintenance_at_end || 0);
-    q("dbOverdueInspection").textContent=Number(summary.overdue_inspection_at_end || 0);
 
-    q("periodContext").textContent=`${currentRangeLabel()}: ${dashFmtDate(summary.period?.from_date || from)} – ${dashFmtDate(summary.period?.to_date || to)} · Tồn đọng và quá hạn tính đến ngày cuối kỳ`;
+    q("dbTotal").textContent=Number(ops.total || summary.device_total || 0);
+    q("dbActive").textContent=Number(ops.operational || ops.active || 0);
+    q("dbTechnical").textContent=Number(ops.technicalActionDevices ?? summary.backlog_at_end ?? 0);
+    q("dbUnackIncidents").textContent=Number(ops.unacknowledgedIncidents || 0);
+    q("dbOverdueInspection").textContent=Number(ops.overdueInspection ?? summary.overdue_inspection_at_end ?? 0);
 
-    renderUpcoming(maints,inspections);
+    q("periodContext").textContent=`${currentRangeLabel()}: ${dashFmtDate(summary.period?.from_date || from)} – ${dashFmtDate(summary.period?.to_date || to)}`;
+
     const priority=buildPriorityTasks(incidents,repairs,maints,inspections,ops);
     renderPriorityRows(priority);
-    q("currentWorkContext").textContent=`Hiện tại: ${Number(ops.unacknowledgedIncidents || 0)} chờ tiếp nhận · ${Number((repairs || []).filter(r=>dashOpenRepair(r.processing_status)).length)} sửa chữa đang mở · ${Number(ops.stopped || 0)} thiết bị ngừng hoạt động. Mỗi thiết bị chỉ hiện một việc ưu tiên nhất.`;
+
+    q("currentWorkContext").textContent=
+      `${Number(ops.unacknowledgedIncidents || 0)} sự cố chờ tiếp nhận · `+
+      `${Number((repairs || []).filter(r=>dashOpenRepair(r.processing_status)).length)} sửa chữa đang mở · `+
+      `${Number(ops.overdueInspection || 0)} KĐ/HC quá hạn.`;
   }catch(err){
     console.error("Không tải được Tổng quan",err);
     q("periodContext").textContent=`Không tải được dữ liệu: ${err.message || err}`;
-    q("priorityRows").innerHTML='<tr><td colspan="6" class="center-empty">Không tải được dữ liệu công việc.</td></tr>';
-    q("upcomingRows").innerHTML='<tr><td colspan="5" class="center-empty">Không tải được dữ liệu đến hạn.</td></tr>';
+    q("priorityRows").innerHTML='<tr><td colspan="5" class="center-empty">Không tải được dữ liệu công việc.</td></tr>';
+  }finally{
+    if(filterBtn) filterBtn.disabled=false;
   }
 }
 document.addEventListener("DOMContentLoaded",async()=>{
-  setLayout("dashboard","Tổng quan","Theo dõi tình hình thiết bị và công việc kỹ thuật cần xử lý");
+  setLayout(
+    "dashboard",
+    "Tổng quan điều hành",
+    "Thiết bị, công việc kỹ thuật, kiểm kê và chất lượng dữ liệu cần xử lý"
+  );
+
   syncRangeFromPreset();
-  q("periodPreset").addEventListener("change",async()=>{
+
+  q("periodPreset").addEventListener("change",()=>{
     syncRangeFromPreset();
-    await loadDashboard();
   });
-  q("periodFrom").addEventListener("change",async()=>{
+  q("periodFrom").addEventListener("change",()=>{
     q("periodPreset").value="custom";
-    await loadDashboard();
   });
-  q("periodTo").addEventListener("change",async()=>{
+  q("periodTo").addEventListener("change",()=>{
     q("periodPreset").value="custom";
-    await loadDashboard();
   });
+  q("applyPeriodBtn").addEventListener("click",loadDashboard);
+
   await loadDashboard();
 });
