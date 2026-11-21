@@ -6,11 +6,12 @@
   <title>Tổng quan - Phần mềm quản lý thiết bị y tế BVQY4</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body>
+<body class="dashboard-page">
   <div class="layout">
     <div id="menuHost"></div>
+
     <main class="main">
-      <div class="topbar">
+      <div class="topbar dashboard-topbar">
         <div>
           <h1 id="pageTitle" class="page-title"></h1>
           <p id="pageSubtitle" class="page-subtitle"></p>
@@ -20,7 +21,7 @@
 
       <section class="card dashboard-period-card" aria-label="Khoảng thời gian tổng quan">
         <div class="dashboard-period-row">
-          <div class="dashboard-period-controls">
+          <div class="dashboard-period-controls dashboard-period-controls-final">
             <label class="field">
               <span class="field-label">Khoảng thời gian</span>
               <select id="periodPreset">
@@ -40,82 +41,72 @@
               <span class="field-label">Đến ngày</span>
               <input id="periodTo" type="date" />
             </label>
+            <button id="applyPeriodBtn" type="button" class="btn btn-filter">Lọc</button>
           </div>
           <div class="dashboard-period-note" id="periodContext">Đang tải dữ liệu...</div>
         </div>
       </section>
 
-      <section class="overview-kpis dashboard-kpis-v2" aria-label="Chỉ số chính">
-        <article class="overview-kpi">
-          <span class="overview-kpi-label">Sự cố phát sinh</span>
-          <strong id="dbIncidentPeriod">0</strong>
-          <small>Trong khoảng thời gian chọn</small>
+      <section class="dashboard-kpis-final" aria-label="Chỉ số chính">
+        <article class="dashboard-kpi-card kpi-blue">
+          <span class="dashboard-kpi-icon" aria-hidden="true">▣</span>
+          <div>
+            <span class="dashboard-kpi-label">Tổng hồ sơ thiết bị</span>
+            <strong id="dbTotal">0</strong>
+            <small>Thiết bị đang quản lý</small>
+          </div>
         </article>
-        <article class="overview-kpi overview-kpi-success">
-          <span class="overview-kpi-label">Đã hoàn thành</span>
-          <strong id="dbCompletedPeriod">0</strong>
-          <small>Công việc kỹ thuật trong kỳ</small>
+
+        <article class="dashboard-kpi-card kpi-green">
+          <span class="dashboard-kpi-icon" aria-hidden="true">✓</span>
+          <div>
+            <span class="dashboard-kpi-label">Đang hoạt động</span>
+            <strong id="dbActive">0</strong>
+            <small>Đang hoạt động hoặc hoạt động hạn chế</small>
+          </div>
         </article>
-        <article class="overview-kpi overview-kpi-warning">
-          <span class="overview-kpi-label">Còn tồn</span>
-          <strong id="dbBacklog">0</strong>
-          <small>Tính đến ngày cuối kỳ</small>
+
+        <article class="dashboard-kpi-card kpi-amber">
+          <span class="dashboard-kpi-icon" aria-hidden="true">⌕</span>
+          <div>
+            <span class="dashboard-kpi-label">Cần xử lý kỹ thuật</span>
+            <strong id="dbTechnical">0</strong>
+            <small>Thiết bị có công việc kỹ thuật đang mở</small>
+          </div>
         </article>
-        <article class="overview-kpi overview-kpi-warning">
-          <span class="overview-kpi-label">BD quá hạn</span>
-          <strong id="dbOverdueMaintenance">0</strong>
-          <small>Tính đến ngày cuối kỳ</small>
+
+        <article class="dashboard-kpi-card kpi-rose">
+          <span class="dashboard-kpi-icon" aria-hidden="true">!</span>
+          <div>
+            <span class="dashboard-kpi-label">Sự cố chờ tiếp nhận</span>
+            <strong id="dbUnackIncidents">0</strong>
+            <small>Mới ghi nhận, chưa tiếp nhận</small>
+          </div>
         </article>
-        <article class="overview-kpi overview-kpi-danger">
-          <span class="overview-kpi-label">KĐ/HC quá hạn</span>
-          <strong id="dbOverdueInspection">0</strong>
-          <small>KĐ / HC / ATBX đến cuối kỳ</small>
+
+        <article class="dashboard-kpi-card kpi-violet">
+          <span class="dashboard-kpi-icon" aria-hidden="true">▦</span>
+          <div>
+            <span class="dashboard-kpi-label">KĐ/HC quá hạn</span>
+            <strong id="dbOverdueInspection">0</strong>
+            <small>KĐ/HC/ATBX đã quá hạn</small>
+          </div>
         </article>
       </section>
 
-      <section class="dashboard-quick-actions" aria-label="Thao tác nhanh">
-        <a class="btn" href="/index.html">Thiết bị / QR</a>
-        <a class="btn" href="/tickets.html">Tiếp nhận sự cố</a>
-        <a class="btn btn-primary" href="/lcm.html">Điều hành kỹ thuật</a>
-      </section>
-
-      <section class="card dashboard-upcoming-card">
+      <section class="card dashboard-priority-card dashboard-work-card">
         <div class="section-head">
           <div>
-            <h3 class="section-title">Sắp đến hạn trong 30 ngày tới</h3>
-            <p class="section-caption">Bảo dưỡng và KĐ/HC/ATBX được tính từ ngày hiện tại, không phụ thuộc bộ lọc phía trên.</p>
+            <h3 class="section-title">Công việc cần xử lý</h3>
+            <p class="section-caption" id="currentWorkContext">Ưu tiên các hồ sơ đang cần hành động.</p>
           </div>
-          <div class="small" id="upcomingCountLabel"></div>
+          <a class="btn btn-soft" href="/lcm.html">Xem tất cả</a>
         </div>
-        <div class="table-wrap">
-          <table class="dashboard-upcoming-table">
-            <thead>
-              <tr>
-                <th>Còn</th>
-                <th>Thiết bị</th>
-                <th>Công việc</th>
-                <th>Hạn thực hiện</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="upcomingRows"></tbody>
-          </table>
-        </div>
-      </section>
 
-      <section class="card dashboard-priority-card">
-        <div class="section-head">
-          <div>
-            <h3 class="section-title">Công việc kỹ thuật ưu tiên</h3>
-            <p class="section-caption" id="currentWorkContext">Tập trung các hồ sơ đang cần hành động; mỗi thiết bị chỉ hiện một việc ưu tiên nhất.</p>
-          </div>
-          <a class="btn" href="/lcm.html">Xem toàn bộ</a>
-        </div>
-        <div class="table-wrap">
-          <table class="dashboard-priority-table">
+        <div class="table-wrap dashboard-work-table-wrap">
+          <table class="dashboard-priority-table dashboard-work-table">
             <thead>
               <tr>
-                <th>Ưu tiên</th>
                 <th>Thiết bị</th>
                 <th>Công việc</th>
                 <th>Trạng thái</th>
@@ -129,6 +120,7 @@
       </section>
     </main>
   </div>
+
   <script src="/api.js"></script>
   <script src="/dashboard.js"></script>
 </body>
