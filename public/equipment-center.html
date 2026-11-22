@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trung tâm thiết bị · QY4-TBYT</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;background:#f5f7fa;color:#203040}
+    .center-wrap{max-width:800px;margin:24px auto;padding:0 16px}
+    .center-panel{background:#fff;border:1px solid #dce3ea;border-radius:12px;padding:20px;margin-bottom:14px}
+    .center-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .center-action{display:block;padding:16px;border:1px solid #dce3ea;border-radius:10px;text-decoration:none;color:#174b72;font-weight:600;background:#fff}
+    .center-action:focus-visible{outline:3px solid #3b82f6}
+    .center-muted{color:#526273;font-size:14px}
+    .center-title{margin:0 0 14px;font-size:23px}
+    .center-field{margin:7px 0;overflow-wrap:anywhere}
+    @media(max-width:440px){.center-grid{grid-template-columns:1fr}.center-wrap{margin:12px auto}}
+  </style>
+</head>
+<body>
+  <main class="center-wrap">
+    <section class="center-panel">
+      <p class="center-muted">QY4-TBYT · Trung tâm thiết bị (bản tích hợp bước đầu)</p>
+      <h1 class="center-title">Hồ sơ thiết bị</h1>
+      <p id="state" role="status" aria-live="polite">Đang tải thông tin...</p>
+      <div id="device" hidden>
+        <h2 id="deviceName"></h2>
+        <p class="center-field"><b>Mã thiết bị:</b> <span id="deviceCode"></span></p>
+        <p class="center-field"><b>Model:</b> <span id="deviceModel"></span></p>
+        <p class="center-field"><b>Khoa sử dụng:</b> <span id="deviceDept"></span></p>
+        <p class="center-field"><b>Vị trí:</b> <span id="deviceLocation"></span></p>
+        <p class="center-field"><b>Tình trạng:</b> <span id="deviceStatus"></span></p>
+      </div>
+    </section>
+    <section class="center-panel">
+      <h2>Chức năng</h2>
+      <div class="center-grid">
+        <a class="center-action" href="/index.html">Danh mục thiết bị</a>
+        <a class="center-action" href="/tickets.html">Báo sự cố / Sự cố</a>
+        <a class="center-action" href="/maintenance.html">Sửa chữa</a>
+        <a class="center-action" href="/inspection.html">Bảo dưỡng</a>
+      </div>
+      <p class="center-muted">Các liên kết mở phân hệ hiện có; chưa tự động lập phiếu hoặc cấp quyền. Tài liệu, bảng kiểm, nhật ký và mẫu in sẽ được tích hợp sau khi hoàn thiện kiểm soát truy cập.</p>
+    </section>
+  </main>
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
+  const state = document.getElementById("state");
+  if (!id || !/^\d+$/.test(id)) { state.textContent = "Thiếu ID thiết bị hợp lệ (?id=...)."; return; }
+  fetch("/api/public/device/" + encodeURIComponent(id), { cache: "no-store" })
+    .then(async response => { if (!response.ok) throw new Error("Không tìm thấy thiết bị hoặc không thể tải dữ liệu."); return response.json(); })
+    .then(device => {
+      const fields = {deviceName:"name",deviceCode:"device_code",deviceModel:"model",deviceDept:"department_name",deviceLocation:"location",deviceStatus:"status"};
+      Object.entries(fields).forEach(([node,key]) => {document.getElementById(node).textContent = device[key] || "—";});
+      state.textContent = "Dữ liệu từ hồ sơ hiện có";
+      document.getElementById("device").hidden = false;
+    })
+    .catch(err => { state.textContent = err.message; });
+})();
+</script>
+</body>
+</html>
